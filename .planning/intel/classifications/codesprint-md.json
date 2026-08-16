@@ -1,0 +1,29 @@
+{
+  "source_path": "/home/ahnaf/Documents/Projects/PSACodeSprint/CodeSprint.md",
+  "type": "PRD",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "PSA Code Sprint: Context & Expectations",
+  "summary": "Competition brief for PSA Code Sprint: Agentic AI in Action — defines the agentic solution, evaluation criteria, deliverables, and a 6-phase team workflow from operations mapping through submission assets.",
+  "scope": [
+    "PSA Code Sprint competition",
+    "Agentic AI system",
+    "PSA Singapore operations",
+    "Berth & Marine Operations",
+    "Container Yard & Internal Transport",
+    "Gate & External Haulage Operations",
+    "Multimodal Logistics & Supply Chain Adjacencies",
+    "CITOS",
+    "PORTNET",
+    "OptETruck",
+    "SmartBooking / iBOX",
+    "OptEModal",
+    "CALISTA / CALISTA P!NG",
+    "PSA BDP Enterprise Solutions",
+    "Execution Trace",
+    "Human-in-the-Loop controls"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "notes": "Single source doc reviewed directly (no manifest). Content is a hybrid: competition requirements + deliverables + acceptance/evaluation criteria + a 6-phase team workflow (Phase 1–3 focus: mapping, disruption mining, problem evaluation). Classified PRD because it is requirement/expectation driven. Embedded workflow phases are requirements-level and should be surfaced in requirements intel to drive .planning/ROADMAP.md."
+}
