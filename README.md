@@ -49,7 +49,7 @@ Phase 3: Problem Evaluation, Litmus Testing (Where to apply Agentic Solution) & 
 
 ### Phase 3: Evaluate & Select One Problem (NOT STARTED)
 
-**Goal:** Score all 16 problems against the competition's 5 Agentic AI criteria, pick the best cluster, select one flagship problem, and lock a Master Problem Charter.
+**Goal:** Filter & Score all 16 problems against the competition's Agentic AI criteria, verify solution capabilities match as required, pick the best cluster, select one flagship problem, and lock a Master Problem Charter (whose solution should apply to similar cluster problems).
 
 **What it will produce:**
 

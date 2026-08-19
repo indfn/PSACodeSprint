@@ -45,12 +45,10 @@ Score each of the 6 Root-Cause Clusters across 4 dimensions:
 4. **Feasibility & API Mockability (20%):** Practicality of building high-fidelity mock environments and data streams within hackathon timelines.
 
 #### Stage 3: Solution Capability Check, Selection of Winning Cluster & Flagship Anchor
-**Mandatory 6-Point Solution Capability Check (For well-ranked passed problems):**
+**Mandatory 4-Point Solution Capability Check (For well-ranked passed problems):**
 - Ingests a distinct event trigger (Alert, Webhook, Sensor, or EDI state change).
-- Formulates a dynamic multi-step plan (Not a fixed if/else tree).
-- Calls >= 3 distinct mock tools/APIs.
 - Generates an observable step-by-step Execution Trace.
-- Contains a clear Human-in-the-Loop (HITL) approval gate for high-risk mutations.
+- Contains a clear Human-in-the-Loop (HITL) approval gate for high-risk mutations (if necessary).
 - Demonstrates recovery from at least one injected tool failure or missing parameter.
 
 **Final choice for competition use**

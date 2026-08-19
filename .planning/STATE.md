@@ -5,72 +5,69 @@
 See: .planning/PROJECT.md (updated 2026-08-17)
 
 **Core Value:** Identify the single highest-impact, non-trivial problem for an Agentic AI solution before committing to build.
-**Current focus:** Phase 2 — Disruption Mining & Problem Bank Creation
+**Current focus:** All 3 phases complete — ready for Phase 4 (architecture & build)
 
 ## Current Position
 
-Phase: 2 of 3 (Disruption Mining & Problem Bank Creation)
+Phase: 3 of 3 (Problem Evaluation, Litmus Testing & Final Selection) — COMPLETE
 Plan: 3 of 3 in current phase — ALL PLANS COMPLETE
-Status: Phase 2 complete — ready for Phase 3
-Last activity: 2026-08-17 — 02-03 problem bank complete
+Status: Phase 3 complete — Master Problem Charter locked
+Last activity: 2026-08-19 — 03-03 master charter locked
 
-Progress: ████████████ 100% (Phase 2)
+Progress: ████████████ 100% (All Phases)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
-- Average duration: -
-- Total execution time: ~6 hours
+- Total plans completed: 9
+- Total execution time: ~8 hours
 
 **By Phase:**
 
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 1. Operations Mapping | 3 | 3 | - |
-| 2. Disruption Mining | 3 | 3 | - |
-| 3. Problem Evaluation | 0 | 3 | - |
+| Phase | Plans | Total | Status |
+|-------|-------|-------|--------|
+| 1. Operations Mapping | 3 | 3 | ✅ Complete |
+| 2. Disruption Mining | 3 | 3 | ✅ Complete |
+| 3. Problem Evaluation | 3 | 3 | ✅ Complete |
 
 **Recent Trend:**
-- Last 5 plans: 02-01 ✅, 02-02 ✅, 02-03 ✅
-- Trend: All Phase 2 plans complete
+- Last 5 plans: 02-03 ✅, 03-01 ✅, 03-02 ✅, 03-03 ✅
+- Trend: All phases complete
 
 *Updated after each plan completion*
 
-## Accumulated Context
+## Key Decisions
 
-### Decisions
+| Decision | Rationale | Outcome |
+|----------|-----------|---------|
+| Scope: Phases 1–3 only | Project-owner binding instruction — deep research & problem evaluation directory | ✅ Complete |
+| Autonomy Level: HITL Exception Solver | Tier 2 selected — financial risk and cascade risk demand human gate; agent does heavy lifting, human decides | ✅ Locked |
+| Winning Cluster: Manual Multi-Party Coordination | Scored 4.80/5 — highest agentic AI sweet spot (5/5), largest multiplier (9/16 problems), highest demo drama (5/5) | ✅ Locked |
+| Flagship Problem: PB-04 | Transhipment Missed-Connection Recovery — passes all 5 litmus tests, clearest demo narrative, strongest cluster story | ✅ Locked |
 
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
+## Deliverables Summary
 
-- Initialization: Scope locked to Phases 1–3 (project-owner binding instruction)
-- Initialization: Autonomy level proposed as HITL Exception Solver (pending Phase 3 confirmation)
-- Phase 1 research order: 01-01 (sectors) → 01-02 (systems) → 01-03 (flows)
-- Phase 1 research methodology: deep-research skill for multi-angle searches, cross-verification
-- Competition intel deferred until after base research complete
-- Phase 2 research restriction: No open-ended web searches; rely on research/ as ground truth
-- Phase 2 dynamic adaptation: Phase 1 findings used to refine/replace seed archetypes
-- Phase 2 synthesis directory removed (redundant with critical-flows.md)
+| Phase | File | Status |
+|-------|------|:------:|
+| 1 | `research/sectors/berth-marine.md` | ✅ |
+| 1 | `research/sectors/container-yard-transport.md` | ✅ |
+| 1 | `research/sectors/gate-haulage.md` | ✅ |
+| 1 | `research/sectors/multimodal-logistics.md` | ✅ |
+| 1 | `research/systems/baseline-systems.md` | ✅ |
+| 1 | `research/flows/critical-flows.md` | ✅ |
+| 2 | `problems/02-01-disruption-scenarios.md` | ✅ |
+| 2 | `problems/02-02-failure-modes.md` | ✅ |
+| 2 | `problems/02-03-problem-bank.md` | ✅ |
+| 3 | `problems/03-01-litmus-test-scores.md` | ✅ |
+| 3 | `problems/03-02-autonomy-level.md` | ✅ |
+| 3 | `problems/03-03-master-charter.md` | ✅ |
 
-### Pending Todos
+## What's Next
 
-None yet.
-
-### Blockers/Concerns
-
-None yet.
-
-## Deferred Items
-
-Items acknowledged and carried forward from previous milestone close:
-
-| Category | Item | Status | Deferred At |
-|----------|------|--------|-------------|
-| *(none)* | | | |
+All research and problem evaluation is complete. The team moves to Phase 4 (architecture design and agent development) using `problems/03-03-master-charter.md` as the primary input.
 
 ## Session Continuity
 
-Last session: 2026-08-17
-Stopped at: Phase 2 complete — all 3 plans (02-01, 02-02, 02-03) done, STATE.md and ROADMAP.md updated
-Resume at: Phase 3 — Problem Evaluation, Litmus Testing & Final Selection
+Last session: 2026-08-19
+Stopped at: Phase 3 complete — all 9 plans done, Master Problem Charter locked
+Resume at: Phase 4 (architecture & build) — outside this workspace's scope
