@@ -7,7 +7,7 @@ Three-phase deep research and problem evaluation pipeline for the PSA Code Sprin
 ## Phases
 
 - [x] **Phase 1: Broad PSA Singapore Operations & Systems Mapping** - Map sectors, systems, and flows ✅
-- [ ] **Phase 2: Disruption Mining & Problem Bank Creation** - Identify frictions, build 10–15 problem bank
+- [x] **Phase 2: Disruption Mining & Problem Bank Creation** - Identify frictions, build 10–15 problem bank ✅
 - [ ] **Phase 3: Problem Evaluation & Final Selection** - Litmus test, select, charter one problem
 
 ## Phase Details
@@ -37,12 +37,12 @@ Plans:
   2. Each disruption has Trigger Event, Current Workaround, and Business Consequence documented
   3. A clean list of 10–15 candidate problems spanning all 4 sectors exists
   4. Problems span different sectors (not clustered in one area)
-**Plans**: TBD
+**Status**: ✅ COMPLETE (2026-08-17)
 
 Plans:
-- [ ] 02-01: Target "something changed" disruption scenarios
-- [ ] 02-02: Document operational failure modes for each disruption
-- [ ] 02-03: Consolidate into the Problem Bank (10–15 problems)
+- [x] 02-01: Target "something changed" disruption scenarios ✅ (`problems/02-01-disruption-scenarios.md`)
+- [x] 02-02: Document operational failure modes for each disruption ✅ (`problems/02-02-failure-modes.md`)
+- [x] 02-03: Consolidate into the Problem Bank (10–15 problems) ✅ (`problems/02-03-problem-bank.md`)
 
 ### Phase 3: Problem Evaluation, Litmus Testing & Final Selection
 **Goal**: Select the single best problem for an Agentic AI solution and quantify its impact via the 5-Point Litmus Test and Master Problem Charter.
@@ -67,6 +67,6 @@ Phases execute in order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Broad PSA Singapore Operations & Systems Mapping | 0/3 | Not started | - |
-| 2. Disruption Mining & Problem Bank Creation | 0/3 | Not started | - |
+| 1. Broad PSA Singapore Operations & Systems Mapping | 3/3 | ✅ Complete | 2026-08-17 |
+| 2. Disruption Mining & Problem Bank Creation | 3/3 | ✅ Complete | 2026-08-17 |
 | 3. Problem Evaluation & Final Selection | 0/3 | Not started | - |
