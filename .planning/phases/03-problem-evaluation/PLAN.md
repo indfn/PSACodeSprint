@@ -34,6 +34,7 @@ Score every candidate (PB-01 to PB-16) across the 5 mandatory criteria:
 | **L4** | **Uncertainty & Latency** | Operates with missing parameters, noisy telemetry, delayed data, or external stakeholder unresponsiveness. | All inputs are 100% complete, synchronous, and deterministic at runtime. |
 | **L5** | **Quantifiable ROI & Impact** | Direct, measurable reduction in vessel dwell time, quay crane idling, yard re-handles, haulier wait time, or demurrage fees. | Vague, non-measurable benefits (e.g., "improves communication"). |
 
+
 *Disqualification Rule:* Any problem with a single **FAIL** is eliminated from standalone consideration.
 
 #### Stage 2: Root-Cause Cluster Evaluation Matrix (Scored 1–5)
@@ -43,7 +44,16 @@ Score each of the 6 Root-Cause Clusters across 4 dimensions:
 3. **Demo Execution & Trace Drama (25%):** How compelling, visible, and dynamic the execution trace (thoughts, tool calls, human gates) will appear in a 10-minute video.
 4. **Feasibility & API Mockability (20%):** Practicality of building high-fidelity mock environments and data streams within hackathon timelines.
 
-#### Stage 3: Selection of Winning Cluster & Flagship Anchor
+#### Stage 3: Solution Capability Check, Selection of Winning Cluster & Flagship Anchor
+**Mandatory 6-Point Solution Capability Check (For well-ranked passed problems):**
+- Ingests a distinct event trigger (Alert, Webhook, Sensor, or EDI state change).
+- Formulates a dynamic multi-step plan (Not a fixed if/else tree).
+- Calls >= 3 distinct mock tools/APIs.
+- Generates an observable step-by-step Execution Trace.
+- Contains a clear Human-in-the-Loop (HITL) approval gate for high-risk mutations.
+- Demonstrates recovery from at least one injected tool failure or missing parameter.
+
+**Final choice for competition use**
 * Identify the #1 Ranked Cluster.
 * Select the single strongest problem in that cluster to serve as the **Flagship Anchor Scenario** for the prototype build.
 
