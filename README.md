@@ -1,11 +1,11 @@
 ## Purpose of this repo
-
+```
 Phase 1: Broad PSA Operations & Systems Mapping
   ↓
 Phase 2: Disruption Mining (Identify Current Frictions within PSA areas) & Problem Bank Creation
   ↓
 Phase 3: Problem Evaluation, Litmus Testing (Where to apply Agentic Solution) & Final Selection
-
+```
 ---
 
 ## Phase Description
