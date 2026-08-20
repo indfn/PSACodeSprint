@@ -52,8 +52,10 @@ Identify the single highest-impact, non-trivial problem within PSA Singapore's o
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Scope: Phases 1–3 only | Project-owner binding instruction — deep research & problem evaluation directory | — Pending |
-| Target autonomy: HITL Exception Solver | Source recommends this level; confirmed during Phase 3 execution | — Pending |
+| Scope: Phases 1–3 only | Project-owner binding instruction — deep research & problem evaluation directory | ✅ Complete |
+| Autonomy level: HITL Exception Solver | HIGH financial risk ($15K–$29K/incident) + multi-party authority boundaries + cross-terminal data asymmetry | ✅ Confirmed (Phase 3) |
+| Flagship problem: PB-12 ITT Coordination | 5 PSA systems, systemic CITOS disintegration gap, highest cluster leverage (7 sibling problems) | ✅ Locked (Phase 3) |
+| Winning cluster: C2 Manual Multi-Party | Score 4.75/5.00 — highest agentic sweet spot, broadest coverage, most compelling demo | ✅ Selected (Phase 3) |
 
 ---
 

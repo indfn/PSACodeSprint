@@ -1,176 +1,178 @@
-# Phase 3: Problem Evaluation, Litmus Testing & Master Charter Selection — PLAN
+# Phase 3: Problem Evaluation, Litmus Testing & Master Charter Selection — PLAN (V2 Hardened)
 
 **Status:** Ready to execute  
-**Depends on:** Phase 2 Deliverables (`problems/02-03-problem-bank.md`, `problems/02-02-failure-modes.md`)  
-**Requirements:** P3-01 (Litmus & Cluster Scoring), P3-02 (Autonomy & HITL Guardrails), P3-03 (Master Problem Charter & Platform Blueprint)
+**Depends on:** Phase 2 Deliverables (`problems/02-03-problem-bank.md`, `problems/02-02-failure-modes.md`, `research/`)  
+**Requirements:** P3-01 (Discriminative Litmus & Cluster Scoring), P3-02 (Autonomy & Stakeholder Governance), P3-03 (Master Charter & API Blueprint)
 
 ---
 
-## 0. Context Ingestion & Upstream Rules (MANDATORY)
+## 0. Context Ingestion & Negative Guardrails (MANDATORY)
 
-Before executing any task below, the agent **MUST**:
-1. **Ingest Phase 2 Problem Bank & Clusters:** Read and parse all 16 candidate problems and the 6 Root-Cause Clusters in `problems/02-03-problem-bank.md`.
-2. **No Hallucinated Problems:** Evaluate strictly from the established Problem Bank. Do not invent new standalone problems.
-3. **Dual-Layer Evaluation:** Evaluate both **individual problem viability** (for prototype demo depth) and **cluster leverage** (for architectural scalability).
+Before executing any task below, the agent **MUST adhere to the following rules**:
+1. **Ingest Phase 2 Artifacts:** Read and parse all 16 candidate problems and 6 clusters in `problems/02-03-problem-bank.md`.
+2. **Enforce Critical Discrimination (Anti-Sycophancy Rule):** A filter that passes 100% of candidates is invalid. You **MUST critically evaluate and FAIL** problems that are:
+   - *Pure Operations Research / Linear Solvers:* Problems solvable by deterministic Mixed-Integer Linear Programming without LLM reasoning (e.g., PB-16 Empty Container Imbalance) $\rightarrow$ **FAIL L1**.
+   - *Hardware / Network Layer Problems:* Problems requiring microsecond PLC/telecom failover rather than operational agent reasoning (e.g., PB-07 5G Outage) $\rightarrow$ **FAIL L1 / Feasibility**.
+   - *Micro-ROI / Low Macro Impact:* Problems with trivial business impact (<$1,000 per incident) compared to mega-terminal scale (e.g., PB-14 Container Reuse) $\rightarrow$ **FAIL L5**.
+3. **Strict Domain Vocabulary & Sector Boundaries:**
+   - **Berth & Marine (PB-01 to PB-04, PB-13):** Entities are *Mother Vessels, Feeders, Quay Cranes (QC), TEUs, Berths, Tidal Windows*. (DO NOT mention flights, airports, or airfreight).
+   - **Multimodal Sea-to-Air (PB-10, PB-11):** Entities are *Airlines, Changi Airport, Airway Bills (AWB), Flight Cut-offs, ULDs*.
 
 ---
 
 ## Tasks
 
-### 03-01: Apply 5-Point Litmus Test & Cluster-Weighted Scoring Matrix
+### 03-01: Apply 5-Point Discriminative Litmus Test & Cluster Matrix
 
-Evaluate all candidate problems against the Agentic Litmus Filter, score the root-cause clusters, and identify the **Winning Cluster** along with its **Top Flagship Anchor Candidate**.
+Critically filter all 16 candidates, score the 6 root-cause clusters, and select the **Winning Cluster** and **Flagship Anchor Problem**.
 
-**Deliverable:** `problems/03-01-litmus-test-scores.md`
+**Deliverable:** `problem-selection/03-01-litmus-test-scores.md`
 
-#### Stage 1: Individual Problem 5-Point Litmus Filter (Binary PASS / FAIL)
-Score every candidate (PB-01 to PB-16) across the 5 mandatory criteria:
+#### Stage 1: Individual 5-Point Litmus Filter (PASS / FAIL with Rigorous Justification)
+Evaluate all 16 problems (PB-01 to PB-16) against the 5 criteria:
 
-| # | Criterion | Pass Condition | Fail Condition |
-| :--- | :--- | :--- | :--- |
-| **L1** | **Non-Deterministic Reasoning** | Requires situational trade-off analysis, fuzzy logic, or reconciling conflicting information across unstructured/semi-structured data. | Can be solved with an SQL query, static rule engine (`if/else`), or a pure linear programming optimizer alone. |
-| **L2** | **Multi-Tool Orchestration** | Requires dynamic interactions with $\ge 3$ distinct systems/APIs (e.g., PORTNET, CITOS, Haulier TMS, AIS feeds, Weather). | Interacts with only 1 or 2 isolated databases without cross-system orchestration. |
-| **L3** | **Multi-Step Dynamic Plan** | Execution requires a multi-step loop: Ingest $\rightarrow$ Diagnose $\rightarrow$ Formulate Recovery $\rightarrow$ Call Tool A $\rightarrow$ Evaluate Result $\rightarrow$ Call Tool B. | Single-turn prompt-response or single API call execution. |
-| **L4** | **Uncertainty & Latency** | Operates with missing parameters, noisy telemetry, delayed data, or external stakeholder unresponsiveness. | All inputs are 100% complete, synchronous, and deterministic at runtime. |
-| **L5** | **Quantifiable ROI & Impact** | Direct, measurable reduction in vessel dwell time, quay crane idling, yard re-handles, haulier wait time, or demurrage fees. | Vague, non-measurable benefits (e.g., "improves communication"). |
+| # | Criterion | Pass Requirement | Strict Fail Condition |
+|---|---|---|---|
+| **L1** | **Non-Deterministic Reasoning** | Involves unstructured communications (emails, EDI remarks), fuzzy trade-offs, or dynamic multi-party negotiation. | Solvable by standard SQL, deterministic `if/else` rules, or pure MILP/math solvers alone. |
+| **L2** | **Multi-Tool Calling (≥3 Systems)** | Dynamically queries/mutates $\ge 3$ distinct platforms (e.g., PORTNET, CITOS, AIS feeds, Carrier TMS). | Operates within 1 or 2 isolated databases without cross-system orchestration. |
+| **L3** | **Multi-Step Dynamic Loop** | Requires: Ingest $\rightarrow$ Diagnose $\rightarrow$ Simulate $\rightarrow$ Coordinate $\rightarrow$ Verify $\rightarrow$ Execute. | Single-turn prompt-response or single API execution. |
+| **L4** | **Uncertainty & Latency** | Operates with noisy telemetry, unconfirmed carrier replies, or delayed manifest data. | All runtime inputs are 100% complete, synchronous, and static. |
+| **L5** | **Significant Macro ROI** | Directly saves $\ge \$5,000$ per incident in vessel demurrage, crane idling, re-handles, or SLA penalties. | Minor cost savings (<$1,000/incident) with negligible macro impact on PSA throughput. |
 
-
-*Disqualification Rule:* Any problem with a single **FAIL** is eliminated from standalone consideration.
+*Output Requirement:* Explicitly document why failing candidates were eliminated to demonstrate objective filtering rigor.
 
 #### Stage 2: Root-Cause Cluster Evaluation Matrix (Scored 1–5)
-Score each of the 6 Root-Cause Clusters across 4 dimensions:
-1. **Agentic AI Sweet Spot (30%):** How strongly the cluster's root cause requires LLM reasoning, multi-party coordination, and semantic reconciliation vs. simple math solvers.
-2. **Cluster Multiplier / Addressable Coverage (25%):** Number of candidate problems resolved and total aggregate market impact across PSA Singapore.
-3. **Demo Execution & Trace Drama (25%):** How compelling, visible, and dynamic the execution trace (thoughts, tool calls, human gates) will appear in a 10-minute video.
-4. **Feasibility & API Mockability (20%):** Practicality of building high-fidelity mock environments and data streams within hackathon timelines.
+Score each of the 6 clusters across 4 weighted dimensions:
+1. **Agentic AI Sweet Spot (30%):** Degree of unstructured data, semantic ambiguity, and multi-party negotiation vs. simple math solvers.
+2. **Cluster Multiplier / Total Addressable Coverage (25%):** Number of candidate problems resolved and annual aggregate value across PSA Singapore.
+3. **Demo Drama & Trace Visibility (25%):** How visually clear and impressive the execution trace (thoughts, tool calls, human gates) will be in a 10-minute video.
+4. **Feasibility & API Mockability (20%):** Practicality of simulating realistic mock endpoints and event payloads during the hackathon.
 
-#### Stage 3: Solution Capability Check, Selection of Winning Cluster & Flagship Anchor
-**Mandatory 4-Point Solution Capability Check (For well-ranked passed problems):**
-- Ingests a distinct event trigger (Alert, Webhook, Sensor, or EDI state change).
-- Generates an observable step-by-step Execution Trace.
-- Contains a clear Human-in-the-Loop (HITL) approval gate for high-risk mutations (if necessary).
-- Demonstrates recovery from at least one injected tool failure or missing parameter.
-
-**Final choice for competition use**
+#### Stage 3: Flagship Anchor Selection
 * Identify the #1 Ranked Cluster.
-* Select the single strongest problem in that cluster to serve as the **Flagship Anchor Scenario** for the prototype build.
+* Select the single strongest problem in that cluster to serve as the **Flagship Anchor Scenario** for the prototype.
+* Verify the flagship passes the **4-Point Capability Check:** (1) Event Trigger Ingestion, (2) Observable Multi-Step Trace, (3) HITL Risk Gate, (4) Injected Failure Recovery.
 
 **Acceptance Criteria for 03-01:**
-- [ ] All 16 candidate problems scored in Stage 1.
-- [ ] All 6 Root-Cause Clusters scored in Stage 2 with explicit justifications.
-- [ ] Exactly ONE Winning Cluster and ONE Flagship Anchor Problem selected.
+- [ ] At least 2–4 candidates objectively failed in Stage 1 with clear technical justification.
+- [ ] All 6 clusters scored with mathematical weighting in Stage 2.
+- [ ] Exactly ONE Winning Cluster and ONE Flagship Anchor Problem selected without sector/domain vocabulary errors.
 
 ---
 
-### 03-02: Calibrate Autonomy Levels & Human-in-the-Loop (HITL) Guardrails
+### 03-02: Calibrate Autonomy Levels & Stakeholder Governance
 
-Perform an operational risk assessment on the Flagship Anchor problem and its parent cluster to establish defensible autonomy boundaries and safety trigger policies.
+Perform an operational risk and governance assessment on the Flagship Problem to define safe autonomy limits and HITL trigger policies.
 
-**Deliverable:** `problems/03-02-autonomy-level.md`
+**Deliverable:** `problem-selection/03-02-autonomy-level.md`
 
-#### Step 1: Operational Risk & Hazard Profiling
-Evaluate the Flagship Problem across 4 risk vectors (Rated: Low / Medium / High / Critical):
-1. **Physical Safety & Terminal Equipment:** Risk of physical collision, crane damage, or dangerous goods handling violation.
-2. **Financial & Demurrage Liability:** Exposure to immediate charter party penalties, missed feeder connections, or customs fines.
-3. **Operational Cascade Risk:** Probability that a wrong action triggers secondary gridlock across adjacent yard blocks or berths.
-4. **Stakeholder & Regulatory Exposure:** Legal/compliance implications with Singapore Customs, MPA, or shipping lines.
+#### Step 1: Stakeholder Authority & Governance Mapping
+Define who owns what decision in the real world:
+- **PSA Singapore (Terminal Operator):** Controls berth allocation, quay crane split intensity, yard block routing, and internal AGV/haulier dispatch. *Does NOT own the cargo or the vessel departure command.*
+- **Shipping Line (Carrier):** Owns the cargo contracts, stowage plan approvals, and cargo roll authorizations.
+- **Feeder Operator:** Owns the feeder vessel schedule, bunker burn rate, and destination port arrival commitments (e.g., tidal windows at Chittagong, Jakarta, Bangkok).
 
-#### Step 2: Autonomy Level Selection & Justification
-Select and defend the operational autonomy tier:
-* **Tier 1: Advisory Copilot (High Risk):** Agent synthesizes data and presents ranked recovery options; human operator manually executes all actions.
-* **Tier 2: Human-in-the-Loop (HITL) Exception Solver (Medium Risk - *Recommended*):** Agent autonomously diagnoses the issue, queries tools, runs simulations, and drafts API payloads, but halts at a designated **Approval Gate** for a 1-click human verification before committing state changes.
-* **Tier 3: Supervised Autonomous (Low Risk):** Agent executes actions autonomously and logs results; only triggers human intervention when confidence is low or an API error occurs.
+#### Step 2: Operational Risk Profiling (Low / Medium / High / Critical)
+Evaluate the Flagship Problem across 4 risk vectors:
+1. **Physical & Terminal Risk:** Quay crane overload, bay congestion, hazardous cargo proximity.
+2. **Demurrage & Charter Liability:** Vessel idle penalties (~$1,500–$3,500/hr), feeder delay costs.
+3. **Downstream Cascade Risk:** Feeder missing downstream tidal window at destination port due to holding in Singapore.
+4. **Contractual & Commercial Risk:** Rolling high-value reefer cargo vs. standard dry cargo.
 
-#### Step 3: Define HITL Trigger Policies & Safety Guardrails
-* **Automated Action Space:** Which read-only or low-risk tool calls execute without human approval (e.g., `query_vessel_eta()`, `simulate_rehandle_cost()`, `check_customs_clearance()`).
-* **Human Approval Gates:** Which state-mutating actions require mandatory human sign-off (e.g., `commit_berth_reallocation()`, `issue_dg_override()`, `charge_demurrage_waiver()`).
-* **Escalation Trigger Thresholds:** Specific conditions (e.g., model confidence $< 0.85$, data latency $> 30\text{ min}$, or financial recovery cost $> \$10,000$) that force escalation to the Terminal Duty Manager.
+#### Step 3: Autonomy Level & HITL Trigger Policies
+- **Selected Autonomy Level:** Defend why **Tier 2: Human-in-the-Loop (HITL) Exception Solver** is the optimal choice over full autonomy (countering the "Autonomy Trap").
+- **Automated Actions (Read-Only / Low-Risk Simulations):**
+  - e.g., `query_citos_berth_schedule()`, `parse_unstructured_carrier_email()`, `simulate_crane_split_options()`, `check_destination_tidal_window()`.
+- **Mandatory Human Approval Gates (State-Mutating / Financial Actions):**
+  - e.g., Committing a 45-minute Feeder Hold, Reallocating an extra Quay Crane gang, Authorizing a cargo roll for non-critical containers.
+- **Escalation Triggers:** Conditions forcing human review (e.g., Confidence Score $< 0.85$, Reefer temperature breach detected, Destination tidal window margin $< 30\text{ min}$, or Financial cost $> \$10,000$).
 
 **Acceptance Criteria for 03-02:**
-- [ ] Risk profiles documented across all 4 risk vectors.
-- [ ] Explicit justification countering the "Autonomy Trap" (proving why higher autonomy is not blindly chosen).
-- [ ] Concrete HITL policies (automated actions vs. mandatory human gates) established for the flagship build.
+- [ ] Clear separation between PSA authority vs. Carrier/Feeder authority.
+- [ ] Defensible justification against full autonomy.
+- [ ] Concrete table of Automated Tool Calls vs. Mandatory HITL Approval Gates.
 
 ---
 
-### 03-03: Lock the Master Problem Charter & Platform Generalization Blueprint
+### 03-03: Lock Master Problem Charter & Platform Technical Blueprint
 
-Formalize the winning flagship problem and its cluster scalability blueprint into a single Master Charter document for Phase 4 engineering.
+Formalize the winning Flagship Problem and its Cluster Scalability Blueprint into a comprehensive Master Charter for Phase 4 engineering.
 
-**Deliverable:** `problems/03-03-master-charter.md`
+**Deliverable:** `problem-selection/03-03-master-charter.md`
 
-**Required Charter Schema:**
+#### Required Charter Schema:
 
 # Master Problem Charter: [Flagship Problem Title]
 
-## 1. Executive Summary & Problem Definition
+## 1. Executive Summary & Operational Context
 - **Sector:** [Berth & Marine | Container Yard | Gate & Haulage | Multimodal]
-- **Target User Persona:** [Specific role, e.g., Terminal Duty Manager, ITT Operations Controller]
-- **Parent Root-Cause Cluster:** [e.g., Cluster 2: Manual Multi-Party Coordination Engine]
-- **Core Operational Friction:** [2–3 sentences defining the exact disruption and why existing systems fail]
-- **Selected Autonomy Level:** [Advisory | HITL Exception Solver | Supervised Autonomous]
+- **Target User Persona:** [e.g., PSA Transhipment Duty Officer / Terminal Controller]
+- **Parent Cluster:** [e.g., Cluster 2: Manual Multi-Party Coordination Engine]
+- **Operational Problem Statement:** [2–3 sentences defining the exact disruption, data asymmetry, and why deterministic systems fail]
+- **Selected Autonomy Level:** Tier 2 (Human-in-the-Loop Exception Solver)
 
 ## 2. As-Is vs. To-Be Workflow Comparison
-- **As-Is Baseline (Current Manual Process):** Step-by-step description of current human firefighting (emails, phone calls, spreadsheets, time to resolve).
-- **To-Be Agentic Workflow:** Step-by-step description of how the Agent ingests the event, reasons, orchestrates tools, hits the HITL gate, and resolves the issue.
+- **As-Is Baseline (Current Manual Process):** Step-by-step breakdown of how humans handle the issue today (unstructured emails, phone calls, Excel sheets, 2–4 hours resolution latency).
+- **To-Be Agentic Workflow:** Step-by-step breakdown of how the Agent ingests the disruption, parses unstructured inputs, calls simulation tools, negotiates constraints, hits the HITL gate, and executes in <3 minutes.
 
-## 3. Systems Integration & Mock API Specifications
-- **Baseline Systems Interfaced:** [e.g., CITOS Berth Planner, PORTNET EDI, OptETruck TMS, MPA Marinet]
-- **Required Mock API Toolset (Minimum 3–5 tools for Phase 4 build):**
-  1. `tool_name_1(param1, param2)`: Description, input types, and expected JSON return payload.
-  2. `tool_name_2(...)`: ...
-  3. `tool_name_3(...)`: ...
-  4. `tool_name_4(...)`: ...
+## 3. Mock API Toolset Specification (Phase 4 Build Contract)
+Define at least 4 specific mock API tools with exact parameters and return data:
+1. `tool_1_name(param1: type, param2: type) -> dict`:
+   - *Description:* ...
+   - *Sample Output JSON:* `{ ... }`
+2. `tool_2_name(...) -> dict`: ...
+3. `tool_3_name(...) -> dict`: ...
+4. `tool_4_name(...) -> dict`: ...
 
-## 4. Operational Risk, Safety Guardrails & Fallbacks
-- **Mandatory HITL Gate:** [Exact action and UI card that pauses for human confirmation]
-- **Data Validation Guardrails:** [Input schema checks, sanity bounds, rate limits]
-- **Fallback / Exception Protocol:** [What the agent does if an API times out or returns 500]
+## 4. Safety Guardrails, Schema Validation & Injected Failure Scenarios
+- **Mandatory HITL Gate Card:** Description of the UI review modal presented to the operator.
+- **Input Validation Guardrails:** Sanity checks on crane capacity, vessel draft, and container weights.
+- **Fallback / Error Protocol:** How the agent behaves when a mock API returns a `500 Server Error` or timeout.
 
-## 5. Dual-Layer Quantified Business Impact & ROI Model
-- **Anchor Mathematical Impact Formula (The Flagship Problem):**
-  $$\text{Anchor Annual Savings} = (\Delta \text{Vessel Dwell Hrs} \times C_{\text{vessel}}) + (\Delta \text{Yard Re-handles} \times C_{\text{move}}) + (\Delta \text{Truck Wait Hrs} \times C_{\text{truck}})$$
-- **Cluster Generalization Impact Formula (Total Addressable Scaling):**
-  $$\text{Total Cluster Impact} = \text{Anchor Annual Savings} + \sum_{i=1}^{N} \text{Annual Savings}(\text{Sibling Problem}_i)$$
-- **Cost Parameters & Assumptions:**
-  - Vessel Demurrage / Charter Rate: $\$X/\text{hr}$
-  - Yard Crane Move Cost: $\$Y/\text{move}$
-  - Haulier Wait / Detention Cost: $\$Z/\text{hr}$
-  - Annual Incident Frequencies across PSA Singapore terminals
-- **Projected Net ROI:** Detailed breakdown of single-incident savings, annual flagship savings, and total addressable cluster value.
+## 5. Dual-Layer Mathematical ROI & Economic Model
+- **Grounded Singapore Cost Parameters:**
+  - Vessel Demurrage / Charter Rate: $\$2,500/\text{hour}$
+  - Feeder Vessel Charter Rate: $\$800/\text{hour}$
+  - Quay Crane Gang Hourly Operating Cost: $\$350/\text{hour}$
+  - Unproductive Yard Re-handle: $\$35/\text{move}$
+  - Reefer Cargo Cold-Chain SLA Breach Penalty: $\$5,000/\text{container}$
+  - Dry Container Missed Connection Delay Cost: $\$150/\text{container}$
+- **Anchor Problem ROI Equation (PB-04):**
+  $$\text{Savings}_{\text{incident}} = \text{Avoided Cargo Penalties} + \text{Avoided Demurrage} - \text{Extra Crane/Hold Costs}$$
+- **Annualized Flagship ROI:** Single-incident savings $\times$ Estimated annual frequency at PSA terminals.
+- **Cluster Addressable Impact (Platform Generalization):** Total savings when applying this agent architecture to sibling problems in the cluster.
 
-## 6. Cluster Scalability Blueprint (Platform Generalization)
-- **Sibling Problems Addressed by Same Core Architecture:** [List 3–5 sibling problem IDs from the cluster, e.g., PB-04, PB-09, PB-10]
-- **Shared Agentic Primitives:** How the same Planner, State Graph, and HITL framework solve sibling problems with minimal tool customization.
+## 6. Platform Generalization (Cluster Scalability)
+- **Sibling Problems Addressed:** [List 3–5 sibling candidate IDs from Cluster 2]
+- **Shared Agentic Core:** How the same reasoning planner, email/EDI parser, and HITL gate generalize across the entire cluster.
 
-## 7. Execution Trace & Demo Storyboard
-- **Trigger Event Payload (Simulated Input):** [Sample JSON event initiating the agent]
-- **Step-by-Step Expected Trace (Happy Path):** [Thought $\rightarrow$ Action $\rightarrow$ Observation sequence]
-- **Injected Failure / Edge Case Test:** [Specific edge-case to be demonstrated in video: missing parameter, API failure, or safety threshold trigger]
+## 7. Execution Trace & Demo Script
+- **Trigger Event Payload (Simulated JSON Input):** Inbound delay webhook + manifest discrepancy.
+- **Happy Path Step-by-Step Trace:** (Thought $\rightarrow$ Action $\rightarrow$ Observation $\rightarrow$ HITL Sign-off $\rightarrow$ Mutation).
+- **Edge Case / Injected Failure Path:** (e.g., Feeder destination tidal window too tight $\rightarrow$ Agent dynamically pivots from "Hold Feeder" to "Prioritize High-Value Reefer Crane Discharge + Roll Dry Cargo").
 
 **Acceptance Criteria for 03-03:**
-- [ ] Single winning Flagship Problem locked with zero ambiguity.
-- [ ] Clear Platform Generalization Blueprint linking back to the parent cluster.
-- [ ] Mathematical impact model contains both Anchor ROI and Total Cluster Addressable ROI.
-- [ ] Defines at least 3–5 mock tool signatures with input/output expectations.
-- [ ] Provides the exact demo storyboard and injected failure scenario for Phase 4 & 5 builds.
+- [ ] Exact mock tool JSON signatures defined with parameters and outputs.
+- [ ] Cost model differentiates between cargo tiers (Reefers vs. Dry).
+- [ ] Realistic multi-party coordination model including downstream destination constraints.
+- [ ] Demo script includes both Happy Path and Injected Edge-Case Failure.
 
 ---
 
 ## Deliverables Summary
 
 | Task | Deliverable File | Target Output |
-| :--- | :--- | :--- |
-| **03-01** | `problems/03-01-litmus-test-scores.md` | Scored Litmus Filter & Cluster Weighted Matrix |
-| **03-02** | `problems/03-02-autonomy-level.md` | Operational risk profiling, autonomy tier selection, and HITL gate rules |
-| **03-03** | `problems/03-03-master-charter.md` | The locked Master Problem Charter & Platform Blueprint for Phase 4 engineering |
+|---|---|---|
+| **03-01** | `problem-selection/03-01-litmus-test-scores.md` | Scored Litmus Filter (with realistic fails) & Cluster Matrix |
+| **03-02** | `problem-selection/03-02-autonomy-level.md` | Stakeholder authority mapping & HITL trigger policies |
+| **03-03** | `problem-selection/03-03-master-charter.md` | Locked Master Problem Charter & Mock API build contract for Phase 4 |
 
 ---
 
 ## Exit Gate Checklist
 
 Phase 3 is complete when:
-- [ ] All 3 deliverables exist in `problems/`.
-- [ ] Exactly ONE Flagship Problem and its parent cluster are locked.
-- [ ] The Master Problem Charter contains complete API schemas, dual-layer ROI math, and HITL gate definitions.
-- [ ] Architecture design (Phase 4) can begin immediately using `problems/03-03-master-charter.md`.
+- [ ] All 3 deliverables exist in `problem-selection/`.
+- [ ] No sector vocabulary mix-ups (marine vs. airfreight).
+- [ ] Problem filtering is objectively defended with valid rejections.
+- [ ] Phase 4 architecture and synthetic environment development can begin immediately.
