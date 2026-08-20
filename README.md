@@ -55,7 +55,7 @@ Every problem references specific Phase 1 files with line numbers (e.g., `berth-
 
 ## Phase 3 — Score, Rank, and Select a Master Problem
 
-**Goal:** Filter all 16 problems against the competition's Agentic AI criteria, pick the best cluster, select one flagship problem, and lock a Master Problem Charter.
+**Goal:** Filter all 16 problems against the competition's Agentic AI criteria, pick the best cluster, select one flagship problem, and lock a Master Problem Charter. Phase 03-02 and 03-03 can be rerun if the team chooses a different main problem.
 
 ### What the three files do
 
