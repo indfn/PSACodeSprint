@@ -560,7 +560,7 @@ Resolution requires:
 120 transhipment containers at Pasir Panjang Terminal (PPT) must reach Tuas Port for loading on a vessel departing at 2000. Current time: 1000. Transfer options:
 
 **Road ITT:**
-- 20 prime movers available, 4 containers each = 80 containers per trip
+- 20 prime movers available; under LTA road regulations, each carries 1x 40ft (FEU) or 2x 20ft (TEU) containers (max 20–40 containers per wave)
 - Transit time PPT → Tuas: 45–90 min (depending on AYE traffic)
 - 2 trips possible before 1800 cut-off
 - But: AYE peak congestion 1700–1900, second trip may not make it

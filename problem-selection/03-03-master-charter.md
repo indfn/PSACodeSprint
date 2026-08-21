@@ -382,6 +382,10 @@ The agent presents the following approval card at the critical decision point (T
 
 ## 5. Dual-Layer Mathematical ROI & Economic Model
 
+> **Methodology Note on Financial Metrics:**
+> - **Gross Disruption Exposure ($15,600–$29,000 per incident):** Total capital and operational assets exposed to risk during an unmitigated ITT failure (vessel demurrage liability, feeder charter hire, and base haulage).
+> - **Net Recoverable Friction Savings ($8,000 per incident):** Direct, addressable operational waste eliminated by the agent per event (avoided vessel delay hours + avoided truck overprovisioning + avoided yard re-handles − agent runtime cost).
+
 ### Grounded Singapore Cost Parameters
 
 | Parameter | Value | Source |
@@ -543,7 +547,7 @@ The agent architecture built for PB-12 (event ingestion, multi-tool orchestratio
 | Phase | Decision | Rationale |
 |-------|----------|-----------|
 | **Stage 1 Litmus** | 4 problems eliminated (PB-03, PB-05, PB-14, PB-16) | Deterministic rule engines (PB-03, PB-05), micro-ROI (PB-14), pure MILP (PB-16) |
-| **Stage 2 Cluster** | C2 selected (score 4.75/5.00) | Highest agentic sweet spot, broadest coverage (7 problems), most compelling demo |
+| **Stage 2 Cluster** | C2 selected (score 4.80/5.00) | Highest agentic sweet spot, broadest coverage (7 problems), most compelling demo |
 | **Stage 3 Flagship** | PB-12 selected from C2 | Highest system count (5), systemic architecture gap (CITOS disintegration), dual transport mode optimisation |
 | **Autonomy** | Tier 2 HITL Exception Solver | HIGH financial risk ($15K–$29K/incident) + multi-party authority boundaries + data asymmetry |
 | **Cluster Leverage** | 7 sibling problems addressed by same architecture | Platform generalisation provides $1.26M–$2.08M annual addressable impact |

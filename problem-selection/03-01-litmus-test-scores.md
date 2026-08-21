@@ -303,7 +303,7 @@ Eliminated candidates:
 
 | Cluster | Agentic Sweet Spot (30%) | Coverage (25%) | Demo Drama (25%) | Feasibility (20%) | Weighted Score |
 |---------|--------------------------|----------------|-------------------|--------------------|----------------|
-| **C2: Manual Multi-Party Coordination** | 5 | 5 | 5 | 4 | **4.75** |
+| **C2: Manual Multi-Party Coordination** | 5 | 5 | 5 | 4 | **4.80** |
 | **C6: QC-to-Yard Flow Synchronisation** | 3 | 3 | 4 | 4 | **3.40** |
 | **C3: Equipment & Infrastructure Dependency** | 3 | 3 | 3 | 4 | **3.15** |
 | **C1: Stale Data & Async State** | 3 | 4 | 3 | 4 | **3.35** |
@@ -312,7 +312,7 @@ Eliminated candidates:
 
 ### Cluster-by-Cluster Justification
 
-#### C2: Manual Multi-Party Coordination — Score: 4.75
+#### C2: Manual Multi-Party Coordination — Score: 4.80
 
 **Agentic Sweet Spot (5/5):** The root cause is unstructured multi-party communication — phone calls, WhatsApp, email. An agent that can parse unstructured notifications, reason over conflicting stakeholder interests, draft recovery proposals, and coordinate multi-party workflows directly addresses the root cause. This is the quintessential agentic use case: not solving equations, but mediating between humans with conflicting objectives.
 
@@ -378,7 +378,7 @@ Eliminated candidates:
 
 ### Winning Cluster: C2 — Manual Multi-Party Coordination
 
-**Score: 4.75 / 5.00**
+**Score: 4.80 / 5.00**
 
 Cluster C2 dominates across all four dimensions. It has the highest agentic sweet spot (multi-party exception resolution is the canonical agentic use case), the broadest coverage (7 passing problems, ~$316K/month aggregate), the most compelling demo trace (visible tool calls, HITL gates, multi-party notifications), and high feasibility.
 

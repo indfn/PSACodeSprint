@@ -56,7 +56,7 @@ PSA Singapore's digital ecosystem spans three layers:
 
 **Type:** Terminal Operating System (TOS)
 **Role:** "Brain" of terminal operations — coordinates and integrates all port assets
-**Launched:** 1984 (continuously upgraded)
+**Launched:** 1988 (developed 1988, operationalized 1988–1990 following PORTNET's 1984 inception; continuously upgraded)
 **Developer:** PSA in-house (proprietary)
 
 ### Core Capabilities
