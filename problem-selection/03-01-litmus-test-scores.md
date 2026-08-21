@@ -29,7 +29,7 @@
 | **L1** | **PASS** | Requires reconciling conflicting objectives: vessel priority vs. QC capacity vs. feeder reliability vs. tidal windows. OptEVoyage ETA updates are fuzzy (AIS-derived,±2 hrs); tidal windows are physical constraints; feeder hold vs. roll is a multi-party trade-off. No single formula produces the optimal answer — depends on real-time context. |
 | **L2** | **PASS** | VTIS/STRAITREP (vessel traffic), OptEVoyage (JIT tracking), CITOS (berth allocation), PORTNET (feeder schedules) — 4 distinct PSA platforms. |
 | **L3** | **PASS** | 8-step resolution workflow: receive ETA slip → assess berth alternatives → negotiate crane redeployment → confirm tidal window → contact shipping line → recalculate crane split → adjust yard plan → coordinate feeders. |
-| **L4** | **PASS** | OptEVoyage ETAs shift ±2 hrs; tidal windows are physical不可延; harbour pilot availability uncertain; feeder operator responsiveness variable. |
+| **L4** | **PASS** | OptEVoyage ETAs shift ±2 hrs; tidal windows are physically non-delayable; harbour pilot availability uncertain; feeder operator responsiveness variable. |
 | **L5** | **PASS** | $58,600–$131,600 per incident (vessel demurrage + QC idle + missed feeders + anchorage). 2–3 incidents/month during monsoon. |
 
 **Result: PASS (5/5)**
