@@ -86,7 +86,7 @@ After the litmus test, the surviving problems are grouped into clusters by share
 | Coverage breadth | 20% | How many sibling problems the same agent can also solve |
 | Demo compellingness | 15% | How easy it is to show a working demo that impresses judges |
 
-**Winner: Cluster C2 — Manual Multi-Party Coordination** (score 4.75/5.00, 7 passing problems, ~$316K/month aggregate).
+**Winner: Cluster C2 — Manual Multi-Party Coordination** (score 4.80/5.00, 7 passing problems, ~$316K/month aggregate).
 
 ### What "Master Problem Charter" means
 
@@ -163,7 +163,7 @@ PSACodeSprint/
 | Problem charters created | 16 |
 | Litmus test passes | 12 of 16 |
 | Root-cause clusters found | 6 |
-| Winning cluster | C2 — Manual Multi-Party Coordination (4.75/5.00) |
+| Winning cluster | C2 — Manual Multi-Party Coordination (4.80/5.00) |
 | Flagship problem | PB-12 — Multi-Party ITT Coordination Failure |
 | Flagship annual ROI | $384K–$576K |
 | Cluster annual ROI (all 7 problems) | $1.26M–$2.08M |

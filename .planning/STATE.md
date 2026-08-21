@@ -53,7 +53,7 @@ Recent decisions affecting current work:
 - Phase 2 dynamic adaptation: Phase 1 findings used to refine/replace seed archetypes
 - Phase 2 synthesis directory removed (redundant with critical-flows.md)
 - **Phase 3: 4 problems eliminated** — PB-03 (deterministic IMDG), PB-05 (deterministic fault tree + 2 systems), PB-14 (micro-ROI $200–$800), PB-16 (pure MILP)
-- **Phase 3: Cluster C2 selected** — Manual Multi-Party Coordination (score 4.75/5.00, 7 passing problems)
+- **Phase 3: Cluster C2 selected** — Manual Multi-Party Coordination (score 4.80/5.00, 7 passing problems)
 - **Phase 3: PB-12 selected as Flagship** — Multi-Party ITT Coordination Failure (5 systems, systemic CITOS disintegration gap)
 - **Phase 3: Tier 2 HITL Exception Solver confirmed** — HIGH financial risk + multi-party authority boundaries + data asymmetry
 - **Phase 3: Cluster addressable annual impact $1.26M–$2.08M** across 7 sibling problems
