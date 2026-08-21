@@ -240,9 +240,9 @@ With PSA terminals spread across Pasir Panjang and Tuas, containers must be tran
 - Managed through gate systems and traffic management
 
 **Sea ITT (Feeder Vessels):**
-- Currently manned feeder vessels between terminal clusters
+- Currently manned feeder vessels between terminal clusters (2026 operations)
 - Moving containers between Pasir Panjang and Tuas
-- MPA/PSA EOI for autonomous inter-gateway feeders (800+ TEU capacity, deployment target 2029)
+- MPA/PSA EOI for autonomous inter-gateway feeders (800+ TEU capacity, deployment target 2029) — future state, not current operations
 
 ### 4.2 ITT Coordination
 

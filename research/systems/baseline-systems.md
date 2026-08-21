@@ -147,6 +147,7 @@ In September 2020, PSA partnered with IBM Research to explore quantum computing 
 - Proprietary system — limited external documentation
 - Legacy architecture (evolved since 1984) — may have integration constraints
 - Optimisation algorithms may not fully account for cross-terminal coordination (Pasir Panjang ↔ Tuas)
+- Cross-terminal data latency (estimated 30–60 min for inventory synchronisation between PPT and Tuas CITOS instances via PORTNET batch messaging) is an architectural inference from PSA's terminal-partitioned operations — exact replication timing is not publicly documented for this proprietary system
 - Re-optimisation under disruption (equipment failure, weather) may rely on planner simplification
 - Quantum experiments still in simulation phase — not yet deployed in production
 

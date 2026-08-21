@@ -562,6 +562,8 @@ Resolution requires:
 **Road ITT:**
 - 20 prime movers available; under LTA road regulations, each carries 1x 40ft (FEU) or 2x 20ft (TEU) containers (max 20–40 containers per wave)
 - Transit time PPT → Tuas: 45–90 min (depending on AYE traffic)
+  - Off-peak (1000–1630, 2000–0700): ~45 min via West Coast Highway → AYE
+  - Peak (0730–0930, 1730–1930): ~85–100 min due to Pandan/Penjuru heavy-haulage bottlenecks and AYE Exits 10–24 congestion
 - 2 trips possible before 1800 cut-off
 - But: AYE peak congestion 1700–1900, second trip may not make it
 

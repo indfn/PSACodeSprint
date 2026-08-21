@@ -113,6 +113,7 @@ PSA Singapore operates **56 berths** across multiple terminals as one seamless i
 Berth allocation is managed through **CITOS®** (Computer Integrated Terminal Operations System), PSA's proprietary Terminal Operating System. The allocation considers:
 
 - **Vessel draft and tidal windows**: Deep-water berths (23m) at PPT and Tuas accommodate the world's largest container vessels
+- **Downstream tidal lockout risk**: Regional feeder destinations (Port Klang shallow berths, Chittagong, Yangon) operate on strict high-tide navigation windows. A 1-hour feeder departure delay from Singapore can cause a 10–12 hour anchorage lockout at destination — the delay is non-linear, not additive.
 - **Length Overall (LOA)**: Determines berth compatibility
 - **Crane split allocation**: Number of quay cranes assigned per vessel based on cargo volume and laytime
 - **Equipment availability**: AGV fleet status, aRMG/aYGC job queue
@@ -237,6 +238,7 @@ As the **world's largest container transhipment hub**, Singapore processes a mas
 MPA and PSA launched an **Expression of Interest (EOI) in April 2026** for autonomous inter-gateway container feeder vessel operations, targeting:
 - Design and development of autonomous feeder vessels capable of handling ≥800 TEU
 - Multiple autonomy modes: remote-controlled with crew onboard, supervised autonomous, reduced-crew
+- **Note:** All current ITT operations (2026) use manned feeder vessels. Autonomous feeder deployment is a 2029 target — scenarios in this research assume current-state manned operations unless explicitly marked as future-state.
 - Remote operations centre for real-time monitoring
 - Operational deployment by 2029
 
