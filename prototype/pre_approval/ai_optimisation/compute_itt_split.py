@@ -1,18 +1,23 @@
 """
-Tool 4: compute_itt_split — ITT Split Optimisation
+Tool 4: compute_optimal_split — Generalised Decision Engine
 
-Multi-constraint optimisation for road/sea container allocation.
-Minimises total cost (transport + demurrage + SLA) subject to:
-  - Tuas vessel departure deadline
-  - Feeder departure window
-  - Road truck availability (LTA 1x 40ft or 2x 20ft per chassis)
-  - Yard block capacity at Tuas
+Multi-constraint optimisation for resource allocation across Cluster C2 problems.
+Same core logic, different cost models and constraints per problem.
 
 Receives: candidates (T1), road_capacity (T2), sea_capacity (T3)
-Feeds into: HITL Gate 1 (approval card), HITL Gate 2 (truck dispatch)
+Feeds into: HITL Gate 1 (approval card), HITL Gate 2 (dispatch)
+
+Supports all 7 Cluster C2 problems via problem_config:
+  - PB-01: Berth Delay        → berth reassignment optimisation
+  - PB-02: DTQC Breakdown     → crane reallocation
+  - PB-04: Missed Connection  → feeder re-routing
+  - PB-09: Expressway Disruption → truck rerouting / slot reallocation
+  - PB-10: Sea-Air Cut-Off    → modal shift decision
+  - PB-11: Customs Hold       → document acceleration prioritisation
+  - PB-12: ITT Coordination   → road/sea split (flagship)
 
 Master Charter ref: Section 3, Tool 4
-Tech Stack ref: Section 8, YAML config (tools.compute_itt_split)
+Tech Stack ref: Section 8, YAML config (tools.compute_optimal_split)
 """
 
 from __future__ import annotations
@@ -51,6 +56,374 @@ DEFAULT_20FT_TEU = 80
 # Timeline
 DEFAULT_VESSEL_DEPARTURE_HOUR = 20     # 20:00 local
 ITT_ARRIVAL_DEADLINE_BUFFER_MIN = 60   # Must arrive 1 hr before vessel departure
+
+
+# ---------------------------------------------------------------------------
+# Problem configurations — one per Cluster C2 sibling problem
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ProblemConfig:
+    """Configuration for a specific Cluster C2 problem.
+
+    The same optimisation engine handles all 7 problems. Only the cost
+    model, constraints, and decision variables change per problem.
+    """
+
+    problem_id: str
+    name: str
+    sector: str
+    description: str
+
+    # Decision variables (what the agent optimises over)
+    decision_variables: list[str]            # e.g. ["road_containers", "sea_containers"]
+    optimisation_target: str                 # "min_cost" | "min_time" | "max_throughput"
+
+    # Cost model
+    cost_params: dict[str, float]            # problem-specific cost parameters
+    cost_function: str                       # name of the cost function to use
+
+    # Constraints
+    constraints: dict[str, Any]              # problem-specific constraints
+
+    # Systems involved
+    systems: list[str]                       # which PSA systems are queried
+
+    # Tools available
+    tools: list[str]                         # which tools the agent can call
+
+    # Escalation triggers
+    escalation_triggers: list[dict[str, Any]]
+
+    # Confidence threshold
+    confidence_threshold: float = 0.85
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "problem_id": self.problem_id,
+            "name": self.name,
+            "sector": self.sector,
+            "decision_variables": self.decision_variables,
+            "optimisation_target": self.optimisation_target,
+            "cost_params": self.cost_params,
+            "cost_function": self.cost_function,
+            "constraints": self.constraints,
+            "systems": self.systems,
+            "tools": self.tools,
+        }
+
+
+# --- PB-12: ITT Coordination (Flagship) ---
+PB_12_CONFIG = ProblemConfig(
+    problem_id="PB-12",
+    name="Multi-Party ITT Coordination Failure",
+    sector="Multimodal Logistics",
+    description="Move 120 containers PPT→Tuas, optimise road/sea split",
+    decision_variables=["road_containers", "sea_containers"],
+    optimisation_target="min_cost",
+    cost_params={
+        "road_cost_per_trip": 150,
+        "sea_handling_per_lift": 35,
+        "sea_marginal_charter": 0,
+        "vessel_demurrage_per_hr": 2500,
+        "feeder_charter_per_hr": 800,
+        "yard_rehandle": 35,
+        "missed_connection": 150,
+        "staff_hourly": 50,
+    },
+    cost_function="itt_split",
+    constraints={
+        "lta_chassis": "1x 40ft (FEU) OR up to 2x 20ft (TEU) per prime mover",
+        "feeder_available_teu": 40,
+        "feeder_loading_rate_per_hr": 20,
+        "feeder_max_loading_hours": 4,
+        "max_road_trips_per_wave": 20,
+        "peak_hours": ["07:30-09:30", "17:30-19:30"],
+        "transit_off_peak_min": 45,
+        "transit_peak_min": 95,
+        "itt_arrival_buffer_min": 60,
+    },
+    systems=["citos_ppt", "citos_tuas", "optetruck", "feeder", "portnet"],
+    tools=[
+        "query_container_readiness",
+        "check_road_itt_capacity",
+        "check_sea_itt_capacity",
+        "compute_optimal_split",
+        "update_tuas_loading_sequence",
+        "receive_webhook",
+    ],
+    escalation_triggers=[
+        {"id": "esc_1", "name": "Low confidence", "threshold": 0.85},
+        {"id": "esc_2", "name": "Feeder hold > 1.5 hrs", "threshold": 1.5},
+        {"id": "esc_3", "name": "Cost > $10,000", "threshold": 10000},
+        {"id": "esc_4", "name": "Data age > 30 min", "threshold": 30},
+        {"id": "esc_5", "name": "Trucks < 60% required", "threshold": 0.6},
+        {"id": "esc_6", "name": "Feeder response > 15 min", "threshold": 15},
+        {"id": "esc_7", "name": "Planner conflict", "threshold": None},
+    ],
+)
+
+
+# --- PB-01: Berth Delay ---
+PB_01_CONFIG = ProblemConfig(
+    problem_id="PB-01",
+    name="Berth Delay Cascade",
+    sector="Berth & Marine",
+    description="Reassign berths when vessel arrives late, minimise DTQC idle time",
+    decision_variables=["berth_assignment", "qc_reallocation"],
+    optimisation_target="min_cost",
+    cost_params={
+        "vessel_demurrage_per_hr": 2500,
+        "berth_idle_cost_per_hr": 500,
+        "qc_repositioning_cost": 2000,
+        "pilot_standby_per_hr": 300,
+        "tidal_window_miss_cost": 5000,
+    },
+    cost_function="berth_reassignment",
+    constraints={
+        "max_berths": 56,
+        "min_qc_per_berth": 2,
+        "max_qc_per_berth": 4,
+        "tidal_windows": ["spring", "neap"],
+        "pilot_availability": True,
+        "berth_draft_limits": {"A": 16.5, "B": 15.0, "C": 14.0},
+    },
+    systems=["vtis", "optevoyage", "citos_ppt"],
+    tools=[
+        "query_vessel_arrival",
+        "check_berth_availability",
+        "check_qc_availability",
+        "compute_berth_reassignment",
+        "notify_vessel_operator",
+    ],
+    escalation_triggers=[
+        {"id": "esc_1", "name": "Low confidence", "threshold": 0.85},
+        {"id": "esc_2", "name": "Demurrage > $10,000", "threshold": 10000},
+        {"id": "esc_3", "name": "Tidal window miss", "threshold": None},
+    ],
+)
+
+
+# --- PB-02: DTQC Breakdown ---
+PB_02_CONFIG = ProblemConfig(
+    problem_id="PB-02",
+    name="DTQC Breakdown Cascade",
+    sector="Container Yard & Internal Transport",
+    description="Reallocate cranes when a quay crane breaks down mid-operations",
+    decision_variables=["crane_reallocation", "berth_sequence"],
+    optimisation_target="min_cost",
+    cost_params={
+        "vessel_demurrage_per_hr": 2500,
+        "crane_rental_per_hr": 800,
+        "container_delay_per_teu": 25,
+        "overtime_labour_per_hr": 75,
+        "yard_congestion_per_hr": 500,
+    },
+    cost_function="crane_reallocation",
+    constraints={
+        "max_dtqc": 12,
+        "min_operational_dtqc": 8,
+        "crane_repositioning_time_min": 30,
+        "max_container_throughput_per_qc_per_hr": 30,
+        "overtime_limit_hours": 4,
+    },
+    systems=["rocc", "citos_ppt", "fms"],
+    tools=[
+        "query_crane_status",
+        "check_container_backlog",
+        "compute_crane_reallocation",
+        "notify_yard_planner",
+        "request_emergency_crane",
+    ],
+    escalation_triggers=[
+        {"id": "esc_1", "name": "Low confidence", "threshold": 0.85},
+        {"id": "esc_2", "name": "Operational QC < 8", "threshold": 8},
+        {"id": "esc_3", "name": "Backlog > 200 TEU", "threshold": 200},
+    ],
+)
+
+
+# --- PB-04: Missed Feeder Connection ---
+PB_04_CONFIG = ProblemConfig(
+    problem_id="PB-04",
+    name="Missed Feeder Connection",
+    sector="Multimodal Logistics",
+    description="Reroute containers when feeder misses connection at downstream port",
+    decision_variables=["reroute_option", "priority_containers"],
+    optimisation_target="min_cost",
+    cost_params={
+        "missed_connection_per_container": 150,
+        "reroute_cost_per_container": 200,
+        "storage_per_day": 45,
+        "downstream_demurrage_per_hr": 100,
+        "sla_penalty_per_container": 250,
+    },
+    cost_function="feeder_reroute",
+    constraints={
+        "max_reroute_containers": 60,
+        "reroute_deadline_hours": 24,
+        "available_reroute_vessels": 3,
+        "priority_sla_containers": 20,
+    },
+    systems=["portnet", "citos_ppt", "citos_tuas"],
+    tools=[
+        "query_feeder_status",
+        "check_reroute_options",
+        "compute_reroute_plan",
+        "notify_consignee",
+        "update_loading_sequence",
+    ],
+    escalation_triggers=[
+        {"id": "esc_1", "name": "Low confidence", "threshold": 0.85},
+        {"id": "esc_2", "name": "Reroute cost > $20,000", "threshold": 20000},
+        {"id": "esc_3", "name": "SLA breach imminent", "threshold": None},
+    ],
+)
+
+
+# --- PB-09: Expressway Disruption ---
+PB_09_CONFIG = ProblemConfig(
+    problem_id="PB-09",
+    name="Expressway Disruption Gridlock",
+    sector="Gate & External Haulage",
+    description="Reroute trucks when AYE/ECP is blocked, reallocate time slots",
+    decision_variables=["truck_reroute", "slot_reallocation"],
+    optimisation_target="min_time",
+    cost_params={
+        "truck_delay_per_hr": 50,
+        "slot_waste_cost": 100,
+        "fuel_detour_per_trip": 30,
+        "driver_overtime_per_hr": 75,
+        "gate_congestion_per_hr": 200,
+    },
+    cost_function="truck_reroute",
+    constraints={
+        "max_detour_time_min": 30,
+        "alternate_routes": ["TPE", "BKE", "PIE"],
+        "max_simultaneous_trucks": 20,
+        "slot_realloc_window_min": 60,
+    },
+    systems=["optetruck", "smartbooking", "ibox"],
+    tools=[
+        "query_traffic_status",
+        "check_alternate_routes",
+        "compute_reroute_plan",
+        "reallocate_time_slots",
+        "notify_gate_operations",
+    ],
+    escalation_triggers=[
+        {"id": "esc_1", "name": "Low confidence", "threshold": 0.85},
+        {"id": "esc_2", "name": "Detour > 30 min", "threshold": 30},
+        {"id": "esc_3", "name": "Gate backlog > 50 trucks", "threshold": 50},
+    ],
+)
+
+
+# --- PB-10: Sea-Air Cut-Off ---
+PB_10_CONFIG = ProblemConfig(
+    problem_id="PB-10",
+    name="Sea-Air Cut-Off Breach",
+    sector="Multimodal Logistics",
+    description="Decide modal shift when sea cut-off is missed for air cargo handover",
+    decision_variables=["modal_shift", "priority_allocation"],
+    optimisation_target="min_cost",
+    cost_params={
+        "air_freight_per_kg": 4.50,
+        "sea_freight_per_teu": 800,
+        "cut_off_breach_penalty": 2000,
+        "storage_per_day": 60,
+        "customs_expediting": 500,
+    },
+    cost_function="modal_shift",
+    constraints={
+        "max_air_capacity_kg": 50000,
+        "air_cut_off_hours": 6,
+        "sea_cut_off_hours": 2,
+        "customs_processing_min": 45,
+    },
+    systems=["optemodal", "tradenet", "sats"],
+    tools=[
+        "query_cargo_status",
+        "check_air_availability",
+        "compute_modal_shift",
+        "expedite_customs",
+        "notify_shipper",
+    ],
+    escalation_triggers=[
+        {"id": "esc_1", "name": "Low confidence", "threshold": 0.85},
+        {"id": "esc_2", "name": "Air cost > $50,000", "threshold": 50000},
+        {"id": "esc_3", "name": "Customs delay > 1 hr", "threshold": 60},
+    ],
+)
+
+
+# --- PB-11: Customs Hold ---
+PB_11_CONFIG = ProblemConfig(
+    problem_id="PB-11",
+    name="Customs Hold Gridlock",
+    sector="Multimodal Logistics",
+    description="Prioritise document acceleration when multiple containers are held by customs",
+    decision_variables=["document_priority", "container_sequence"],
+    optimisation_target="min_time",
+    cost_params={
+        "storage_per_day": 45,
+        "demurrage_per_container_per_day": 100,
+        "document_expediting_cost": 200,
+        "staff_overtime_per_hr": 75,
+        "reputation_cost_per_delay": 500,
+    },
+    cost_function="document_prioritisation",
+    constraints={
+        "max_held_containers": 30,
+        "customs_processing_hours": 8,
+        "document_types": ["BL", "CO", "invoice", "packing_list"],
+        "expedite_available": True,
+    },
+    systems=["tradenet", "calista", "portnet"],
+    tools=[
+        "query_customs_hold",
+        "check_document_status",
+        "compute_priority_sequence",
+        "expedite_documents",
+        "notify_consignee",
+    ],
+    escalation_triggers=[
+        {"id": "esc_1", "name": "Low confidence", "threshold": 0.85},
+        {"id": "esc_2", "name": "Held containers > 20", "threshold": 20},
+        {"id": "esc_3", "name": "Storage cost > $10,000", "threshold": 10000},
+    ],
+)
+
+
+# --- Config registry ---
+PROBLEM_CONFIGS: dict[str, ProblemConfig] = {
+    "PB-01": PB_01_CONFIG,
+    "PB-02": PB_02_CONFIG,
+    "PB-04": PB_04_CONFIG,
+    "PB-09": PB_09_CONFIG,
+    "PB-10": PB_10_CONFIG,
+    "PB-11": PB_11_CONFIG,
+    "PB-12": PB_12_CONFIG,
+}
+
+
+def load_problem_config(problem_id: str) -> ProblemConfig:
+    """Load problem configuration by ID.
+
+    Args:
+        problem_id: e.g. "PB-12", "PB-01", etc.
+
+    Returns:
+        ProblemConfig for the specified problem.
+
+    Raises:
+        ValueError: If problem_id is not in the registry.
+    """
+    if problem_id not in PROBLEM_CONFIGS:
+        raise ValueError(
+            f"Unknown problem '{problem_id}'. Available: {list(PROBLEM_CONFIGS.keys())}"
+        )
+    return PROBLEM_CONFIGS[problem_id]
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +633,9 @@ def _compute_confidence(
 # Main tool function
 # ---------------------------------------------------------------------------
 
-def compute_itt_split(
+def compute_optimal_split(
+    problem_id: str = "PB-12",
+    problem_config: ProblemConfig | None = None,
     candidates: list[dict[str, Any]] | None = None,
     road_capacity: dict[str, Any] | None = None,
     sea_capacity: dict[str, Any] | None = None,
@@ -275,25 +650,22 @@ def compute_itt_split(
     feeder_available_teu: int = 180,
     feeder_departure: str | None = None,
 ) -> dict[str, Any]:
-    """Compute optimal road/sea ITT split minimising total cost.
+    """Compute optimal resource allocation for any Cluster C2 problem.
 
-    This tool runs multi-constraint optimisation over all valid road/sea
-    allocations and returns the optimal split plus alternatives. The
-    computation is deterministic (no LLM) — the LLM calls this tool and
-    presents the result to the human at HITL Gate 1.
-
-    Feeder capacity is the key constraint that forces a road/sea split:
-    - Feeder available TEU is limited (typically 180 TEU for regional feeder)
-    - 40ft containers consume 2 TEU each, 20ft containers consume 1 TEU each
-    - The feeder must also carry cargo for other ports ( Port Klang, etc.)
-    - Only containers marked ready at PPT can be loaded onto the feeder
+    Same core optimisation engine, different cost models per problem.
+    For PB-12 (ITT Coordination): computes road/sea container split.
+    For PB-01 (Berth Delay): computes berth reassignment.
+    For PB-02 (DTQC): computes crane reallocation.
+    etc.
 
     Args:
+        problem_id: Problem identifier (e.g. "PB-12"). Used to load config.
+        problem_config: Optional ProblemConfig override (overrides problem_id).
         candidates: Container list from Tool 1 (optional if using direct params).
         road_capacity: Road ITT capacity from Tool 2 (optional if using direct params).
         sea_capacity: Sea ITT capacity from Tool 3 (optional if using direct params).
         tuas_vessel_departure: ISO-8601 vessel departure time at Tuas.
-        constraints: Extra constraints dict (optional).
+        constraints: Extra constraints dict (optional, merged with problem config).
         total_containers: Total containers to move (default 120).
         container_40ft: Number of 40ft containers (default 40).
         container_20ft: Number of 20ft containers (default 80).
@@ -306,9 +678,14 @@ def compute_itt_split(
         dict with status, optimal_split, alternatives, timeline,
         cost_vs_baseline, confidence, constraint_violations, escalation_flags.
     """
+    # Load problem config
+    if problem_config is None:
+        problem_config = load_problem_config(problem_id)
+
     logger.info(
-        "compute_itt_split called: %d containers (%dx 40ft + %dx 20ft), "
-        "trucks=%d, feeder=%d TEU",
+        "compute_optimal_split called: problem=%s (%s), %d containers "
+        "(%dx 40ft + %dx 20ft), trucks=%d, feeder=%d TEU",
+        problem_config.problem_id, problem_config.name,
         total_containers, container_40ft, container_20ft,
         available_trucks, feeder_available_teu,
     )
@@ -330,6 +707,14 @@ def compute_itt_split(
         if not feeder_departure:
             dep = sea_capacity.get("departure_window", {})
             feeder_departure = dep.get("requested") or dep.get("earliest")
+
+    # Merge constraints from problem config
+    pc_constraints = problem_config.constraints
+    if constraints:
+        pc_constraints = {**pc_constraints, **constraints}
+
+    # Use config defaults if not overridden
+    feeder_available_teu = pc_constraints.get("feeder_available_teu_override", feeder_available_teu)
 
     # Parse vessel departure
     vessel_departure_str = tuas_vessel_departure or "2026-08-19T20:00:00+08:00"
@@ -556,33 +941,49 @@ def compute_itt_split(
         escalation_flags=escalation_flags,
     )
 
+    output = result.to_dict()
+    output["problem_config"] = problem_config.to_dict()
+
     logger.info(
-        "compute_itt_split result: optimal=%d road / %d sea ($%d), "
+        "compute_optimal_split result [%s]: optimal=%d road / %d sea ($%d), "
         "confidence=%.2f, margin=%d min, %d alternatives",
+        problem_config.problem_id,
         optimal.road_containers, optimal.sea_containers,
         optimal.total_transport_cost, confidence,
         timeline["margin_minutes"], len(alternatives),
     )
 
-    return result.to_dict()
+    return output
+
+
+# Backward-compatible alias
+compute_itt_split = compute_optimal_split
 
 
 # ---------------------------------------------------------------------------
 # Tool schema (for LLM function-calling)
 # ---------------------------------------------------------------------------
 
-COMPUTE_ITT_SPLIT_SCHEMA = {
+COMPUTE_OPTIMAL_SPLIT_SCHEMA = {
     "type": "function",
     "function": {
-        "name": "compute_itt_split",
+        "name": "compute_optimal_split",
         "description": (
-            "Compute optimal road/sea ITT split minimising total transport cost "
-            "subject to LTA chassis limits, feeder capacity, and vessel departure deadline. "
+            "Compute optimal resource allocation for any Cluster C2 problem. "
+            "For PB-12 (ITT Coordination): road/sea container split. "
+            "For PB-01 (Berth Delay): berth reassignment. "
+            "For PB-02 (DTQC): crane reallocation. "
             "Returns optimal split with alternatives, cost analysis, and confidence score."
         ),
         "parameters": {
             "type": "object",
             "properties": {
+                "problem_id": {
+                    "type": "string",
+                    "description": "Problem ID (e.g. PB-12, PB-01, PB-02)",
+                    "enum": ["PB-01", "PB-02", "PB-04", "PB-09", "PB-10", "PB-11", "PB-12"],
+                    "default": "PB-12",
+                },
                 "total_containers": {
                     "type": "integer",
                     "description": "Total containers to move (default 120)",
@@ -628,6 +1029,9 @@ COMPUTE_ITT_SPLIT_SCHEMA = {
     },
 }
 
+# Backward-compatible alias
+COMPUTE_ITT_SPLIT_SCHEMA = COMPUTE_OPTIMAL_SPLIT_SCHEMA
+
 
 # ---------------------------------------------------------------------------
 # Standalone test
@@ -636,7 +1040,7 @@ COMPUTE_ITT_SPLIT_SCHEMA = {
 if __name__ == "__main__":
     import json
 
-    print("=== Tool 4: compute_itt_split — Standalone Test ===\n")
+    print("=== Tool 4: compute_optimal_split — Standalone Test ===\n")
 
     # Use a future date for testing (next day at 20:00 SGT)
     from datetime import timezone, timedelta as td
@@ -645,7 +1049,10 @@ if __name__ == "__main__":
     test_departure = now.replace(hour=20, minute=0, second=0, microsecond=0) + td(days=1)
     test_feeder_dep = test_departure - td(hours=6)
 
-    result = compute_itt_split(
+    # Test PB-12 (ITT Coordination — flagship)
+    print("--- PB-12: ITT Coordination ---")
+    result = compute_optimal_split(
+        problem_id="PB-12",
         total_containers=120,
         container_40ft=40,
         container_20ft=80,
@@ -655,11 +1062,46 @@ if __name__ == "__main__":
         tuas_vessel_departure=test_departure.isoformat(),
         feeder_departure=test_feeder_dep.isoformat(),
     )
-
-    print(json.dumps(result, indent=2))
-    print(f"\nOptimal: {result['optimal_split']['road_containers']} road / "
+    print(f"Optimal: {result['optimal_split']['road_containers']} road / "
           f"{result['optimal_split']['sea_containers']} sea = "
           f"${result['optimal_split']['total_transport_cost']}")
     print(f"Confidence: {result['confidence']}")
     print(f"Alternatives: {len(result['alternatives'])}")
     print(f"Escalation flags: {len(result['escalation_flags'])}")
+
+    # Test PB-01 (Berth Delay)
+    print("\n--- PB-01: Berth Delay ---")
+    result_01 = compute_optimal_split(
+        problem_id="PB-01",
+        total_containers=120,
+        container_40ft=40,
+        container_20ft=80,
+        available_trucks=20,
+        transit_time_min=45,
+        feeder_available_teu=180,
+        tuas_vessel_departure=test_departure.isoformat(),
+        feeder_departure=test_feeder_dep.isoformat(),
+    )
+    print(f"Config: {result_01['problem_config']['name']}")
+    print(f"Systems: {result_01['problem_config']['systems']}")
+
+    # Test PB-09 (Expressway Disruption)
+    print("\n--- PB-09: Expressway Disruption ---")
+    result_09 = compute_optimal_split(
+        problem_id="PB-09",
+        total_containers=120,
+        container_40ft=40,
+        container_20ft=80,
+        available_trucks=20,
+        transit_time_min=45,
+        feeder_available_teu=180,
+        tuas_vessel_departure=test_departure.isoformat(),
+        feeder_departure=test_feeder_dep.isoformat(),
+    )
+    print(f"Config: {result_09['problem_config']['name']}")
+    print(f"Cost params: {result_09['problem_config']['cost_params']}")
+
+    print("\n=== All 7 problem configs loaded ===")
+    for pid in ["PB-01", "PB-02", "PB-04", "PB-09", "PB-10", "PB-11", "PB-12"]:
+        cfg = load_problem_config(pid)
+        print(f"  {pid}: {cfg.name} ({cfg.sector}) — {len(cfg.tools)} tools")

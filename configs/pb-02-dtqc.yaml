@@ -1,0 +1,64 @@
+# PB-02: DTQC Breakdown Cascade
+# Reallocate cranes when a quay crane breaks down mid-operations
+
+problem:
+  id: PB-02
+  name: "DTQC Breakdown Cascade"
+  sector: "Container Yard & Internal Transport"
+  description: "Reallocate cranes when a quay crane breaks down mid-operations"
+
+llm:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  api_key_env: ANTHROPIC_API_KEY
+  fallback_provider: openai
+  fallback_model: gpt-4o
+
+systems:
+  - name: rocc
+    type: crane_control
+    capabilities: [crane_status, diagnostics, maintenance_schedule]
+  - name: citos_ppt
+    type: terminal_os
+    capabilities: [container_backlog, berth_queue, qc_assignment]
+  - name: fms
+    type: fleet_management
+    capabilities: [agv_availability, transport_booking]
+
+tools:
+  - name: query_crane_status
+    systems: [rocc]
+    tool_id: tool_1
+  - name: check_container_backlog
+    systems: [citos_ppt]
+    tool_id: tool_2
+  - name: compute_crane_reallocation
+    systems: []
+    tool_id: tool_3
+  - name: notify_yard_planner
+    systems: [citos_ppt]
+    tool_id: tool_4
+  - name: request_emergency_crane
+    systems: [rocc]
+    tool_id: tool_5
+
+hitl_gates:
+  - gate_id: hitl_1
+    trigger: reallocation_computed
+    action: require_approval
+    label: "Approve Crane Reallocation"
+    timeout_minutes: 30
+
+cost_params:
+  vessel_demurrage_per_hr: 2500
+  crane_rental_per_hr: 800
+  container_delay_per_teu: 25
+  overtime_labour_per_hr: 75
+  yard_congestion_per_hr: 500
+
+constraints:
+  max_dtqc: 12
+  min_operational_dtqc: 8
+  crane_repositioning_time_min: 30
+  max_container_throughput_per_qc_per_hr: 30
+  overtime_limit_hours: 4

@@ -1,7 +1,9 @@
 """
 Custom LLM Provider Abstraction — Provider-Agnostic AI Architecture
 
-Swap between Anthropic, OpenAI, Gemini, and DeepSeek via YAML config.
+Swap between Anthropic, OpenAI, Gemini, DeepSeek, Ollama, vLLM, LM Studio,
+or any OpenAI-compatible API via YAML config.
+
 Unified chat interface, optional fallback provider, response tracking.
 
 Tech Stack ref: Section 4 (LLM Provider Abstraction), Section 8 (YAML config)
@@ -15,6 +17,16 @@ Usage:
         messages=[{"role": "user", "content": "Compute ITT split"}],
         tools=[tool_schema_1, tool_schema_2],
     )
+
+Supported providers:
+  - anthropic:  Claude (claude-sonnet-4, claude-opus-4, etc.)
+  - openai:     GPT-4o, GPT-4o-mini, o1, etc.
+  - gemini:     Gemini 2.0 Flash, Gemini 2.5 Pro, etc.
+  - deepseek:   DeepSeek V3, DeepSeek R1, etc.
+  - ollama:     Any model served by Ollama (local)
+  - vllm:       Any model served by vLLM (local/remote)
+  - lmstudio:   Any model served by LM Studio (local)
+  - custom:     Any OpenAI-compatible API (OpenRouter, Together, Groq, etc.)
 """
 
 from __future__ import annotations
@@ -417,6 +429,118 @@ class DeepSeekProvider(LLMProvider):
 
 
 # ---------------------------------------------------------------------------
+# Custom / OpenAI-compatible (Ollama, vLLM, LM Studio, OpenRouter, etc.)
+# ---------------------------------------------------------------------------
+
+class CustomProvider(LLMProvider):
+    """Any OpenAI-compatible API — Ollama, vLLM, LM Studio, OpenRouter, Together, Groq, etc.
+
+    Uses the OpenAI Python client with a custom base_url. Works with any
+    server that implements the OpenAI chat completions API.
+
+    YAML config:
+        llm:
+          provider: custom
+          model: llama3.1:8b
+          base_url: http://localhost:11434/v1  # Ollama
+          api_key: ollama                        # dummy key for Ollama
+          # OR:
+          base_url: http://localhost:8000/v1     # vLLM
+          api_key: token-abc123
+          # OR:
+          base_url: https://openrouter.ai/api/v1  # OpenRouter
+          api_key: sk-or-...
+    """
+
+    name = "custom"
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str = "",
+        base_url: str = "http://localhost:11434/v1",
+    ):
+        self.api_key = api_key or os.environ.get("CUSTOM_API_KEY", "dummy")
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        if not self.model:
+            logger.warning("CustomProvider: no model specified — server will use its default")
+
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        import openai
+
+        client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
+
+        t0 = time.monotonic()
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if tools:
+            kwargs["tools"] = tools
+
+        try:
+            response = client.chat.completions.create(**kwargs)
+        except openai.APIConnectionError as exc:
+            logger.error("Custom provider connection failed (%s): %s", self.base_url, exc)
+            raise
+        except openai.APIError as exc:
+            logger.error("Custom provider API error: %s", exc)
+            raise
+
+        latency_ms = (time.monotonic() - t0) * 1000
+
+        choice = response.choices[0]
+        content = choice.message.content
+        tool_calls = []
+
+        if choice.message.tool_calls:
+            for tc in choice.message.tool_calls:
+                tool_calls.append({
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                })
+
+        return LLMResponse(
+            content=content,
+            tool_calls=tool_calls,
+            finish_reason=choice.finish_reason,
+            usage={
+                "input_tokens": response.usage.prompt_tokens if response.usage else 0,
+                "output_tokens": response.usage.completion_tokens if response.usage else 0,
+            },
+            model=self.model or "default",
+            provider=f"custom ({self.base_url})",
+            latency_ms=latency_ms,
+            raw=response.model_dump(),
+        )
+
+    def health_check(self) -> bool:
+        """Check if the custom server is reachable."""
+        import openai
+
+        try:
+            client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
+            client.models.list()
+            return True
+        except Exception as exc:
+            logger.warning("Custom provider health check failed: %s", exc)
+            return False
+
+
+# ---------------------------------------------------------------------------
 # Provider registry + factory
 # ---------------------------------------------------------------------------
 
@@ -425,6 +549,10 @@ PROVIDERS: dict[str, type[LLMProvider]] = {
     "openai": OpenAIProvider,
     "gemini": GeminiProvider,
     "deepseek": DeepSeekProvider,
+    "ollama": CustomProvider,       # Ollama is OpenAI-compatible
+    "vllm": CustomProvider,         # vLLM is OpenAI-compatible
+    "lmstudio": CustomProvider,     # LM Studio is OpenAI-compatible
+    "custom": CustomProvider,       # Generic OpenAI-compatible
 }
 
 
@@ -433,14 +561,26 @@ def create_provider(config: dict[str, Any]) -> LLMProvider:
 
     Config shape:
         llm:
-          provider: anthropic
+          provider: anthropic          # or openai, gemini, deepseek, ollama, vllm, lmstudio, custom
           model: claude-sonnet-4-20250514
-          api_key_env: ANTHROPIC_API_KEY
+          api_key_env: ANTHROPIC_API_KEY  # env var name (optional)
+          api_key: sk-...                # direct key (optional, overrides env)
+          base_url: http://localhost:11434/v1  # for custom/ollama/vllm
           fallback_provider: openai
           fallback_model: gpt-4o
 
+    Supported provider values:
+      - anthropic:  Claude models (requires ANTHROPIC_API_KEY)
+      - openai:     GPT models (requires OPENAI_API_KEY)
+      - gemini:     Gemini models (requires GOOGLE_API_KEY)
+      - deepseek:   DeepSeek models (requires DEEPSEEK_API_KEY)
+      - ollama:     Local Ollama server (default: http://localhost:11434/v1)
+      - vllm:       vLLM server (default: http://localhost:8000/v1)
+      - lmstudio:   LM Studio server (default: http://localhost:1234/v1)
+      - custom:     Any OpenAI-compatible API (requires base_url)
+
     Args:
-        config: Dict with 'provider', 'model', optional 'api_key_env'.
+        config: Dict with 'provider', 'model', optional 'api_key', 'base_url'.
 
     Returns:
         Configured LLMProvider instance.
@@ -451,7 +591,8 @@ def create_provider(config: dict[str, Any]) -> LLMProvider:
     provider_name = config.get("provider", "anthropic")
     model = config.get("model", "")
     api_key_env = config.get("api_key_env", "")
-    api_key = os.environ.get(api_key_env, "") if api_key_env else ""
+    api_key = config.get("api_key") or (os.environ.get(api_key_env, "") if api_key_env else "")
+    base_url = config.get("base_url", "")
 
     if provider_name not in PROVIDERS:
         raise ValueError(
@@ -460,14 +601,33 @@ def create_provider(config: dict[str, Any]) -> LLMProvider:
         )
 
     provider_cls = PROVIDERS[provider_name]
-    kwargs = {}
-    if api_key:
-        kwargs["api_key"] = api_key
-    if model:
-        kwargs["model"] = model
+    kwargs: dict[str, Any] = {}
+
+    # All custom/ollama/vllm/lmstudio providers use CustomProvider
+    if provider_name in ("ollama", "vllm", "lmstudio", "custom"):
+        if not base_url:
+            # Default URLs per provider type
+            defaults = {
+                "ollama": "http://localhost:11434/v1",
+                "vllm": "http://localhost:8000/v1",
+                "lmstudio": "http://localhost:1234/v1",
+                "custom": "",
+            }
+            base_url = defaults.get(provider_name, "")
+        kwargs["base_url"] = base_url
+        if api_key:
+            kwargs["api_key"] = api_key
+        if model:
+            kwargs["model"] = model
+    else:
+        # Named providers (anthropic, openai, gemini, deepseek)
+        if api_key:
+            kwargs["api_key"] = api_key
+        if model:
+            kwargs["model"] = model
 
     provider = provider_cls(**kwargs)
-    logger.info("Created LLM provider: %s (model: %s)", provider_name, model)
+    logger.info("Created LLM provider: %s (model: %s)", provider_name, model or "default")
 
     return provider
 
@@ -476,6 +636,15 @@ def create_provider_with_fallback(config: dict[str, Any]) -> LLMProvider:
     """Create provider with optional fallback.
 
     If the primary provider fails on health check, try the fallback.
+
+    Config shape:
+        llm:
+          provider: ollama
+          model: llama3.1:8b
+          base_url: http://localhost:11434/v1
+          fallback_provider: openai
+          fallback_model: gpt-4o
+          fallback_api_key_env: OPENAI_API_KEY
     """
     primary = create_provider(config)
 
@@ -485,6 +654,8 @@ def create_provider_with_fallback(config: dict[str, Any]) -> LLMProvider:
             "provider": fallback_name,
             "model": config.get("fallback_model", ""),
             "api_key_env": config.get("fallback_api_key_env", ""),
+            "api_key": config.get("fallback_api_key", ""),
+            "base_url": config.get("fallback_base_url", ""),
         }
         fallback = create_provider(fallback_config)
 
