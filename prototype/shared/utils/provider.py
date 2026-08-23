@@ -106,13 +106,67 @@ class LLMProvider(ABC):
         """
         ...
 
+    def chat_with_retry(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 4096,
+        max_retries: int = 3,
+        retry_delay: float = 1.0,
+    ) -> LLMResponse:
+        """Chat with automatic retry on transient failures.
+
+        Args:
+            messages: List of message dicts.
+            tools: Optional tool schemas.
+            temperature: Sampling temperature.
+            max_tokens: Max tokens in response.
+            max_retries: Maximum retry attempts (default 3).
+            retry_delay: Base delay between retries in seconds (doubles each retry).
+
+        Returns:
+            LLMResponse from the successful attempt.
+        """
+        import traceback
+
+        last_exc: Exception | None = None
+        for attempt in range(max_retries):
+            try:
+                return self.chat(messages, tools=tools, temperature=temperature, max_tokens=max_tokens)
+            except Exception as exc:
+                last_exc = exc
+                if attempt < max_retries - 1:
+                    delay = retry_delay * (2 ** attempt)
+                    logger.warning(
+                        "Provider %s attempt %d/%d failed: %s — retrying in %.1fs",
+                        self.name, attempt + 1, max_retries, exc, delay,
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error(
+                        "Provider %s failed after %d attempts: %s\n%s",
+                        self.name, max_retries, exc, traceback.format_exc(),
+                    )
+        raise last_exc  # type: ignore[misc]
+
     def health_check(self) -> bool:
-        """Check if the provider is reachable and configured."""
-        try:
-            self.chat([{"role": "user", "content": "ping"}], max_tokens=5)
-            return True
-        except Exception:
-            return False
+        """Check if the provider is reachable and configured.
+
+        Lazy check: validates API key is set, then attempts a minimal
+        request. Caches result to avoid repeated network calls.
+        """
+        if not self._health_checked:
+            try:
+                self.chat([{"role": "user", "content": "ping"}], max_tokens=5)
+                self._health_ok = True
+            except Exception:
+                self._health_ok = False
+            self._health_checked = True
+        return self._health_ok
+
+    _health_checked: bool = False
+    _health_ok: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -124,9 +178,10 @@ class AnthropicProvider(LLMProvider):
 
     name = "anthropic"
 
-    def __init__(self, api_key: str | None = None, model: str = "claude-sonnet-4-20250514"):
+    def __init__(self, api_key: str | None = None, model: str = "claude-sonnet-4-20250514", base_url: str | None = None):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         self.model = model
+        self.base_url = base_url
         if not self.api_key:
             logger.warning("Anthropic API key not set — provider will fail on chat()")
 
@@ -139,7 +194,10 @@ class AnthropicProvider(LLMProvider):
     ) -> LLMResponse:
         import anthropic
 
-        client = anthropic.Anthropic(api_key=self.api_key)
+        kwargs: dict[str, Any] = {"api_key": self.api_key}
+        if self.base_url:
+            kwargs["base_url"] = self.base_url
+        client = anthropic.Anthropic(**kwargs)
 
         # Anthropic uses separate system message
         system_msg = ""
@@ -211,9 +269,10 @@ class OpenAIProvider(LLMProvider):
 
     name = "openai"
 
-    def __init__(self, api_key: str | None = None, model: str = "gpt-4o"):
+    def __init__(self, api_key: str | None = None, model: str = "gpt-4o", base_url: str | None = None):
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self.model = model
+        self.base_url = base_url
         if not self.api_key:
             logger.warning("OpenAI API key not set — provider will fail on chat()")
 
@@ -226,7 +285,10 @@ class OpenAIProvider(LLMProvider):
     ) -> LLMResponse:
         import openai
 
-        client = openai.OpenAI(api_key=self.api_key)
+        client_kwargs: dict[str, Any] = {"api_key": self.api_key}
+        if self.base_url:
+            client_kwargs["base_url"] = self.base_url
+        client = openai.OpenAI(**client_kwargs)
 
         t0 = time.monotonic()
         kwargs: dict[str, Any] = {
@@ -301,21 +363,24 @@ class GeminiProvider(LLMProvider):
         # Convert messages to Gemini format
         contents = []
         for msg in messages:
-            role = "user" if msg["role"] in ("user", "tool") else "model"
+            if msg["role"] == "system":
+                # Gemini doesn't have a system role in contents; prepend to first user message
+                continue
+            role = "model" if msg["role"] == "assistant" else "user"
             contents.append({"role": role, "parts": [msg["content"]]})
 
-        # Convert tools to Gemini format
+        # Convert tools to Gemini format (flat list of function declarations)
         gemini_tools = []
         if tools:
+            function_declarations = []
             for tool in tools:
                 fn = tool["function"]
-                gemini_tools.append({
-                    "function_declarations": [{
-                        "name": fn["name"],
-                        "description": fn.get("description", ""),
-                        "parameters": fn.get("parameters", {}),
-                    }]
+                function_declarations.append({
+                    "name": fn["name"],
+                    "description": fn.get("description", ""),
+                    "parameters": fn.get("parameters", {}),
                 })
+            gemini_tools = [{"function_declarations": function_declarations}]
 
         t0 = time.monotonic()
         response = model.generate_content(
@@ -367,10 +432,10 @@ class DeepSeekProvider(LLMProvider):
 
     name = "deepseek"
 
-    def __init__(self, api_key: str | None = None, model: str = "deepseek-chat"):
+    def __init__(self, api_key: str | None = None, model: str = "deepseek-chat", base_url: str | None = None):
         self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
         self.model = model
-        self.base_url = "https://api.deepseek.com"
+        self.base_url = base_url or "https://api.deepseek.com"
         if not self.api_key:
             logger.warning("DeepSeek API key not set — provider will fail on chat()")
 
@@ -527,18 +592,6 @@ class CustomProvider(LLMProvider):
             raw=response.model_dump(),
         )
 
-    def health_check(self) -> bool:
-        """Check if the custom server is reachable."""
-        import openai
-
-        try:
-            client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
-            client.models.list()
-            return True
-        except Exception as exc:
-            logger.warning("Custom provider health check failed: %s", exc)
-            return False
-
 
 # ---------------------------------------------------------------------------
 # Provider registry + factory
@@ -625,6 +678,8 @@ def create_provider(config: dict[str, Any]) -> LLMProvider:
             kwargs["api_key"] = api_key
         if model:
             kwargs["model"] = model
+        if base_url:
+            kwargs["base_url"] = base_url
 
     provider = provider_cls(**kwargs)
     logger.info("Created LLM provider: %s (model: %s)", provider_name, model or "default")

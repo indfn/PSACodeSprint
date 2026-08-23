@@ -103,6 +103,7 @@ class ProblemConfig:
             "problem_id": self.problem_id,
             "name": self.name,
             "sector": self.sector,
+            "description": self.description,
             "decision_variables": self.decision_variables,
             "optimisation_target": self.optimisation_target,
             "cost_params": self.cost_params,
@@ -110,6 +111,8 @@ class ProblemConfig:
             "constraints": self.constraints,
             "systems": self.systems,
             "tools": self.tools,
+            "escalation_triggers": self.escalation_triggers,
+            "confidence_threshold": self.confidence_threshold,
         }
 
 
@@ -540,14 +543,20 @@ def _compute_timeline(
     sea_containers: int,
     feeder_departure: datetime,
     vessel_departure: datetime,
+    reference_time: datetime | None = None,
 ) -> dict[str, Any]:
-    """Compute estimated arrival times for road and sea ITT."""
-    # Reference time: use vessel_departure timezone if available, else naive
+    """Compute estimated arrival times for road and sea ITT.
+
+    Args:
+        reference_time: Anchor time for "now". Defaults to current time.
+            Pass a fixed time for deterministic tests/replays.
+    """
     tz = vessel_departure.tzinfo
-    now = datetime.now(tz) if tz else datetime.now()
+    now = reference_time or (datetime.now(tz) if tz else datetime.now())
 
     # Road: waves of truck dispatches
-    if available_trucks > 0:
+    waves = 0
+    if available_trucks > 0 and road_trips > 0:
         waves = math.ceil(road_trips / available_trucks)
         road_duration_min = waves * (transit_time_min * 2 + 30)  # round trip + loading
     else:
@@ -734,10 +743,9 @@ def compute_optimal_split(
 
     # Feeder capacity constraint — practical limit
     # The feeder has limited time at PPT: arrives, unloads, loads, departs.
-    # Practical loading window: 4 hours max (realistic for regional feeder).
-    # Loading rate: ~20 containers/hour.
-    FEEDER_LOADING_RATE_PER_HR = 20
-    FEEDER_MAX_LOADING_HOURS = 4  # Feeder doesn't stay at PPT forever
+    # Loading rate and max hours read from config (PB-12: 20/hr, 4 hrs)
+    FEEDER_LOADING_RATE_PER_HR = pc_constraints.get("feeder_loading_rate_per_hr", 20)
+    FEEDER_MAX_LOADING_HOURS = pc_constraints.get("feeder_max_loading_hours", 4)
     ref_tz = vessel_departure.tzinfo or feeder_dep.tzinfo
     now_ref = datetime.now(ref_tz) if ref_tz else datetime.now()
     feeder_hours_available = min(
@@ -749,16 +757,12 @@ def compute_optimal_split(
     # Practical feeder capacity: not all TEU available for this ITT
     # Feeder already carries cargo for other destinations (Port Klang, etc.)
     # Only ~40 TEU available for PPT→Tuas ITT (matching Master Charter §3 Tool 3)
-    FEEDER_AVAILABLE_FOR_ITT_TEU = 40
+    FEEDER_AVAILABLE_FOR_ITT_TEU = pc_constraints.get("feeder_available_teu", 40)
     max_sea_teu = min(
         feeder_available_teu,
         FEEDER_AVAILABLE_FOR_ITT_TEU,
         max_sea_by_loading,
-        container_40ft + container_20ft,
     )
-
-    # Also cap by available containers — can't send more than we have
-    max_sea_teu = min(max_sea_teu, container_40ft + container_20ft)
 
     logger.info(
         "Feeder constraints: available_teu=%d, loading_capacity=%d, "
@@ -908,16 +912,53 @@ def compute_optimal_split(
             "rationale": "Agent uncertain about optimal split — requires senior judgment",
         })
 
-    if timeline["margin_minutes"] < 60:
+    # esc_2: Feeder hold > 1.5 hrs
+    if timeline["margin_minutes"] > 0:
+        estimated_feeder_hold_min = max(0, timeline["margin_minutes"] - 60)
+        if estimated_feeder_hold_min > 90:
+            escalation_flags.append({
+                "trigger_id": "esc_2",
+                "name": "Feeder hold exceeds threshold",
+                "condition": f"feeder_hold ({estimated_feeder_hold_min} min) > 90 min",
+                "threshold": 90,
+                "actual": estimated_feeder_hold_min,
+                "rationale": "Feeder must wait too long for road ITT — consider increasing sea split",
+            })
+
+    # esc_3: Total transport cost > $10,000 (or problem-specific threshold)
+    cost_limit = 10000
+    for trig in problem_config.escalation_triggers:
+        if trig.get("id") == "esc_3" and trig.get("threshold") is not None:
+            cost_limit = trig["threshold"]
+            break
+    if optimal.total_transport_cost > cost_limit:
         escalation_flags.append({
             "trigger_id": "esc_3",
-            "name": "Financial recovery cost exceeds limit",
-            "condition": f"margin ({timeline['margin_minutes']} min) < 60 min",
-            "threshold": 60,
-            "actual": timeline["margin_minutes"],
-            "rationale": "Insufficient margin — high risk of vessel delay costs",
+            "name": "Total transport cost exceeds limit",
+            "condition": f"total_cost (${optimal.total_transport_cost}) > ${cost_limit}",
+            "threshold": cost_limit,
+            "actual": optimal.total_transport_cost,
+            "rationale": "Transport cost exceeds threshold — requires cost optimisation review",
         })
 
+    # esc_4: Data age > 30 min
+    data_age_threshold = 30
+    for trig in problem_config.escalation_triggers:
+        if trig.get("id") == "esc_4":
+            data_age_threshold = trig.get("threshold", 30)
+            break
+    # Data age is checked at runtime (not here), but flag if margin implies stale data risk
+    if timeline["margin_minutes"] < data_age_threshold:
+        escalation_flags.append({
+            "trigger_id": "esc_4",
+            "name": "Data freshness risk — margin below data age threshold",
+            "condition": f"margin ({timeline['margin_minutes']} min) < data_age_threshold ({data_age_threshold} min)",
+            "threshold": data_age_threshold,
+            "actual": timeline["margin_minutes"],
+            "rationale": "Insufficient margin to absorb data latency — decision may be based on stale state",
+        })
+
+    # esc_5: Trucks < 60% required
     if optimal.road_trips > available_trucks * 2:
         escalation_flags.append({
             "trigger_id": "esc_5",
