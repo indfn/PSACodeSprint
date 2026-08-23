@@ -98,7 +98,7 @@ Evaluate the Flagship Problem across 4 risk vectors:
 
 Formalize the winning Flagship Problem and its Cluster Scalability Blueprint into a comprehensive Master Charter for Phase 4 engineering.
 
-**Deliverable:** `problem-selection/03-03-master-charter.md`
+**Deliverable:** `buildplan/03-03-master-charter.md`
 
 #### Required Charter Schema:
 
@@ -165,7 +165,7 @@ Define at least 4 specific mock API tools with exact parameters and return data:
 |---|---|---|
 | **03-01** | `problem-selection/03-01-litmus-test-scores.md` | Scored Litmus Filter (with realistic fails) & Cluster Matrix |
 | **03-02** | `problem-selection/03-02-autonomy-level.md` | Stakeholder authority mapping & HITL trigger policies |
-| **03-03** | `problem-selection/03-03-master-charter.md` | Locked Master Problem Charter & Mock API build contract for Phase 4 |
+| **03-03** | `buildplan/03-03-master-charter.md` | Locked Master Problem Charter & Mock API build contract for Phase 4 |
 
 ---
 

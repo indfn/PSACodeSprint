@@ -224,7 +224,7 @@ To ensure 100% technical, operational, and mathematical perfection before extern
 ---
 
 ### Patch 2: Correct Tool 4 Output & HITL Gate Card Math — **APPLIED**
-**File:** `problem-selection/03-03-master-charter.md`  
+**File:** `buildplan/03-03-master-charter.md`  
 **Location:** Section 2 (To-Be Workflow, Step 6), Section 3 (Tool 4 Output), and Section 4 (HITL Approval Card)
 
 #### In Section 2 (To-Be Workflow, Step 6):
@@ -321,7 +321,7 @@ To ensure 100% technical, operational, and mathematical perfection before extern
 ---
 
 ### Patch 5: Reconcile Gross Disruption Exposure vs. Net Recoverable Savings — **APPLIED**
-**File:** `problem-selection/03-03-master-charter.md`  
+**File:** `buildplan/03-03-master-charter.md`  
 **Location:** Section 5 (ROI Model)
 
 **Add Clarifying Note to Section 1 & Section 5:**

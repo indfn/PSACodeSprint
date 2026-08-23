@@ -63,7 +63,7 @@ Every problem references specific Phase 1 files with line numbers (e.g., `berth-
 
 **`problem-selection/03-02-autonomy-level.md`** — Decides how much human oversight the agent needs. High-risk decisions (money, safety, multi-party commitments) get a mandatory human-in-the-loop gate. Low-risk read-only tasks get full automation.
 
-**`problem-selection/03-03-master-charter.md`** — The final locked document. Describes the one problem the team will build around: what the agent does, which systems it touches, what data it sees, what decisions it makes, what it cannot do without a human, and how much money it saves.
+**`buildplan/03-03-master-charter.md`** — The final locked document. Describes the one problem the team will build around: what the agent does, which systems it touches, what data it sees, what decisions it makes, what it cannot do without a human, and how much money it saves.
 
 ### How the litmus test works (5 filters)
 
@@ -146,8 +146,23 @@ PSACodeSprint/
 │   ├── 02-03-problem-bank.md             # 16 structured problem charters
 ├── problem-selection/                     # Phase 3 output
 │   ├── 03-01-litmus-test-scores.md       # Litmus test + cluster rankings
-│   ├── 03-02-autonomy-level.md           # HITL guardrails + risk profile
+│   └── 03-02-autonomy-level.md           # HITL guardrails + risk profile
+├── buildplan/                             # Build planning
+│   ├── tech-stack.md                     # Tech stack decision report
 │   └── 03-03-master-charter.md           # Final locked Master Problem Charter
+├── prototype/                             # Implementation
+│   ├── main.py                           # FastAPI entry point
+│   ├── configs/                          # Problem configs (YAML)
+│   │   ├── pb-12-itt.yaml               # PB-12: ITT coordination
+│   │   ├── pb-01-berth.yaml             # PB-01: Berth delay
+│   │   └── ...                           # 7 problem configs total
+│   ├── shared/utils/
+│   │   └── provider.py                   # LLM provider abstraction
+│   └── pre_approval/
+│       ├── ai_optimisation/
+│       │   └── compute_itt_split.py      # Tool 4: optimisation engine
+│       └── road_itt/
+│           └── optetruck_tools.py        # Tool 2: road ITT capacity
 └── .planning/                             # Internal project management (ignore)
 ```
 
@@ -173,4 +188,4 @@ PSACodeSprint/
 
 ## What Happens Next
 
-Phases 1–3 are complete. The Master Problem Charter (`problem-selection/03-03-master-charter.md`) is the handoff document to the build team. The next step is Phase 4: Architecture and Agent Development — which is outside this workspace's scope.
+Phases 1–3 are complete. The Master Problem Charter (`buildplan/03-03-master-charter.md`) is the handoff document to the build team. The next step is Phase 4: Architecture and Agent Development — which is outside this workspace's scope.

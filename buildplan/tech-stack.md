@@ -300,36 +300,28 @@ langsmith>=0.8.0                # optional: tracing
 
 ```
 psa-agent/
-├── agent/
-│   ├── __init__.py
-│   ├── core.py                # LangGraph graph definition
-│   ├── nodes/
-│   │   ├── __init__.py
-│   │   ├── ingest.py          # Read from all 5 systems
-│   │   ├── decide.py          # LLM decides next action + confidence score
-│   │   ├── execute.py         # Execute tool call
-│   │   ├── hitl.py            # 5 HITL gate nodes (see Section 8)
-│   │   ├── escalate.py        # 7 escalation trigger checks
-│   │   └── confidence.py      # Confidence scoring + threshold check
-│   ├── tools/
-│   │   ├── __init__.py
-│   │   ├── webhook.py         # Event ingestion endpoint (ITT_COORDINATION_REQUEST)
-│   │   ├── citos_tools.py     # Tool 1: query_container_readiness
-│   │   ├── optetruck_tools.py # Tool 2: check_road_itt_capacity
-│   │   ├── feeder_tools.py    # Tool 3: check_sea_itt_capacity
-│   │   ├── portnet_tools.py   # PORTNET inventory sync
-│   │   ├── split_optimizer.py # Tool 4: compute_itt_split
-│   │   └── loading_seq.py     # Tool 5: update_tuas_loading_sequence
-│   ├── state.py               # Agent state definition (TypedDict)
-│   ├── llm.py                 # LLM provider abstraction
-│   ├── config.py              # YAML config loader
-│   └── edge_cases.py          # Stale data detection, berth conflict simulation
-├── configs/
-│   ├── pb-12-itt.yaml         # PB-12: ITT coordination (full config)
-│   ├── pb-07-yard.yaml        # Placeholder: yard re-handle
-│   ├── pb-09-gate.yaml        # Placeholder: gate scheduling
-│   └── default.yaml           # Shared defaults
-├── mocks/
+├── prototype/
+│   ├── main.py                  # FastAPI app entry point
+│   ├── configs/                 # Problem configs (YAML)
+│   │   ├── pb-12-itt.yaml      # PB-12: ITT coordination (flagship)
+│   │   ├── pb-01-berth.yaml    # PB-01: Berth delay
+│   │   ├── pb-02-dtqc.yaml     # PB-02: DTQC breakdown
+│   │   ├── pb-04-feeder.yaml   # PB-04: Missed connection
+│   │   ├── pb-09-expressway.yaml # PB-09: Expressway disruption
+│   │   ├── pb-10-sea-air.yaml  # PB-10: Sea-air cut-off
+│   │   └── pb-11-customs.yaml  # PB-11: Customs hold
+│   ├── shared/
+│   │   └── utils/
+│   │       └── provider.py      # LLM provider abstraction
+│   ├── pre_approval/
+│   │   ├── ai_optimisation/
+│   │   │   └── compute_itt_split.py  # Tool 4: optimisation engine
+│   │   ├── road_itt/
+│   │   │   └── optetruck_tools.py    # Tool 2: road ITT capacity
+│   │   ├── ppt_citos/            # Tool 1: container readiness
+│   │   ├── sea_itt/              # Tool 3: feeder capacity
+│   │   └── container_readiness/
+│   └── mocks/                   # Mock API servers
 │   ├── __init__.py
 │   ├── citos_ppt.py           # PPT CITOS mock
 │   ├── citos_tuas.py          # Tuas CITOS mock
@@ -371,7 +363,7 @@ psa-agent/
 The agent core (LangGraph graph) is **identical** for all 7 Cluster C2 problems. Only the config changes:
 
 ```yaml
-# configs/pb-12-itt.yaml — PB-12: Multi-Party ITT Coordination
+# prototype/configs/pb-12-itt.yaml — PB-12: Multi-Party ITT Coordination
 problem:
   id: PB-12
   name: "Multi-Party ITT Coordination Failure"

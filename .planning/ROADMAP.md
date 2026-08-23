@@ -58,7 +58,7 @@ Plans:
 Plans:
 - [x] 03-01: Apply 5-Point Agentic AI Litmus Test to each problem ✅ (`problem-selection/03-01-litmus-test-scores.md`)
 - [x] 03-02: Define target autonomy level ✅ (`problem-selection/03-02-autonomy-level.md`)
-- [x] 03-03: Lock ONE Master Problem Charter ✅ (`problem-selection/03-03-master-charter.md`)
+- [x] 03-03: Lock ONE Master Problem Charter ✅ (`buildplan/03-03-master-charter.md`)
 
 ## Progress
 
