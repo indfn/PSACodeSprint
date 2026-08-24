@@ -17,6 +17,7 @@ Tech Stack ref: Section 8, YAML config (tools.check_road_itt_capacity)
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -58,6 +59,16 @@ TOTAL_CONTAINERS = 120
 CONTAINER_MIX_40FT_FEU = 40
 CONTAINER_MIX_20FT_TEU = 80
 
+# Congestion multipliers for road conditions (WR-02, WR-03)
+CONGESTION_AYE_MULTIPLIER = 1.3
+CONGESTION_WCH_MULTIPLIER = 1.2
+
+# QC loading buffer — latest arrival must leave margin for terminal ops (WR-02)
+QC_LOADING_BUFFER_MINUTES = 30
+
+# Post-peak congestion lingers after peak window ends (WR-04)
+POST_PEAK_BUFFER_MINUTES = 20
+
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -87,7 +98,12 @@ class RoadConditions:
 
     @property
     def worst_segment(self) -> str | None:
-        severity = {"clear": 0, "normal": 0, "moderate": 1, "heavy": 2, "standstill": 3}
+        severity = {
+            "clear": 0, "normal": 0,
+            "moderate_traffic": 1, "moderate_traffic_near_pandan": 1,
+            "heavy": 2, "heavy_traffic": 2,
+            "standstill": 3,
+        }
         worst = max(self.segments.items(), key=lambda x: severity.get(x[1], 0))
         return worst[0] if worst[1] not in ("normal", "clear") else None
 
@@ -228,6 +244,8 @@ def _resolve_transit_time(time_window_start: datetime) -> int:
     If the departure time is within a peak window, use peak transit time.
     If the departure is within 30 min before a peak window, use peak transit
     (congestion builds before the official window).
+    If the departure is within 20 min after a peak window, use peak transit
+    (congestion lingers after peak ends).
     """
     minutes_since_midnight = time_window_start.hour * 60 + time_window_start.minute
 
@@ -237,6 +255,9 @@ def _resolve_transit_time(time_window_start: datetime) -> int:
             return TRANSIT_PEAK_MIN
         # Within 30 min before peak window (congestion buildup)
         if start - 30 <= minutes_since_midnight < start:
+            return TRANSIT_PEAK_MIN
+        # Within 20 min after peak window (lingering congestion)
+        if end < minutes_since_midnight <= end + POST_PEAK_BUFFER_MINUTES:
             return TRANSIT_PEAK_MIN
 
     return TRANSIT_OFF_PEAK_MIN
@@ -421,9 +442,9 @@ def check_road_itt_capacity(
     if road_conditions.has_congestion:
         worst = road_conditions.worst_segment
         if worst == "AYE":
-            transit_minutes = int(transit_minutes * 1.3)  # AYE congestion adds 30%
+            transit_minutes = math.ceil(transit_minutes * CONGESTION_AYE_MULTIPLIER)
         elif worst == "West_Coast_Highway":
-            transit_minutes = int(transit_minutes * 1.2)  # WCH adds 20%
+            transit_minutes = math.ceil(transit_minutes * CONGESTION_WCH_MULTIPLIER)
 
     # ------------------------------------------------------------------
     # 5. Compute time window constraints
@@ -432,7 +453,7 @@ def check_road_itt_capacity(
     earliest_departure = tw_start
 
     # Latest arrival at Tuas: time_window_end minus buffer for QC loading
-    latest_arrival = tw_end
+    latest_arrival = tw_end - timedelta(minutes=QC_LOADING_BUFFER_MINUTES)
 
     # ------------------------------------------------------------------
     # 6. Build and return capacity response
@@ -457,7 +478,7 @@ def check_road_itt_capacity(
     # 7. Escalation guard: flag if capacity is critically low
     #    (mirrors esc_5: available_trucks < required_trucks * 0.6)
     # ------------------------------------------------------------------
-    required_trips = capacity.baseline_trips_all_120  # 80 trips for 100% road
+    required_trips = capacity.total_trips  # actual trips for the given container mix
     if available_trucks < required_trips * 0.6:
         result["escalation_flag"] = {
             "trigger_id": "esc_5",
