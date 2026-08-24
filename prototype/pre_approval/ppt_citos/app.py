@@ -1,7 +1,7 @@
 """Standalone FastAPI app for PPT CITOS mock API.
 
 Run:
-    uvicorn ppt_citos.app:app --reload --port 8001
+    uvicorn pre_approval.ppt_citos.app:app --reload --port 8001
 
 Endpoints:
     POST /citos/ppt/itt-candidates     — Tool 1: Query containers ready for ITT

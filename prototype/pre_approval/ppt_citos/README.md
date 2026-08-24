@@ -5,9 +5,9 @@ Pasir Panjang Terminal Container Operating System — mock implementation for PS
 ## Quick Start
 
 ```bash
-cd /Users/varun/Documents/PSACodeSprint/prototype
-pip install -r ppt_citos/requirements.txt
-uvicorn ppt_citos.app:app --reload --port 8001
+cd prototype
+pip install -r pre_approval/ppt_citos/requirements.txt
+uvicorn pre_approval.ppt_citos.app:app --reload --port 8001
 ```
 
 ## Endpoints
