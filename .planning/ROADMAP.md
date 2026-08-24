@@ -2,13 +2,14 @@
 
 ## Overview
 
-Three-phase deep research and problem evaluation pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phase 1 maps PSA Singapore's 4 operational sectors, 7 baseline digital systems, and 3 critical flows. Phase 2 mines disruptions and builds a 10–15 problem bank. Phase 3 litmus-tests every candidate, selects the single best problem, and locks a Master Problem Charter — all before the team commits to architecture or agent development.
+Four-phase pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 1–3 map PSA Singapore's operations, mine disruptions, and select the flagship problem. Phase 4 builds the mock API server that simulates 5 PSA systems for the agent demo.
 
 ## Phases
 
 - [x] **Phase 1: Broad PSA Singapore Operations & Systems Mapping** - Map sectors, systems, and flows ✅
 - [x] **Phase 2: Disruption Mining & Problem Bank Creation** - Identify frictions, build 10–15 problem bank ✅
 - [x] **Phase 3: Problem Evaluation & Final Selection** - Litmus test, select, charter one problem ✅
+- [ ] **Phase 4: Mock API Server** - Build FastAPI server simulating 5 PSA systems + webhook endpoint
 
 ## Phase Details
 
@@ -60,13 +61,31 @@ Plans:
 - [x] 03-02: Define target autonomy level ✅ (`problem-selection/03-02-autonomy-level.md`)
 - [x] 03-03: Lock ONE Master Problem Charter ✅ (`buildplan/03-03-master-charter.md`)
 
+### Phase 4: Mock API Server
+**Goal**: Build a FastAPI server that simulates 5 PSA systems (CITOS PPT, CITOS Tuas, OptETruck, Feeder, PORTNET) with realistic data and a webhook endpoint for ITT_COORDINATION_REQUEST events — the foundation for the LangGraph agent demo.
+**Depends on**: Phase 3
+**Requirements**: [COMP-02]
+**Success Criteria** (what must be TRUE):
+  1. All 5 mock system endpoints return data matching Master Charter Tool specs
+  2. Webhook endpoint accepts ITT_COORDINATION_REQUEST and returns accepted status
+  3. Mock data uses realistic Singapore cost parameters from Master Charter
+  4. Server runs on single port (8000) with `uvicorn prototype.main:app`
+  5. Edge case scenarios (feeder berth conflict, data staleness) configurable via YAML
+**Status**: ○ PLANNED
+
+Plans:
+- [ ] 04-01: FastAPI scaffold + Pydantic schemas + project setup
+- [ ] 04-02: 5 mock system API endpoints with realistic data
+- [ ] 04-03: Webhook endpoint + edge case simulation + integration test
+
 ## Progress
 
 **Execution Order:**
-Phases execute in order: 1 → 2 → 3
+Phases execute in order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Broad PSA Singapore Operations & Systems Mapping | 3/3 | ✅ Complete | 2026-08-17 |
 | 2. Disruption Mining & Problem Bank Creation | 3/3 | ✅ Complete | 2026-08-17 |
 | 3. Problem Evaluation & Final Selection | 3/3 | ✅ Complete | 2026-08-19 |
+| 4. Mock API Server | 0/3 | ○ Planned | — |
