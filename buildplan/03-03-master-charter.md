@@ -823,7 +823,7 @@ Confidence trajectory: 0.95 → 0.90 → 0.88 → 0.92 → 0.91 → 0.78 (deviat
 The same agent core handles all 7 Cluster C2 problems. Only the YAML config changes:
 
 ```yaml
-# configs/pb-12-itt.yaml — PB-12: Multi-Party ITT Coordination
+# prototype/configs/pb-12-itt.yaml — PB-12: Multi-Party ITT Coordination
 problem:
   id: PB-12
   name: "Multi-Party ITT Coordination Failure"
