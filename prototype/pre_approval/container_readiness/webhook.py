@@ -4,7 +4,7 @@ T6: receive_webhook — Container Readiness Event Receiver
 Receives ITT_COORDINATION_REQUEST events from PPT CITOS via webhook.
 This is the agent entry point (Tool 6 in Master Charter §3).
 
-Called by CITOS (PPT) when 50+ containers are ready for cross-terminal
+Called by CITOS (PPT) when containers are ready for cross-terminal
 transfer to Tuas Port. Validates payload, bootstraps initial agent state,
 and triggers the LangGraph agent.
 """
@@ -12,13 +12,31 @@ and triggers the LangGraph agent.
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
+import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 router = APIRouter()
 
 SGT = timezone(timedelta(hours=8))
+
+_CONFIG_PATH = Path(__file__).resolve().parents[2] / "configs" / "container_readiness.yaml"
+
+def _load_config() -> dict:
+    """Load config from YAML, falling back to defaults if file is missing."""
+    defaults = {"min_container_count": 50}
+    try:
+        with open(_CONFIG_PATH) as f:
+            config = yaml.safe_load(f) or {}
+        defaults.update(config)
+    except FileNotFoundError:
+        logging.warning("Config not found at %s, using defaults", _CONFIG_PATH)
+    return defaults
+
+_CONFIG = _load_config()
+MIN_CONTAINER_COUNT: int = _CONFIG["min_container_count"]
 
 
 # ---------------------------------------------------------------------------
@@ -77,9 +95,9 @@ def _validate_event(event: ITTCoordinationEvent) -> list[str]:
     """Return a list of validation error messages (empty = valid)."""
     errors: list[str] = []
 
-    if event.container_count < 50:
+    if event.container_count < MIN_CONTAINER_COUNT:
         errors.append(
-            f"container_count must be >= 50 for ITT coordination "
+            f"container_count must be >= {MIN_CONTAINER_COUNT} for ITT coordination "
             f"(got {event.container_count})"
         )
 
@@ -145,7 +163,7 @@ async def receive_container_readiness(event: ITTCoordinationEvent) -> dict:
 
     Webhook endpoint for ``ITT_COORDINATION_REQUEST`` events.
 
-    Called by CITOS (PPT) when 50+ containers are ready for cross-terminal
+    Called by CITOS (PPT) when containers are ready for cross-terminal
     transfer.  Validates the payload, creates the initial agent state, and
     triggers the LangGraph agent.
 
@@ -158,10 +176,9 @@ async def receive_container_readiness(event: ITTCoordinationEvent) -> dict:
 
     run_id = f"run-{uuid.uuid4().hex[:12]}"
 
-    initial_state = _bootstrap_agent_state(event, run_id)
-
     # --- Agent trigger (mock) -----------------------------------------------
-    # In production this would call:
+    # TODO: wire in LangGraph agent
+    #     initial_state = _bootstrap_agent_state(event, run_id)
     #     result = await agent_graph.ainvoke(initial_state)
     logger = logging.getLogger("container_readiness.webhook")
     logger.info(
