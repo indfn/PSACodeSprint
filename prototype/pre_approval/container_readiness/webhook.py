@@ -91,7 +91,7 @@ class ITTCoordinationEvent(BaseModel):
 # ---------------------------------------------------------------------------
 # Validation helpers
 # ---------------------------------------------------------------------------
-def _validate_event(event: ITTCoordinationEvent) -> list[str]:
+def validate_event(event: ITTCoordinationEvent) -> list[str]:
     """Return a list of validation error messages (empty = valid)."""
     errors: list[str] = []
 
@@ -129,7 +129,7 @@ def _validate_event(event: ITTCoordinationEvent) -> list[str]:
 # ---------------------------------------------------------------------------
 # Initial agent state bootstrap
 # ---------------------------------------------------------------------------
-def _bootstrap_agent_state(event: ITTCoordinationEvent, run_id: str) -> dict:
+def bootstrap_agent_state(event: ITTCoordinationEvent, run_id: str) -> dict:
     """Create the initial LangGraph agent state from the webhook payload."""
     return {
         "run_id": run_id,
@@ -170,7 +170,7 @@ async def receive_container_readiness(event: ITTCoordinationEvent) -> dict:
     Returns:
         ``{"status": "accepted", "run_id": "<uuid>"}``
     """
-    errors = _validate_event(event)
+    errors = validate_event(event)
     if errors:
         raise HTTPException(status_code=422, detail={"errors": errors})
 
@@ -178,7 +178,7 @@ async def receive_container_readiness(event: ITTCoordinationEvent) -> dict:
 
     # --- Agent trigger (mock) -----------------------------------------------
     # TODO: wire in LangGraph agent
-    #     initial_state = _bootstrap_agent_state(event, run_id)
+    #     initial_state = bootstrap_agent_state(event, run_id)
     #     result = await agent_graph.ainvoke(initial_state)
     logger = logging.getLogger("container_readiness.webhook")
     logger.info(
