@@ -9,6 +9,8 @@ transfer to Tuas Port. Validates payload, bootstraps initial agent state,
 and triggers the LangGraph agent.
 """
 
+import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException
@@ -154,8 +156,6 @@ async def receive_container_readiness(event: ITTCoordinationEvent) -> dict:
     if errors:
         raise HTTPException(status_code=422, detail={"errors": errors})
 
-    import uuid
-
     run_id = f"run-{uuid.uuid4().hex[:12]}"
 
     initial_state = _bootstrap_agent_state(event, run_id)
@@ -163,9 +163,6 @@ async def receive_container_readiness(event: ITTCoordinationEvent) -> dict:
     # --- Agent trigger (mock) -----------------------------------------------
     # In production this would call:
     #     result = await agent_graph.ainvoke(initial_state)
-    # For the prototype we log and return the bootstrapped state.
-    import logging
-
     logger = logging.getLogger("container_readiness.webhook")
     logger.info(
         "T6 webhook accepted | run_id=%s | vessel=%s | containers=%d | "
@@ -191,23 +188,25 @@ async def receive_container_readiness(event: ITTCoordinationEvent) -> dict:
 # ---------------------------------------------------------------------------
 # Sample payload — for manual testing / demo triggers
 # ---------------------------------------------------------------------------
-SAMPLE_PAYLOAD: dict = {
-    "event_type": "ITT_COORDINATION_REQUEST",
-    "timestamp": "2026-08-19T10:30:00+08:00",
-    "source": "CITOS_PPT",
-    "priority": "high",
-    "origin_terminal": "PPT",
-    "destination_terminal": "TUAS",
-    "vessel_id": "MV PACIFIC STAR",
-    "tuas_vessel_departure": (datetime.now(SGT) + timedelta(hours=6)).isoformat(),
-    "container_count": 120,
-    "containers_ready": 120,
-    "blocks_affected": ["B-07", "B-08", "B-12", "B-14"],
-    "dg_containers": 3,
-    "priority_containers": 45,
-    "requested_by": "PPT_Yard_Planner_Lim",
-    "notes": (
-        "Priority transhipment for MV PACIFIC STAR. "
-        "120 containers ready for cross-terminal ITT."
-    ),
-}
+def _sample_payload() -> dict:
+    """Generate a fresh sample payload with a valid future departure time."""
+    return {
+        "event_type": "ITT_COORDINATION_REQUEST",
+        "timestamp": "2026-08-19T10:30:00+08:00",
+        "source": "CITOS_PPT",
+        "priority": "high",
+        "origin_terminal": "PPT",
+        "destination_terminal": "TUAS",
+        "vessel_id": "MV PACIFIC STAR",
+        "tuas_vessel_departure": (datetime.now(SGT) + timedelta(hours=6)).isoformat(),
+        "container_count": 120,
+        "containers_ready": 120,
+        "blocks_affected": ["B-07", "B-08", "B-12", "B-14"],
+        "dg_containers": 3,
+        "priority_containers": 45,
+        "requested_by": "PPT_Yard_Planner_Lim",
+        "notes": (
+            "Priority transhipment for MV PACIFIC STAR. "
+            "120 containers ready for cross-terminal ITT."
+        ),
+    }
