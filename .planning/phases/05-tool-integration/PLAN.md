@@ -11,47 +11,102 @@ T-01 through T-18
 
 ## Plan
 
-### 5.1: ToolResult Interface & Registry
-**Duration:** ~1 hour
-**What:** Define the standard tool interface and registry.
+### 5.1: ToolResult Interface & Registry (Canonical — Owner of All Registry Methods)
+**Duration:** ~1.5 hours
+**What:** Define the standard tool interface and the **single canonical** `ToolRegistry` that Phase 4.8 later extends (not overwrites). This is the owner of `clear`, `register_many`, `register_for_problem`.
+
+> **Ownership rule:** Only this sub-phase defines `app/tools/registry.py`. Phase 4.8 is a *consumer* that calls `registry.register_for_problem()` — it must NOT redefine the file.
 
 **Steps:**
 1. Create `app/tools/__init__.py`
 2. Create `app/tools/base.py`:
    ```python
+   from dataclasses import dataclass, field
+   import time
+   from abc import ABC, abstractmethod
+
    @dataclass
    class ToolResult:
        output: dict
-       confidence: float  # 0.0–1.0
-       metadata: dict  # tool_name, timestamp, duration_ms, etc.
-   
+       confidence: float  # 0.0–1.0, per-tool data-quality confidence
+       metadata: dict = field(default_factory=dict)  # auto-populated by wrapper
+
+       # metadata always contains: tool_name, timestamp (ISO8601), duration_ms, run_id
+       # Confidence vs LLM confidence: ToolResult.confidence = data quality;
+       #   LLM confidence (state["confidence"]) = decision confidence (Trigger #1 checks LLM one).
+
    class BaseTool(ABC):
        name: str
        description: str
-       parameters_schema: dict  # JSON Schema
-       
+       parameters_schema: dict  # JSON Schema for LLM tool-calling
+       post_approval: bool = False  # True for dispatch_road_itt, request_feeder_hold
+       fallback_tool: str | None = None  # e.g. "cached_road_capacity" for T2 fallback
+
        @abstractmethod
        async def execute(self, **kwargs) -> ToolResult: ...
-       
+
+       async def call(self, **kwargs) -> ToolResult:
+           # Wrapper: auto-populates metadata + enforces input validation + timeout
+           t0 = time.monotonic()
+           # 1. Validate kwargs against parameters_schema (Pydantic)
+           # 2. Execute with timeout (asyncio.wait_for, per-tool timeout_seconds)
+           # 3. Populate metadata: {tool_name: self.name, timestamp: now(), duration_ms, run_id: kwargs.get("_run_id","")}
+           # 4. On hallucinated tool name / invalid args → return ToolResult(output={"error": "..."}, confidence=0)
+           ...
+
        def get_schema(self) -> dict:
-           return {
-               "name": self.name,
-               "description": self.description,
-               "parameters": self.parameters_schema
-           }
+           return {"name": self.name, "description": self.description, "parameters": self.parameters_schema}
    ```
-3. Create `app/tools/registry.py`:
+3. Create `app/tools/registry.py` — **canonical, complete** (Phase 4.8 must NOT overwrite):
    ```python
+   from app.tools.base import BaseTool, ToolResult
+
+   TOOLSETS: dict[str, list[str]] = {
+       "pb-12-itt": ["get_itt_candidates","check_road_itt_capacity","check_sea_itt_capacity","compute_itt_split","update_tuas_loading_sequence","dispatch_road_itt","request_feeder_hold","notify_parties"],
+       "pb-01-berth": ["query_vessel_arrival","check_berth_availability","check_qc_availability","compute_berth_reassignment","notify_vessel_operator"],
+       # ... other problem tool lists from YAML tools[].name
+   }
+
    class ToolRegistry:
        def __init__(self):
            self._tools: dict[str, BaseTool] = {}
-       
-       def register(self, tool: BaseTool): ...
-       async def call(self, name: str, **kwargs) -> ToolResult: ...
-       def get_schemas(self) -> list[dict]: ...
-       def list(self) -> list[str]: ...
+           self._active_problem: str = "pb-12-itt"
+
+       def register(self, tool: BaseTool): self._tools[tool.name] = tool
+       def register_many(self, tools: list[BaseTool]): ...
+       def clear(self): self._tools.clear()
+       def list(self) -> list[str]: return list(self._tools.keys())
+       def get_schemas(self) -> list[dict]: return [t.get_schema() for t in self._tools.values()]
+       def get_tool(self, name: str) -> BaseTool | None: return self._tools.get(name)
+
+       def register_for_problem(self, problem_id: str):
+           """Clear and re-register tools for the given problem. Called by Phase 4.8 switch endpoint."""
+           self.clear()
+           for name in TOOLSETS.get(problem_id, []):
+               tool = _create_tool_by_name(name)  # factory
+               self.register(tool)
+           self._active_problem = problem_id
+
+       async def call(self, name: str, **kwargs) -> ToolResult:
+           tool = self._tools.get(name)
+           if not tool:
+               return ToolResult(output={"error": f"Unknown tool: {name}. Available: {self.list()}"}, confidence=0.0, metadata={"tool_name": name, "error": "hallucinated"})
+           # Check post-approval guard: dispatch/hold require prior HITL approve
+           if tool.post_approval and not kwargs.pop("_hitl_approved", False):
+               # Actual guard is in tool_node (Phase 6.4) — this is defense-in-depth
+               pass
+           return await tool.call(**kwargs)
+
+   # Singleton — single source, imported as `from app.tools.registry import registry`
+   registry = ToolRegistry()
+   FALLBACKS: dict[str, str] = {"check_road_itt_capacity": "cached_road_capacity", "check_sea_itt_capacity": "cached_sea_capacity"}
+
+   def load_tools_for_problem(problem_id: str) -> list[BaseTool]:
+       """Factory used by registry.register_for_problem — kept here for single-ownership."""
+       ...
    ```
-4. Create `app/tests/test_registry.py` — test register, call, list
+4. Create `app/tests/test_registry.py` — test register, call, list, clear, register_many, register_for_problem (PB-12→PB-01→PB-12), hallucinated tool name, fallback mapping
+5. Add `app/tools/fallbacks.py` — `cached_road_capacity`, `cached_sea_capacity` (return last-known-good or conservative defaults, flagged `metadata.fallback_used: true`)
 
 **Verification:**
 ```bash
@@ -63,19 +118,19 @@ pytest app/tests/test_registry.py -v
 **Duration:** ~1 hour
 **What:** Port existing container_readiness logic. Charter T1: `get_itt_candidates(cit_ppt_endpoint, vessel_id)`.
 
-> **Design decision (G-06):** Endpoint params (`cit_ppt_endpoint`, `optetruck_endpoint`, etc.) are intentionally omitted — tools run as in-process Python calls, not HTTP. Mock data is loaded from `app/mocks/data.py`. The charter endpoint params are documented as comments for future HTTP mode.
+> **Design decision (G-06):** Endpoint params (`cit_ppt_endpoint`, etc.) omitted — in-process calls to `app/mocks/data.py`. Charter params kept as comments for future HTTP mode.
+> **Reuse:** `prototype/mocks/data.py:generate_containers()` (Random(42), 40×40ft+80×20ft=160TEU, 3 DG, blocks_affected, lta_truck_trip_requirement) is the **canonical test oracle** — don't re-derive. Promote `compute_itt_split_default()` (80/40=$10,400 + 2 alts) as expected value for T-06. `mocks/webhook.py` LRU (OrderedDict MAX_RUNS=100) + `GET /runs/{run_id}` + 400 on `containers_ready>container_count` already handled — reuse, don't rebuild.
 
 **Steps:**
 1. Create `app/tools/container_readiness.py`:
    - Class `ContainerReadinessTool(BaseTool)`
-   - name = "get_itt_candidates" (matches charter T1 — LLM prompt uses charter name)
-   - description = "Query PPT CITOS for containers requiring cross-terminal transfer to Tuas"
-   - parameters: vessel_id (string, required) — `cit_ppt_endpoint` omitted per G-06 in-process decision
-   - execute(): calls mock data, returns `total_containers, container_breakdown, lta_truck_trip_requirement, containers[], blocks_affected, dg_containers`
-   - Returns ToolResult with confidence based on data freshness
-   - Charter validation: must return `total_teu: 160` (40 FEU × 2 + 80 TEU × 1)
+   - name = "get_itt_candidates" (matches charter T1)
+   - description = "Query PPT CITOS for container readiness status"
+   - parameters: vessel_id (string, required) — `cit_ppt_endpoint` omitted per G-06
+   - execute(): calls `app/mocks/data.py:get_container_data()` — returns `total_containers, total_teu:160, container_breakdown, lta_truck_trip_requirement: {80 trips, $12K}, containers[], blocks_affected, dg_containers`
+   - confidence from `metadata.data_age_minutes` (fresh <5 min → 0.95, stale >30 min → 0.6)
 2. JSON schema for LLM tool-calling
-3. Unit test: call with vessel_id, verify 120 containers (40×40ft + 80×20ft)
+3. Unit test: call with vessel_id, verify 120 / 160 TEU / 3 DG / blocks `["B-07","B-08","B-12","B-14"]` — assert against `data.py` fixture
 
 **Verification:**
 ```bash
@@ -84,18 +139,19 @@ pytest app/tests/test_tools.py::TestContainerReadiness -v
 
 ### 5.3: Tool 2 — Road ITT Capacity
 **Duration:** ~1 hour
-**What:** Port existing optetruck_tools.py. Charter T2: `check_road_itt_capacity(optetruck_endpoint, terminal, time_window_start, time_window_end)`.
+**What:** Port `prototype/pre_approval/road_itt/optetruck_tools.py` (510L) — **reuse its domain logic, don't re-derive**. It already has: LTA trip math, peak-aware transit (07:30-09:30/17:30-19:30 + 30m pre-peak + 20m lingering, AYE 1.3×/WCH 1.2×), time-of-day fleet (06-09:18, 09-12:20...), esc_5 flag, RoadConditions/RoadITTCapacity classes.
 
 **Steps:**
 1. Create `app/tools/road_itt.py`:
-   - Class `RoadITTCapacityTool(BaseTool)`
+   - Class `RoadITTCapacityTool(BaseTool)` — thin wrapper around `prototype` logic
    - name = "check_road_itt_capacity" (matches charter)
    - description = "Query OptETruck for available trucks, transit time, and road conditions for PPT→Tuas"
-   - parameters: terminal (string, required), time_window_start (string, required, ISO 8601), time_window_end (string, required, ISO 8601) — explicit start/end per charter; `optetruck_endpoint` omitted per G-06
-   - execute(): calls mock data, returns `available_trucks, transit_time_minutes, road_conditions, cost_per_trip: 150, lta_chassis_limits, estimated_round_trip_minutes`
-   - Port logic from `prototype/pre_approval/road_itt/optetruck_tools.py` (510 lines)
+   - parameters: terminal (string, required), time_window_start (string, required), time_window_end (string, required) — explicit start/end per charter
+   - execute(): delegates to ported `optetruck_tools._query_optetruck_fleet()` + congestion multiplier + LTA validation → returns `available_trucks, transit_time_minutes, road_conditions, cost_per_trip:150, lta_chassis_limits, round_trip, capacity_ratio, fleet_utilisation`
+   - Reuse `RoadConditions.has_congestion` / `worst_segment` for escalation checks
+   - Charter T2 sample: `available_trucks: 20, transit_time: 90 min` — assert against `TRUCK_DATA` fixture
 2. JSON schema for LLM tool-calling
-3. Unit test: verify terminal="PPT" returns `available_trucks: 20, transit_time_minutes: 90`
+3. Unit test: verify time-of-day fleet varies, peak vs off-peak transit differs, esc_5 flag emitted when `available < required*0.6`
 
 **Verification:**
 ```bash
@@ -104,19 +160,18 @@ pytest app/tests/test_tools.py::TestRoadITTCapacity -v
 
 ### 5.4: Tool 3 — Sea ITT Capacity
 **Duration:** ~1 hour
-**What:** Port existing sea_itt_tools.py. Charter T3: `check_sea_itt_capacity(portnet_endpoint, feeder_id, current_time)` — returns berth status + departure window + downstream tidal constraints.
+**What:** Port `prototype/pre_approval/sea_itt/` — 580L tools + 152L data_access + 149L router = **6 endpoints** already built (`/capacity`, `/feeder/{id}`, `/feeder/hold`, `/feeders` with filters, `/downstream/{port}`, `/conflict`). Reuse, don't collapse to one query.
 
 **Steps:**
 1. Create `app/tools/sea_itt.py`:
-   - Class `SeaITTCapacityTool(BaseTool)`
+   - Class `SeaITTCapacityTool(BaseTool)` — delegates to ported `sea_itt/data_access.py` + `sea_itt_tools.py`
    - name = "check_sea_itt_capacity" (matches charter)
    - description = "Query PORTNET for feeder vessel availability, berth status, departure window, and downstream port tidal constraints"
-   - parameters: feeder_id (string, required), current_time (string, required, ISO 8601) — required per charter (not optional); `portnet_endpoint` omitted per G-06
-   - execute(): calls mock data, returns `feeder_id, capacity_teu, available_capacity_teu, berth_status, departure_window{earliest,latest,requested}, downstream_constraints{destination_port, tidal_window, must_depart_by, buffer_hours}, hold_cost_per_hour: 800`
-   - Must support `downstream_constraints` (Port Klang tidal window) for Trigger #2 tidal checks
-   - Port logic from `prototype/pre_approval/sea_itt/sea_itt_tools.py` (580 lines)
+   - parameters: feeder_id (string, required), current_time (string, required)
+   - execute(): calls `data_access.get_feeder_status()` + `get_downstream_port_info()` → returns `feeder_id, capacity_teu:800, available:180, berth_status, departure_window{earliest:14:00,latest:16:00}, downstream_constraints{Port Klang, tidal 23:00, must_depart_by 05:00, buffer 1h}, hold_cost_per_hour:800, missed_connection_cost:5000`
+   - Reuse fleet filtering (`get_available_feeders` with berthed/capacity filters), hold-cost model (0-6h validated, `latest_safe_departure = tidal-transit-buffer`), tidal feasibility
 2. JSON schema for LLM tool-calling
-3. Unit test: verify `feeder_id: "FEEDER ATLANTIC-03"` returns departure window + downstream tidal window
+3. Unit test: verify ATLANTIC-03 returns 6-field window + downstream; test hold-cost safe/marginal/critical; test downstream port fallback
 
 **Verification:**
 ```bash
@@ -317,29 +372,32 @@ pytest app/tests/test_roi.py -v  # baseline $12K, optimised $10.4K, savings $1.6
 **Duration:** ~2 hours
 **What:** Verify the 4 required robustness scenarios per competition brief Phase 5.3.
 
+> **Depends note:** S1–S3 run standalone (tools + guards only, no agent graph). S4 requires HITL-5 (Phase 6.5) + escalation (Phase 6.6) — run after Phase 6. Mark S4 as `pytest.mark.depends_on_phase6` so `pytest app/tests/ -v` doesn't fail before Phase 6 ships.
+
 **Steps:**
 1. Create `app/tests/test_robustness.py`:
 
    **S1 — Nominal (happy path):**
-   120 containers, all systems healthy → agent calls T1→T3→T4→HITL-1→HITL-2→HITL-3→dispatch→T5→HITL-4→done → trace clean
+   120 containers, all systems healthy → agent calls T1→T3→T4→HITL-1→HITL-2→HITL-3→dispatch→T5→HITL-4→done → trace clean with `risk_score` on every entry, SSE `trace_entry` per step
 
    **S2 — Incomplete Data:**
-   Container `weight_kg` missing → input guardrail fires → agent detects gap, queries secondary source or asks operator "weight unknown for MSKU7654321, verify?" → HITL card with gap info → resolves
+   Container `weight_kg` missing → input guardrail fires (`weight_bounds`) → trace `guardrail_failed` → agent detects gap, queries `yard_status` (T1's `GET /yard-status`) as secondary source or asks operator "weight unknown for MSKU7654321, verify?" → HITL card with gap info → trace shows `guardrail_failed` + `hitl_card` + SSE `confidence_update` → resolves
 
-   **S3 — API Failure (503):**
-   Mock T2 returns HTTP 503 → agent detects `tool_error`, logs to trace with `fallback` flag, retries once, then uses fallback (cached data or alternative: "use sea ITT for affected batch"), alerts operator via `notify_parties` → trace shows `tool_error` + `fallback_used`
+   **S3 — API Failure (503/timeout):**
+   Mock T2 returns HTTP 503 (or `asyncio.TimeoutError` for latency variant) → agent detects `tool_error`/`tool_timeout` distinctly → logs `tool_error_fallback` or `tool_timeout_fallback` to trace → retries once (exponential backoff 1s→2s) → uses `FALLBACKS["check_road_itt_capacity"]` → `cached_road_capacity` with `metadata.fallback_used: true` → alerts operator via `notify_parties` → trace shows `tool_error` + `fallback_used` + `notification` SSE event
 
-   **S4 — Safety Escalation:**
-   T4 result triggers Trigger #3 (`action_cost > $10K`) or simulated vessel departure shift >2h → agent halts normal flow, produces structured HITL-5 review card: "High-risk action requires sign-off — vessel departure shift 2.5h", awaits Duty Manager
+   **S4 — Safety Escalation (requires Phase 6):**
+   T4 result triggers Trigger #3 (`action_cost > $10K`) or simulated vessel departure shift >2h → agent halts normal flow, produces structured HITL-5 review card: "High-risk action requires sign-off — vessel departure shift 2.5h", awaits Duty Manager → trace shows `escalation` + `hitl_card` (HITL-5) + SSE `escalation` event
 
-2. Each scenario: trace shows correct handling, SSE streams events, notification sent where applicable
+2. Each scenario: trace shows correct handling with `risk_score`, SSE streams all event types, `notification` sent where applicable
 
 **Verification:**
 ```bash
-pytest app/tests/test_robustness.py -v  # all 4 scenarios pass
-pytest app/tests/test_robustness.py::TestS2 -v  # incomplete data → gap detected
-pytest app/tests/test_robustness.py::TestS3 -v  # 503 → fallback + trace
-pytest app/tests/test_robustness.py::TestS4 -v  # safety → HITL-5
+pytest app/tests/test_robustness.py -v       # all 4 (S4 skipped before Phase 6)
+pytest app/tests/test_robustness.py::TestS1  # nominal → trace clean + risk_score
+pytest app/tests/test_robustness.py::TestS2  # incomplete → guardrail + HITL
+pytest app/tests/test_robustness.py::TestS3  # 503/timeout → fallback + trace + notification SSE
+pytest app/tests/test_robustness.py::TestS4  # safety → HITL-5 (pass after Phase 6)
 ```
 
 ## Verification Loop

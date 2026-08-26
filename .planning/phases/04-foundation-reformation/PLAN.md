@@ -91,7 +91,7 @@ curl localhost:8000/api/portnet/feeder/F001    # returns portnet data
 curl localhost:8000/webhook/runs               # returns run status
 ```
 
-### 4.3: Validate provider.py + Tool-Calling Adapter (8 Providers)
+### 4.3: Validate provider.py + Tool-Calling Adapter + Observability (8 Providers)
 **Duration:** ~1.5 hours
 **What:** Test provider.py end-to-end — NOT just big 3. The abstraction supports 8 provider names (anthropic, openai, gemini, deepseek, ollama, vllm, lmstudio, custom) covering hosted, local, and any OpenAI-compatible API.
 
@@ -144,8 +144,9 @@ curl localhost:8000/webhook/runs               # returns run status
        adapted = adapt_tools_for_provider(tools, prov)
        print(f"{prov}: {adapted[0].keys()}")
    ```
-5. Document which providers work and any issues found — include a matrix: provider → model → API key env → verified?
-6. Update `app/main.py` or `app/configs/` so `LLM_PROVIDER` can be switched at runtime without code change (env var `LLM_PROVIDER` + `LLM_MODEL` + `LLM_BASE_URL` + `LLM_API_KEY` — not hardcoded to two keys)
+5. Wire `LLMResponse` observability into trace: every `provider.chat()` returns `LLMResponse(content, tool_calls, finish_reason, usage{input_tokens,output_tokens}, model, provider, latency_ms, raw)` — expose `usage` for cost/ROI (tokens × price), `latency_ms` for wall-time breakdown, `finish_reason` for context-window detection. `provider.health_check()` + `chat_with_retry(max_retries=3, delay*2^attempt)` + `create_provider_with_fallback()` handle latency/failure gracefully (CodeSprint capability #4). Reuse `yaml_reader.load_yaml_with_defaults()` for config layering (defaults overridden by YAML) instead of re-implementing merge — it returns `{}` on missing file for graceful degradation (robustness S2/S3).
+6. Document which providers work and any issues found — include a matrix: provider → model → API key env → verified?
+7. Update `app/main.py` or `app/configs/` so `LLM_PROVIDER` can be switched at runtime without code change (env var `LLM_PROVIDER` + `LLM_MODEL` + `LLM_BASE_URL` + `LLM_API_KEY` — not hardcoded to two keys)
 
 **Verification:**
 ```bash
@@ -250,35 +251,42 @@ done
 
 ### 4.8: Problem Switching Mechanism (PSA Nexus Platform Core)
 **Duration:** ~2 hours
-**What:** Build the runtime switch that makes Nexus a platform, not a single-problem agent.
+**What:** Build the runtime switch that makes Nexus a platform. **Consumer of `app/tools/registry.py` owned by Phase 5.1 — do NOT redefine the registry file.**
+
+> **Ownership:** `app/tools/registry.py` (with `TOOLSETS`, `registry` singleton, `register_for_problem`, `FALLBACKS`, `load_tools_for_problem`) is **canonically defined in Phase 5.1**. This sub-phase only *uses* it.
 
 **Steps:**
 1. Create `app/agent/problem_switcher.py`:
    ```python
    def switch_problem(problem_id: str) -> ProblemConfig:
        config = load_problem_config(problem_id)
-       # Validate required fields
        assert config.systems and config.tools and config.hitl_gates
        return config
    ```
-2. Create `app/main.py` endpoint:
+2. Add to `app/main.py`:
    ```python
+   from app.tools.registry import registry  # singleton from 5.1, imported lazily to avoid cycle
+   from app.agent.problem_switcher import switch_problem
+
+   _active_problem_id: str = "pb-12-itt"  # module-level, read by create_initial_state (6.9)
+
    @app.post("/agent/switch-problem/{problem_id}")
    async def switch_problem_endpoint(problem_id: str):
+       global _active_problem_id
        config = switch_problem(problem_id)
-       # Re-register tools for this problem
-       from app.tools.registry import registry
-       registry.clear()
-       registry.register_many(load_tools_for_problem(problem_id))
-       return {"problem_id": problem_id, "systems": config.systems, "tools": registry.get_tool_names(), "hitl_gates": config.hitl_gates}
+       registry.register_for_problem(problem_id)  # delegates to 5.1's TOOLSETS
+       _active_problem_id = problem_id
+       return {"problem_id": problem_id, "systems": [s.name for s in config.systems],
+               "tools": registry.list(), "hitl_gates": [g.label for g in config.hitl_gates]}
    ```
-3. Enhance `app/tools/registry.py`: add `clear()`, `register_many(tools)`, `get_tool_names()`
-4. Enhance `app/agent/prompts.py`: system prompt templated from `ProblemConfig`:
+3. In `app/agent/run.py` (Phase 6.9), `create_initial_state` must read `_active_problem_id` (or accept `problem_id` param) — NOT hardcode `"pb-12-itt"`:
    ```python
-   def build_system_prompt(config: ProblemConfig) -> str:
-       return f"You are PSA Nexus, coordinating {config.problem.name} ({config.problem.sector}). Systems: {config.systems}. Tools: {config.tools}. ..."
+   def create_initial_state(event, run_id, problem_id=None):
+       pid = problem_id or _active_problem_id  # from main.py or passed explicitly
+       config = load_problem_config(pid)
+       ...
    ```
-   Not hardcoded to "ITT planner"
+4. Prompt templating: `app/agent/prompts.py:build_system_prompt(config)` already templated from `ProblemConfig` (Phase 6.2) — verify it uses the switched config's problem name/sector/tools
 
 **Verification:**
 ```bash

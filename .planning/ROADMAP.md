@@ -309,8 +309,9 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
   - **S3 API Failure:** mock returns 503 on T2 → agent detects, logs `tool_error` to trace, retries or uses fallback (cached data / re-query), alerts operator via notification
   - **S4 Safety Escalation:** T4 result triggers Trigger #3 (cost >$10K) or vessel departure shift >2h → agent halts, produces HITL-5 card
 - Each scenario: trace shows correct handling, SSE streams events, notification sent where applicable
-**Depends on:** 5.2–5.11, 6.10 (for S4 HITL-5)
-**Verification:** `pytest app/tests/test_robustness.py -v` — all 4 scenarios pass
+> S4 (`safety escalation` → HITL-5) requires Phase 6 (6.5/6.6) — mark skipped before Phase 6, runs after.
+**Depends on:** 5.2–5.11 (S1–S3 standalone; S4 gated on Phase 6.5+6.6 — skips if not yet built)
+**Verification:** `pytest app/tests/test_robustness.py -v` — S1–S3 pass pre-Phase 6, S4 passes after 6.6; `test_robustness.py::TestS4` marked `skipIf no HITL-5`
 
 ---
 
@@ -572,7 +573,7 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 ---
 
 ### Phase 8: Polish & Deploy — PSA Nexus Launch
-**Goal:** Dockerise, deploy to free tier, prepare submission assets showcasing PSA Nexus as a generalizable platform.
+**Goal:** Dockerise, deploy to free tier, instrument latency, prepare submission assets showcasing PSA Nexus as a generalizable platform.
 **Depends on:** Phase 7
 **Requirements:** D-01 through D-08
 **Success Criteria** (what must be TRUE):

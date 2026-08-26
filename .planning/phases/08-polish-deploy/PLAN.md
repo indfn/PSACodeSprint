@@ -129,17 +129,17 @@ curl https://your-app.up.railway.app/health  # returns OK
 open https://your-app.up.railway.app/ui/     # UI loads
 ```
 
-### 8.4: End-to-End Smoke Test (Both Problems + Robustness)
+### 8.4: End-to-End Smoke Test + Latency (Both Problems + Robustness)
 **Duration:** ~3 hours
-**What:** Test full demo flows on deployed instance — PB-12 + sibling + robustness.
+**What:** Test full demo flows on deployed instance — PB-12 + sibling + robustness. Instrument latency for deck slide 7.
 
 **Steps:**
-1. **PB-12 happy path:** webhook → T1→T3→T4 ($10,400) → HITL-1→HITL-2→HITL-3→dispatch→T5→HITL-4→done. Verify: 5 gates fire, trace + deviation_log, SSE streams.
-2. **PB-12 deviation:** inject berth conflict → monitor detects → re-compute 100/20 → HITL-5 emergency → delta dispatch → T5 again. Verify: escalation #1+#2, confidence 0.95→0.78→0.90, deviation_log.
-3. **Sibling switch:** `POST /agent/switch-problem/pb-01-berth` → verify PB-01 tools (VTIS/OptEVoyage/CITOS) listed, agent adapts, HITL fires for berth reassignment.
-4. **Robustness spot-check:** trigger API 503 on T2 → agent logs fallback, notifies.
-5. **HITL rejection:** reject at HITL-1 → alternatives presented; modify at HITL-1 → re-validate + re-run T4.
-6. **Latency:** measure wall time (happy <30s, deviation <90s), SSE p50/p95 latency.
+1. **PB-12 happy path:** webhook → T1→T3→T4 ($10,400) → HITL-1→HITL-2→HITL-3→dispatch→T5→HITL-4→done. Verify: 5 gates fire, trace with `risk_score` on every entry, deviation_log empty, SSE streams all 9 event types.
+2. **PB-12 deviation:** inject berth conflict → monitor detects → re-compute 100/20 → HITL-5 emergency → delta dispatch → T5 again. Verify: escalation #1+#2, confidence 0.95→0.78→0.90, deviation_log entry, `risk_score` spike.
+3. **Sibling switch:** `POST /agent/switch-problem/pb-01-berth` → verify PB-01 tools (VTIS/OptEVoyage/CITOS) listed, agent adapts, HITL fires for berth reassignment — proves platform claim on deploy, not just locally.
+4. **Robustness spot-check:** trigger API 503 on T2 → agent uses fallback (`FALLBACKS`), logs `tool_error_fallback` + `notification` SSE; trigger incomplete data → guardrail → secondary query.
+5. **HITL rejection:** reject at HITL-1 → alternatives[] presented; modify at HITL-1 → re-validate + re-run T4 → re-present. Stale resume after timeout → 422.
+6. **Latency instrumentation:** measure wall time (happy <30s, deviation <90s — from `LLMResponse.latency_ms` + trace `duration_ms`), SSE p50/p95 (time from `broadcaster.publish` to `onmessage` in browser). Add `app/tests/test_latency.py` that asserts `wall_happy < 30s` and `sse_p95 < 500ms` (thresholds for deck). Export `latency_report.json` for slide 7.
 
 **Verification:**
 ```bash
@@ -154,16 +154,16 @@ open https://your-app.up.railway.app/ui/     # UI loads
 
 **Steps:**
 1. Create `submission/deck.md` (Google Slides / PowerPoint):
-   - Slide 1: Executive Summary — "PSA Nexus: Agentic Multi-Party Coordination Platform" + team + C2 cluster ($1.26M–$2.08M)
-   - Slide 2: The Disruption Gap — PB-12 ITT failure, why CITOS/PORTNET rule engines fall short (charter §2, phone calls, 4–8h)
-   - Slide 3: The Agentic Solution & Value Prop — Nexus platform, PB-12 flagship demo (PPT↔Tuas, 5 systems, 27 min, $8K/incident)
-   - Slide 4: Autonomy & HITL Risk Framework — Tier 2 HITL Exception Solver, 5 gates with timeouts, confidence 0.85 threshold
-   - Slide 5: System Architecture — LangGraph StateGraph, tool registry, state memory, SSE, one-core-many-problems
-   - Slide 6: Execution Trace & Multi-Tool Orchestration — live trace screenshot, tool call sequence (T1→T5), ReAct loop
-   - Slide 7: Safety, Guardrails & Fallback — 6 input guards, 7 escalation triggers, 4 robustness scenarios (nominal/incomplete/503/safety), schema validation
-   - Slide 8: Scalability & Generalisability — 1 YAML = 1 problem visual (PB-12 ITT vs PB-01 Berth side-by-side), tool swap, 7-problem cluster map
-   - Slide 9: Quantified Business Impact & ROI — $8K/incident equation (charter §5), $384K–$576K annual (flagship), $1.26M–$2.08M cluster, ESG (fewer road trips)
-   - Slide 10: Summary & Future Roadmap — what's built, what ports can adopt, next steps
+   - Slide 1: Executive Summary — "PSA Nexus: Agentic Multi-Party Coordination Platform" + team + C2 cluster ($1.26M–$2.08M) — one core, 7 YAMLs, 8 LLM providers
+   - Slide 2: The Disruption Gap — PB-12 ITT failure, why CITOS/PORTNET rule engines fall short (charter §2, phone calls, 4–8h, $316K/mo cluster aggregate)
+   - Slide 3: The Agentic Solution & Value Prop — Nexus platform (6 shared primitives, one LangGraph core, YAML-per-problem), PB-12 flagship (PPT↔Tuas, 5 systems, 27 min, $8K/incident, ReAct loop)
+   - Slide 4: Autonomy & HITL Risk Framework — Tier 2 HITL Exception Solver (Autonomy Trap: HIGH financial risk + multi-party authority), 5 gates with timeouts/timeout_actions (30/15/15/10/30 min), confidence 0.85, 7 triggers
+   - Slide 5: System Architecture — LangGraph StateGraph (interrupt+Command+thread_id), tool registry (TOOLSETS per problem), state memory, SSE broadcaster, problem switcher, provider-agnostic (8 endpoints, any base_url)
+   - Slide 6: Execution Trace & Multi-Tool Orchestration — live trace screenshot with risk_score + fallback_used per entry, tool sequence (T1→T5 + notify), ReAct thought→tool→observe, tokens + latency_ms from LLMResponse
+   - Slide 7: Safety, Guardrails, Fallback & Responsible AI — 6 input guards, 4 robustness scenarios (nominal/incomplete/503/safety), chat_with_retry + FALLBACKS + health_check→fallback provider, schema validation (Pydantic ge 50, weight 0-60000), webhook 422 not 500, late-resume guard, latency wall <30s / SSE p95 (measured 8.4), security: no hardcoded secrets
+   - Slide 8: Scalability & Generalisability — 1 YAML = 1 problem visual (PB-12 ITT vs PB-01 Berth: 5 vs 5 tools, 5 vs 2 gates, same core), 7-problem cluster map, prompt templated from ProblemConfig not hardcoded
+   - Slide 9: Quantified Business Impact & ROI — $8K/incident equation (charter §5: $8450-$450, T4 transport $1.6K = $12K→$10.4K), $384K–$576K annual (4-6/mo × $8K), $1.26M–$2.08M cluster (8-row table), ESG: 20 fewer road trips on AYE/West Coast Hwy, throughput/TEU
+   - Slide 10: Summary & Future Roadmap — what's built (48 sub-phases, 70 requirements, 4 pillars), what ports can adopt, next problems to generalise
 2. Export as PDF
 3. Include architecture diagram (Mermaid) + generalisability visual
 

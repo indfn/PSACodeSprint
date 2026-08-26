@@ -7,16 +7,16 @@ Build the LangGraph agent graph with tool-calling loop, 5 HITL gates, 7 escalati
 Phase 5
 
 ## Requirements
-A-01 through A-20
+A-01 through A-23 (+ resilience: rate limit, stale resume, webhook validation, risk_score in trace)
 
 ## Success Criteria
-1. LangGraph StateGraph defined with all nodes and edges
-2. Agent reasons via LLM, selects tools, processes results
-3. All 5 HITL gates pause for approval and resume on callback
-4. All 7 escalation triggers detect threshold breaches
-5. Confidence score propagated through state
-6. Execution trace logged at every step
-7. End-to-end: webhook → agent → tools → HITL → result works
+1. LangGraph StateGraph defined with all nodes and edges (including monitor + resilience)
+2. Agent reasons via LLM (with rate-limit retry + fallback), selects tools, processes results
+3. All 5 HITL gates pause via `interrupt()` and resume via `Command(resume=)` with `thread_id`; stale resume rejected
+4. All 7 escalation triggers detect threshold breaches; risk_score in every TraceEntry
+5. Confidence + risk_score propagated through state; threshold 0.85
+6. Execution trace (with risk_score, fallback_used, hallucinated_tool) + deviation_log + structured logging
+7. End-to-end: webhook (422 on invalid) → agent → tools (timeout vs 503 distinct, partial batch) → HITL → monitor → deviation → re-plan → result
 
 ## Architecture
 
@@ -143,28 +143,52 @@ python -c "from app.agent.tool_schemas import get_tool_schemas; print(len(get_to
        # 1. Build messages from state
        messages = build_agent_messages(state)
        
-       # 2. Call LLM with tool schemas
-       tool_schemas = registry.get_schemas()
-       response = await provider.chat(messages, tools=tool_schemas)
+        # 2. Call LLM with tool schemas — MUST adapt per provider family
+        from app.shared.tool_adapter import adapt_tools_for_provider
+        from app.shared.provider import get_provider_name  # or state["_provider"] set from ProblemConfig.llm.provider
+        provider_name = state.get("_provider") or state.get("problem_config", {}).get("llm", {}).get("provider", "anthropic")
+        raw_schemas = registry.get_schemas()
+        tool_schemas = adapt_tools_for_provider(raw_schemas, provider_name)
+        # Also publish SSE agent_thinking before the call
+        broadcaster = state.get("_broadcaster")
+        if broadcaster:
+            await broadcaster.publish(state["_run_id"], "agent_thinking", {"messages": messages[-1] if messages else {}})
+        response = await provider.chat(messages, tools=tool_schemas)
        
-       # 3. Process response
-       if response.tool_calls:
-           # Add tool calls to state for tool_node
-           state['pending_tool_calls'] = response.tool_calls
-           state['status'] = 'calling_tools'
-       elif response.hil_card:
-           # LLM generated HITL card
-           state['hitl_pending'] = response.hil_card
-           state['status'] = 'waiting_hitl'
-       else:
-           # LLM provided final answer
-           state['status'] = 'completed'
-       
-       # 4. Update trace
-       state['trace'].append(TraceEntry(...))
-       
-       # 5. Update confidence
-       state['confidence'] = response.confidence or state['confidence']
+        # 3. Process response — validate tool_calls against registry before accepting
+        if response.tool_calls:
+            # Validate: filter hallucinated tools (unknown name / invalid args)
+            valid_calls, invalid_calls = [], []
+            for tc in response.tool_calls:
+                if registry.get_tool(tc.get("name","")) is None:
+                    invalid_calls.append(tc)
+                    # Log fallback: unknown tool → trace + return error ToolResult instead of crashing
+                    state['trace'].append({"event": "hallucinated_tool", "tool_name": tc.get("name"), "available": registry.list()})
+                else:
+                    valid_calls.append(tc)
+            if invalid_calls and not valid_calls:
+                # All calls hallucinated → ask LLM to retry with correct tool list
+                state['messages'].append({"role": "user", "content": f"Unknown tools: {[c['name'] for c in invalid_calls]}. Available tools: {registry.list()}. Retry with a valid tool."})
+                state['status'] = 'running'
+            elif valid_calls:
+                state['pending_tool_calls'] = valid_calls
+                state['status'] = 'calling_tools'
+        elif response.hitl_card:
+            state['hitl_pending'] = response.hitl_card
+            state['status'] = 'waiting_hitl'
+        else:
+            state['status'] = 'completed'
+
+        # 4. Update trace — include risk_score (CodeSprint Phase 4.3 requires it)
+        risk_score = compute_risk_score(state)  # from escalation triggers + confidence, 0.0–1.0
+        state['trace'].append(TraceEntry(node="agent", action="reason", result={"tool_calls": response.tool_calls, "risk_score": risk_score}, duration_ms=latency_ms, confidence=response.confidence or state['confidence']))
+
+        # 5. Update confidence + check escalation triggers immediately
+        state['confidence'] = response.confidence if response.confidence is not None else state['confidence']
+        triggered = check_escalations(state)  # Phase 6.6 — if any fire, set escalation + hitl_pending=HITL-5
+        if triggered:
+            state['escalation'] = triggered[0]
+            state['hitl_pending'] = HITL_GATES["HITL-5"]
        
        return state
    ```
@@ -187,20 +211,57 @@ pytest app/tests/test_agent_node.py -v
        # 1. Read pending tool calls
        tool_calls = state.get('pending_tool_calls', [])
        
-       # 2. Execute each tool
-       for call in tool_calls:
-           result = await registry.call(call['name'], **call['args'])
-           state['tool_results'][call['id']] = result
-           
-           # Add tool result to messages
-           state['messages'].append({
-               'role': 'tool',
-               'tool_call_id': call['id'],
-               'content': json.dumps(result.output)
-           })
-       
-       # 3. Update trace
-       state['trace'].append(TraceEntry(...))
+        # 2. Execute each tool — with post-approval guard + timeout + fallback + fallback_used flag
+        for call in tool_calls:
+            tool = registry.get_tool(call['name'])
+            # Post-approval guard: dispatch/hold require prior HITL approve
+            if tool and tool.post_approval:
+                gate_map = {"dispatch_road_itt": "HITL-2", "request_feeder_hold": "HITL-3"}
+                gate_id = gate_map.get(call['name'], "")
+                if not has_approval(state, gate_id):
+                    result = ToolResult(output={"error": f"HITL {gate_id} approval required before {call['name']}"}, confidence=0.0,
+                                        metadata={"tool_name": call['name'], "error": "hitl_required", "timestamp": now(), "duration_ms": 0})
+                    state['trace'].append({"event": "tool_blocked_hitl", "tool": call['name'], "gate": gate_id})
+                    state['tool_results'][call['id']] = result
+                    continue
+            # Execute with timeout (distinct from 503 — timeout is latency, 503 is server error)
+            try:
+                result = await asyncio.wait_for(registry.call(call['name'], **call['args'], _run_id=state.get("run_id","")), timeout=tool.timeout_seconds if tool else 30)
+            except asyncio.TimeoutError:
+                # Try fallback (e.g. cached_road_capacity) before escalating
+                fb_name = FALLBACKS.get(call['name'])
+                if fb_name and registry.get_tool(fb_name):
+                    result = await registry.call(fb_name, **call['args'])
+                    result.metadata["fallback_used"] = True
+                    result.metadata["original_error"] = "timeout"
+                    state['trace'].append({"event": "tool_timeout_fallback", "tool": call['name'], "fallback": fb_name})
+                else:
+                    result = ToolResult(output={"error": f"Tool {call['name']} timed out"}, confidence=0.0,
+                                        metadata={"tool_name": call['name'], "error": "timeout", "fallback_used": False, "timestamp": now(), "duration_ms": 30000})
+                    state['escalation'] = {"trigger": "tool_timeout", "tool": call['name']}
+            except Exception as exc:
+                # 503 / API error → same fallback logic
+                fb_name = FALLBACKS.get(call['name'])
+                if fb_name and registry.get_tool(fb_name):
+                    result = await registry.call(fb_name, **call['args'])
+                    result.metadata["fallback_used"] = True
+                    result.metadata["original_error"] = str(exc)
+                    state['trace'].append({"event": "tool_error_fallback", "tool": call['name'], "error": str(exc), "fallback": fb_name})
+                else:
+                    result = ToolResult(output={"error": str(exc)}, confidence=0.0,
+                                        metadata={"tool_name": call['name'], "error": str(exc), "fallback_used": False, "timestamp": now()})
+            # Handle partial batch: if one tool in batch failed but others succeeded, continue (don't abort whole batch)
+            state['tool_results'][call['id']] = result
+            state['messages'].append({"role": "tool", "tool_call_id": call['id'], "content": json.dumps(result.output)})
+
+        # 3. Update trace — include risk_score + fallback flag
+        for cid, res in state['tool_results'].items():
+            risk = compute_risk_score(state)
+            state['trace'].append(TraceEntry(node="tool", action="call_tool", result={"tool": res.metadata.get("tool_name"), "output": res.output, "risk_score": risk, "fallback_used": res.metadata.get("fallback_used", False)}, duration_ms=res.metadata.get("duration_ms", 0), confidence=res.confidence))
+            # SSE publish per tool result
+            bc = state.get("_broadcaster")
+            if bc:
+                await bc.publish(state["_run_id"], "tool_result", {"tool": res.metadata.get("tool_name"), "output": res.output, "risk_score": risk})
        
        # 4. Clear pending calls
        state['pending_tool_calls'] = []
@@ -263,21 +324,57 @@ pytest app/tests/test_tool_node.py -v
    ```python
    from langgraph.types import interrupt, Command
 
+   # Canonical interrupt payload — frontend reads BOTH top-level and card-level keys
+   # Shape: {gate_id, gate_name, approval_card: {cost, confidence, risk_score, margin, timeout_seconds, timeout_action, ...},
+   #         confidence, risk_score, timeout_seconds, timeout_action}
+   # SSE hitl_card event publishes the SAME shape so dashboard renderHITLCard works whether from SSE or webhook response.
+
+   def build_approval_card(gate: dict, state: AgentState) -> dict:
+       risk_score = compute_risk_score(state)  # 0.0–1.0 from triggers + confidence
+       return {
+           "gate_id": gate["gate_id"],
+           "gate_name": gate["gate_name"],
+           "cost_breakdown": state.get("context", {}).get("split_result", {}),
+           "confidence": state.get("confidence", 0.0),
+           "risk_score": risk_score,
+           "margin_minutes": state.get("context", {}).get("margin_minutes", 0),
+           "timeout_seconds": gate["timeout_seconds"],
+           "timeout_action": gate["timeout_action"],
+           "alternatives": state.get("context", {}).get("split_alternatives", []),
+       }
+
    def hitl_node(state: AgentState) -> Command:
        gate = state["hitl_pending"]  # HITLGate dict set by agent_node
-       # Publish approval card via SSE broadcaster (injected via config)
-       card = build_approval_card(gate, state)  # cost, confidence, risk, margin per charter §4 card
+       card = build_approval_card(gate, state)
 
-       # THIS is the correct LangGraph HITL pattern — not a separate node per gate
+       # Publish via SSE broadcaster (singleton from app.agent.sse)
+       from app.agent.sse import broadcaster  # single source — not state["_broadcaster"]
+       await broadcaster.publish(state["run_id"], "hitl_card", {
+           "gate_id": gate["gate_id"],
+           "gate_name": gate["gate_name"],
+           "approval_card": card,
+           "confidence": state.get("confidence", 0.0),
+           "risk_score": card["risk_score"],
+           "timeout_seconds": gate["timeout_seconds"],
+           "timeout_action": gate["timeout_action"],
+       })
+
+       # Correct LangGraph HITL pattern — not 5 separate nodes
        decision = interrupt({
            "gate_id": gate["gate_id"],
            "gate_name": gate["gate_name"],
            "approval_card": card,
+           "confidence": state.get("confidence", 0.0),
+           "risk_score": card["risk_score"],
            "timeout_seconds": gate["timeout_seconds"],
+           "timeout_action": gate["timeout_action"],
        })
-       # Execution PAUSES here. Resume requires: graph.ainvoke(Command(resume={"decision": "approve", ...}), config={"configurable": {"thread_id": run_id}})
+       # PAUSE — resume: graph.ainvoke(Command(resume={"decision": "approve", ...}), config={"configurable": {"thread_id": run_id}})
 
-       # This code runs AFTER human responds
+       # Guard: if state already terminal (timeout fired → halted/cancelled), reject late resume
+       if state.get("status") in ("halted", "cancelled", "holding"):
+           # Late resume after timeout — return terminal state, don't re-enter handler
+           return state
        return handle_hitl_response(state, gate, decision)
    ```
 4. Create `app/hitl/handler.py`:
@@ -435,23 +532,30 @@ pytest app/tests/test_escalation.py -v
 1. Create `app/agent/confidence.py`:
    ```python
    async def compute_confidence(state, provider) -> float:
-       # Primary: LLM self-assessment
-       prompt = f"Rate your confidence in this plan (0.0-1.0): {state['context']}"
-       response = await provider.chat([{'role': 'user', 'content': prompt}])
-       llm_confidence = extract_confidence(response.content)
-       
-       # Backup: deterministic scoring
+       # Primary: LLM self-assessment via structured JSON output
+       prompt = f"Rate your confidence in this plan (0.0-1.0) as JSON {{confidence: float}}: {state.get('context', {}).get('split_result', state['context'])}"
+       try:
+           response = await provider.chat([{'role': 'user', 'content': prompt}])
+           llm_confidence = extract_confidence(response.content)  # parse JSON confidence field
+       except Exception:
+           llm_confidence = None
        det_confidence = deterministic_score(state)
-       
-       # Use LLM if available, fallback to deterministic
-       return llm_confidence or det_confidence
-   
+       return llm_confidence if llm_confidence is not None else det_confidence
+
    def deterministic_score(state) -> float:
-       # Score based on: data freshness, tool result quality, constraint satisfaction
+       # Score based on: data freshness, tool result quality, constraint satisfaction, margin headroom
        ...
+
+   def compute_risk_score(state) -> float:
+       """CodeSprint Phase 4.3 requires risk_score in trace. Derived from confidence + active triggers."""
+       # risk_score = 1 - confidence, boosted by escalation count
+       base = 1.0 - state.get("confidence", 1.0)
+       escalations = len(state.get("escalation", []) if isinstance(state.get("escalation"), list) else ([state["escalation"]] if state.get("escalation") else []))
+       return min(1.0, base + escalations * 0.15)
    ```
-2. Threshold: 0.85 for auto-approve, below triggers HITL
-3. Propagated through state at each step
+2. Threshold: 0.85 for auto-approve, below triggers HITL (Trigger #1)
+3. `compute_risk_score()` called in `agent_node` + `tool_node` + `hitl_node` and written to `TraceEntry.risk_score`
+4. Propagated through state at each step
 
 **Verification:**
 ```bash
@@ -470,10 +574,11 @@ pytest app/tests/test_confidence.py -v
        timestamp: str
        run_id: str
        node: str  # 'agent', 'tool', 'hitl', 'escalation', 'monitor'
-       action: str  # 'reason', 'call_tool', 'show_card', 'escalate', 'deviation', 'monitor_check'
-       result: dict
+       action: str  # 'reason', 'call_tool', 'show_card', 'escalate', 'deviation', 'monitor_check', 'fallback', 'hallucinated_tool', 'rate_limited'
+       result: dict  # includes risk_score, fallback_used, confidence
        duration_ms: float
        confidence: float
+       risk_score: float  # CodeSprint Phase 4.3 required — computed from confidence + escalation count
 
    def log_trace(state, node, action, result, duration_ms):
        entry = TraceEntry(
@@ -481,17 +586,19 @@ pytest app/tests/test_confidence.py -v
            run_id=state.get("run_id", ""),
            node=node,
            action=action,
-           result=result,
+           result={**result, "risk_score": compute_risk_score(state)} if isinstance(result, dict) else result,
            duration_ms=duration_ms,
-           confidence=state.get('confidence', 0.0)
+           confidence=state.get('confidence', 0.0),
+           risk_score=compute_risk_score(state),
        )
        state['trace'].append(entry)
-       # Also emit to structured logger
-       structured_log("trace", run_id=state["run_id"], node=node, action=action, result=result)
-       # Also publish to SSE broadcaster if present
-       broadcaster = state.get("_broadcaster")
-       if broadcaster:
-           asyncio.create_task(broadcaster.publish(state["_run_id"], "trace_entry", entry.__dict__))
+       structured_log("trace", run_id=state["run_id"], node=node, action=action, result=result, risk_score=entry.risk_score)
+       # Publish via singleton broadcaster (not state["_broadcaster"] — avoids checkpoint serialization)
+       from app.agent.sse import broadcaster
+       try:
+           asyncio.create_task(broadcaster.publish(state["run_id"], "trace_entry", entry.__dict__))
+       except RuntimeError:
+           pass  # no event loop in test
        return state
 
    def export_trace(state) -> dict:
@@ -618,18 +725,14 @@ pytest app/tests/test_trace.py -v
    from langgraph.types import Command
    import uuid
 
-   async def run_agent(event: ITTCoordinationEvent, broadcaster=None) -> dict:
+   async def run_agent(event: ITTCoordinationEvent) -> dict:
        graph = build_graph()
        run_id = f"run-{uuid.uuid4().hex[:8]}"
        initial_state = create_initial_state(event, run_id)  # charter bootstrap: 11 fields
        config = {"configurable": {"thread_id": run_id}}
-
-       # Optionally inject broadcaster into state for SSE streaming
-       if broadcaster:
-           initial_state["_broadcaster"] = broadcaster
-           initial_state["_run_id"] = run_id
-
-       result = await graph.ainvoke(initial_state, config=config)
+       # Broadcaster is a singleton at app.agent.sse.broadcaster — nodes import it directly,
+       # not via state (avoids checkpoint serialization of queue objects).
+       # SSE replay buffer (Phase 7.1) ensures events before GET /stream/{run_id} are replayed.
        # If graph hit interrupt, result will contain __interrupt__ — caller must resume via:
        #   graph.ainvoke(Command(resume={"decision": "approve"}), config=config)
        return {"run_id": run_id, "state": result, "trace": export_trace(result)}
@@ -815,19 +918,74 @@ pytest app/tests/test_monitor.py -v
 pytest app/tests/test_agent_e2e.py -v  # full pipeline completes
 ```
 
+### 6.12: Resilience — Rate Limit, Stale Resume, Concurrency, Webhook Validation
+**Duration:** ~2 hours
+**What:** Harden the agent against real-world failure modes the competition will probe.
+
+**Steps:**
+1. Create `app/agent/resilience.py`:
+   ```python
+   # a. LLM rate limit (429) — wrap provider.chat with retry + fallback
+   async def chat_with_rate_limit(provider, messages, tools, retries=2):
+       for attempt in range(retries + 1):
+           try:
+               return await provider.chat(messages, tools=tools)
+           except RateLimitError as e:
+               if attempt < retries:
+                   await asyncio.sleep(2 ** attempt)  # exponential backoff
+                   continue
+               # Fall back to fallback provider (ProblemConfig.llm.fallback_provider)
+               fallback = create_provider(fallback_config)
+               return await fallback.chat(messages, tools=tools)
+
+   # b. Stale HITL resume guard — reject late approve after timeout already fired
+   def is_hitl_stale(state: AgentState, gate_id: str) -> bool:
+       return state.get("status") in ("halted", "cancelled", "holding") and state.get("hitl_pending") is None
+
+   # In resume_agent (6.9), check before Command(resume=):
+   #   if is_hitl_stale(snapshot_state, req.gate_id): return {"status": "stale", "error": f"HITL {gate_id} already timed out → {status}"}
+
+   # c. SSE disconnect — Last-Event-ID replay
+   #    Broadcaster buffer (Phase 7.1) already replays on reconnect; add Last-Event-ID header support:
+   #    GET /agent/stream/{run_id} with Header Last-Event-ID → replay from that index
+   ```
+2. Webhook validation error path — `POST /webhook/itt-coordination` must return 422 (Pydantic), NOT 500:
+   ```python
+   @app.post("/webhook/itt-coordination")
+   async def webhook_itt(event: ITTCoordinationEvent):  # FastAPI auto-validates → 422
+       try:
+           result = await run_agent(event)
+       except ValidationError as e:
+           raise HTTPException(422, detail=str(e))
+       except Exception as e:
+           structured_log("webhook_error", event_type="webhook_failed", error=str(e))
+           raise HTTPException(500, detail="Agent failed")
+       ...
+   ```
+3. Concurrency isolation — `inject_feeder_berth_conflict` currently mutates global `app/mocks/data.py`. Document: single demo at a time; `POST /agent/reset-mocks` restores clean state. For concurrent runs, Phase 5.8 stores per-`run_id` overrides in `app/mocks/data.py:_overrides: dict[run_id, dict]` so T3 lookup checks `overrides.get(run_id)` first.
+4. Wire `chat_with_rate_limit` into `agent_node` (Phase 6.3) instead of raw `provider.chat`.
+5. Add `app/tests/test_resilience.py`: 429→retry→fallback, stale resume→422, SSE reconnect→replay, concurrent inject→isolated, webhook invalid→422 (not 500), LangSmith export failure→no crash.
+
+**Verification:**
+```bash
+pytest app/tests/test_resilience.py -v  # all resilience scenarios pass
+```
+
 ## Verification Loop
 
 After all sub-phases complete:
-1. `pytest app/tests/ -v` — all tests pass (including test_monitor, test_hitl with Command resume, test_escalation charter thresholds, test_validation guardrails)
+1. `pytest app/tests/ -v` — all tests pass (including test_monitor, test_hitl with Command resume, test_escalation charter thresholds, test_validation guardrails, test_resilience)
 2. Graph compiles without errors — `python -c "from app.agent.graph import build_graph; g = build_graph(); print('OK')"`
 3. Agent processes a test event end-to-end (happy path + deviation path via 6.11)
-4. HITL gates fire with correct timeout/timeout_action per gate; `Command(resume=)` pattern works with `thread_id`
+4. HITL gates fire with correct timeout/timeout_action per gate; `Command(resume=)` pattern works with `thread_id`; stale resume after timeout returns `stale` error
 5. All 7 escalation triggers use charter thresholds (0.85, 1.5h, $10k, 30min, 60%, 15min, planner_conflict)
-6. Confidence scores use LLM self-assessment with deterministic backup; threshold 0.85
-7. Execution trace + deviation_log + structured logging all populated; `export_trace` includes deviations
-8. Input validation guardrails checked at webhook + T4 + post-approval
+6. Confidence scores use LLM self-assessment with deterministic backup; threshold 0.85; risk_score in every TraceEntry
+7. Execution trace + deviation_log + structured logging all populated; `export_trace` includes deviations + risk_score trajectory
+8. Input validation guardrails checked at webhook (422, not 500) + T4 + post-approval
 9. Monitoring loop: inject conflict → re-query T3 → detect → re-compute T4 → emergency HITL → delta dispatch
-10. LangSmith trace export works (if `LANGSMITH_API_KEY` set)
+10. LangSmith trace export failure does not crash agent (try/except)
+11. Resilience: 429→fallback, tool timeout vs 503 distinct, hallucinated tool→error ToolResult, partial batch→continue
+12. Provider observability: `LLMResponse.latency_ms`, `usage.input_tokens/output_tokens`, `raw`, `finish_reason` logged to trace
 
 ## Commit
 After verification: `git commit -m "Phase 6: Agent core — LangGraph graph, HITL gates, escalation triggers, confidence, trace"`
