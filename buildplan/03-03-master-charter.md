@@ -3,7 +3,8 @@
 **Status:** Locked  
 **Flagship Problem:** PB-12  
 **Parent Cluster:** C2 — Manual Multi-Party Coordination  
-**Last updated:** 2026-08-19
+**Last updated:** 2026-08-27  
+**Revision:** Gap-aware rewrite — honest inventory of built vs. missing
 
 ---
 
@@ -387,6 +388,30 @@ class ITTCoordinationEvent(BaseModel):
 }
 ```
 
+### Post-Approval Tools (not yet implemented)
+
+The following tools execute AFTER human approval. They are defined here for completeness but have no implementation.
+
+```python
+def dispatch_road_itt(
+    optetruck_endpoint: str,
+    num_trucks: int,
+    route: str
+) -> dict:
+    """Dispatch prime movers via OptETruck. Requires HITL Gate 2 approval."""
+    pass
+
+def request_feeder_hold(
+    portnet_endpoint: str,
+    feeder_id: str,
+    hold_hours: float
+) -> dict:
+    """Request feeder operator to hold departure. Requires HITL Gate 3 approval.
+    NOTE: This is a REQUEST, not a command — feeder operator is an independent carrier.
+    """
+    pass
+```
+
 ---
 
 ## 4. Safety Guardrails, HITL Gates, Escalation Triggers & Failure Scenarios
@@ -426,7 +451,19 @@ class ITTCoordinationEvent(BaseModel):
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### 7 Escalation Triggers (from 03-02-autonomy-level.md)
+### HITL Disapproval Flow
+
+When the human clicks **REJECT** or **MODIFY SPLIT** on any HITL gate:
+
+| Action | Agent Response | Rationale |
+|--------|---------------|-----------|
+| **REJECT** (no modification) | Agent halts the current plan, logs rejection reason, presents alternative split options (the `alternatives` array from Tool 4), or escalates to Duty Manager if no viable alternatives exist | Human has decided the agent's plan is operationally unacceptable — agent must not force execution |
+| **MODIFY SPLIT** (human adjusts road/sea ratio) | Agent re-validates the modified split against constraints (LTA chassis limits, feeder capacity, timeline margin), re-runs Tool 4 with adjusted parameters, presents updated cost analysis, and requests re-approval | Human may have contextual knowledge the agent lacks (e.g., known road works, feeder reliability concerns) |
+| **Timeout** (no response within gate timeout) | Agent escalates to Duty Manager per the `timeout_action` column above. If Duty Manager also does not respond within 30 min, agent halts workflow entirely | Prevents indefinite blocking — the system must fail safe, not fail silent |
+
+**Key principle:** The agent NEVER executes a rejected action. Rejection is terminal for that plan iteration. The agent's role is to present alternatives or escalate — not to persuade.
+
+### 7 Escalation Triggers
 
 | # | Trigger | Threshold | Agent Action | Rationale |
 |---|---------|-----------|--------------|-----------|
@@ -440,7 +477,7 @@ class ITTCoordinationEvent(BaseModel):
 
 ### Confidence Scoring
 
-- **Method:** LLM self-assessment — the agent outputs a confidence score (0.0–1.0) with every decision
+- **Method:** LLM self-assessment — the agent outputs a confidence score (0.0–1.0) with every decision via structured JSON output (see Gap G-07)
 - **Threshold:** 0.85 — below this, the agent automatically escalates (Trigger #1)
 - **Logging:** All confidence scores are logged to LangSmith for post-demo analysis
 - **Demo value:** Shows the judges that the agent knows when it doesn't know
@@ -596,62 +633,7 @@ The agent architecture built for PB-12 (event ingestion, multi-tool orchestratio
 | **Web UI** | HTML/JS + SSE from FastAPI | Real-time agent decisions streamed to browser |
 | **Tracing** | LangSmith free tier | Full graph execution trace, tool calls, HITL events |
 | **Config** | YAML per problem | Same agent core, different systems/tools/costs per problem |
-| **Deploy** | Docker → Railway/Render free tier | Zero infra cost |
-
-### Trigger Event Payload (T6 Webhook Input)
-
-```json
-{
-  "event_type": "ITT_COORDINATION_REQUEST",
-  "timestamp": "2026-08-19T10:30:00+08:00",
-  "source": "CITOS_PPT",
-  "priority": "high",
-  "origin_terminal": "PPT",
-  "destination_terminal": "TUAS",
-  "vessel_id": "MV PACIFIC STAR",
-  "tuas_vessel_departure": "2026-08-19T20:00:00+08:00",
-  "container_count": 120,
-  "containers_ready": 120,
-  "blocks_affected": ["B-07", "B-08", "B-12", "B-14"],
-  "dg_containers": 3,
-  "priority_containers": 45,
-  "requested_by": "PPT_Yard_Planner_Lim",
-  "notes": "Priority transhipment for MV PACIFIC STAR. 120 containers ready for cross-terminal ITT. Both road and sea options available."
-}
-```
-
-### Happy Path Step-by-Step Trace
-
-| Step | Agent Thought | Action | Observation |
-|------|--------------|--------|-------------|
-| 1 | "New ITT coordination request. 120 containers from PPT to Tuas. Vessel departs 2000. I need to check what's available at PPT and what transport options exist." | `get_itt_candidates("CITOS_PPT", "MV PACIFIC STAR")` | 120 containers (40x 40ft + 80x 20ft = 160 TEU) confirmed ready across 4 yard blocks |
-| 2 | "Containers confirmed. Now I need to check road ITT capacity — how many trucks are available, transit time, and road conditions along West Coast Highway and AYE?" | `check_road_itt_capacity("OPTETRUCK", "PPT", "11:00", "18:00")` | 20 trucks available, 90 min transit, $150/trip, 60 trips needed for 80-container road split (40x 40ft + 40x 20ft) |
-| 3 | "Road capacity is 20 trucks. Now I need to check sea ITT — what feeder vessels are available and what are the departure constraints?" | `check_sea_itt_capacity("PORTNET", "FEEDER ATLANTIC-03", "2026-08-19T10:35:00+08:00")` | Feeder available, 180 TEU capacity, departure window 1400–1600, downstream tidal window at Port Klang at 2300 |
-| 4 | "I have all the data. Let me compute the optimal road/sea split considering LTA chassis limits (1x 40ft or 2x 20ft per trip), cost, time, and downstream constraints." | `compute_itt_split(candidates, road_capacity, sea_capacity, "2026-08-19T20:00:00+08:00", constraints)` | Optimal split: 80 road (60 trips: $9,000) / 40 sea ($0 charter + $1,400 handling), total transport cost $10,400 (vs. $12,000 all-road baseline of 80 trips) |
-| 5 | "I have the optimal split. This involves committing trucks and requesting a feeder hold — both are state-mutating actions. I need ITT coordinator approval." | **HITL Gate** — Present approval card | ITT coordinator reviews and approves |
-| 6 | "Approved. Dispatching 16 trucks on West Coast Highway corridor and requesting 1-hour feeder hold." | `dispatch_road_itt("OPTETRUCK", 16, "PPT -> West Coast Highway -> AYE -> Tuas Port Boulevard")` + `request_feeder_hold("PORTNET", "FEEDER ATLANTIC-03", 1)` | Trucks dispatched, feeder hold requested |
-| 7 | "Road ITT dispatched. Updating Tuas yard planner with expected arrival times." | `update_tuas_loading_sequence("CITOS_TUAS", "MV PACIFIC STAR", "14:30", "16:30", road_ids, sea_ids)` | Tuas loading sequence updated |
-| 8 | "Monitoring... 21 minutes elapsed. PORTNET just reported a feeder berth conflict." | Agent detects deviation | Feeder departure delayed to 1600 — will miss tidal window at Port Klang |
-| 9 | "Berth conflict detected. Feeder cannot depart by 1530 as planned. I need to re-compute: shift 20 containers from sea to road (100 road / 20 sea = 70 truck trips). Road trucks are already cycling — I need to add 4 more trucks on the PPT -> West Coast Highway -> AYE route." | `compute_itt_split(revised_candidates, updated_road, constrained_sea, ...)` | Revised split: 100 road / 20 sea, +$1,500 road cost but avoids $5,000 missed connection |
-| 10 | "Revised split ready. This changes the truck dispatch — needs ITT coordinator re-approval." | **HITL Gate** — Present emergency re-split | ITT coordinator approves emergency re-split |
-| 11 | "Re-approved. Dispatching 4 additional trucks, updating Tuas loading sequence." | `dispatch_road_itt("OPTETRUCK", 4, "PPT -> West Coast Highway -> AYE -> Tuas Port Boulevard")` + `update_tuas_loading_sequence(...)` | Additional trucks dispatched, Tuas updated |
-| 12 | "Incident resolved. Logging deviation: original 80/40 split → revised 100/20 split due to feeder berth conflict. Agent detected at T+21 min, re-computed and re-dispatched within 4 minutes." | Agent logs deviation | Deviation recorded for learning |
-
-| Step | Agent Thought | Action | Observation |
-|------|--------------|--------|-------------|
-| 0 | "Webhook received — T6 trigger. ITT_COORDINATION_REQUEST from CITOS_PPT. 120 containers for MV PACIFIC STAR. Bootstrap agent state." | `receive_webhook()` — FastAPI endpoint validates payload, creates initial agent state | Event accepted, run_id generated, LangGraph agent triggered |
-| 1 | "New ITT coordination request. 120 containers from PPT to Tuas. Vessel departs 2000. I need to check what's available at PPT and what transport options exist." | `get_itt_candidates("CITOS_PPT", "MV PACIFIC STAR")` | 120 containers (40x 40ft + 80x 20ft = 160 TEU) confirmed ready across 4 yard blocks. **Confidence: 0.95** |
-| 2 | "Containers confirmed. Now I need to check road ITT capacity — how many trucks are available, transit time, and road conditions along West Coast Highway and AYE?" | `check_road_itt_capacity("OPTETRUCK", "PPT", "11:00", "18:00")` | 20 trucks available, 90 min transit, $150/trip, 60 trips needed for 80-container road split. **Confidence: 0.90** |
-| 3 | "Road capacity is 20 trucks. Now I need to check sea ITT — what feeder vessels are available and what are the departure constraints?" | `check_sea_itt_capacity("PORTNET", "FEEDER ATLANTIC-03", "2026-08-19T10:35:00+08:00")` | Feeder available, 180 TEU capacity, departure window 1400–1600, downstream tidal window at Port Klang at 2300. **Confidence: 0.88** |
-| 4 | "I have all the data. Let me compute the optimal road/sea split considering LTA chassis limits (1x 40ft or 2x 20ft per trip), cost, time, and downstream constraints." | `compute_itt_split(candidates, road_capacity, sea_capacity, "2026-08-19T20:00:00+08:00", constraints)` | Optimal split: 80 road (60 trips: $9,000) / 40 sea ($0 charter + $1,400 handling), total transport cost $10,400. **Confidence: 0.92** |
-| 5 | "I have the optimal split. This involves committing trucks and requesting a feeder hold — both are state-mutating actions. I need ITT coordinator approval." | **HITL Gate 1** — Present approval card | ITT coordinator reviews and approves (25.8s response time) |
-| 6 | "Approved. Dispatching 16 trucks on West Coast Highway corridor and requesting 1-hour feeder hold." | `dispatch_road_itt("OPTETRUCK", 16, "PPT -> West Coast Highway -> AYE -> Tuas Port Boulevard")` + `request_feeder_hold("PORTNET", "FEEDER ATLANTIC-03", 1)` | Trucks dispatched, feeder hold requested. **HITL Gate 2** approved (5.0s response time). **HITL Gate 3** approved (6.8s response time) |
-| 7 | "Road ITT dispatched. Updating Tuas yard planner with expected arrival times." | `update_tuas_loading_sequence("CITOS_TUAS", "MV PACIFIC STAR", "14:30", "16:30", road_ids, sea_ids)` | Tuas loading sequence updated. **HITL Gate 4** approved (4.2s response time) |
-| 8 | "Monitoring... 21 minutes elapsed. PORTNET just reported a feeder berth conflict." | Agent detects deviation — **Escalation Trigger #6** fires (feeder response time > 15 min) | Feeder departure delayed to 1600 — will miss tidal window at Port Klang |
-| 9 | "Berth conflict detected. Feeder cannot depart by 1530 as planned. Confidence dropped to 0.78 — below 0.85 threshold. Escalating to duty manager." | Agent detects deviation, **Escalation Trigger #1** fires (low confidence), **Escalation Trigger #2** fires (feeder hold > 1.5 hrs) | Agent re-computes: 100 road / 20 sea, +$1,500 road cost but avoids $5,000 missed connection |
-| 10 | "Revised split ready. This changes the truck dispatch — needs ITT coordinator re-approval." | **HITL Gate 5** — Present emergency re-split to duty manager | Duty manager approves emergency re-split (7.0s response time) |
-| 11 | "Re-approved. Dispatching 4 additional trucks, updating Tuas loading sequence." | `dispatch_road_itt("OPTETRUCK", 4, "PPT -> West Coast Highway -> AYE -> Tuas Port Boulevard")` + `update_tuas_loading_sequence(...)` | Additional trucks dispatched, Tuas updated |
-| 12 | "Incident resolved. Logging deviation: original 80/40 split → revised 100/20 split due to feeder berth conflict. Agent detected at T+21 min, re-computed and re-dispatched within 4 minutes. All 7 escalation triggers tested." | Agent logs deviation, writes to LangSmith trace | Deviation recorded, full trace available in LangSmith dashboard |
+| **Deploy** | Docker → Railway/Render (free tier) | Zero infra cost |
 
 ### LangSmith Trace Output (Demo Feature)
 
@@ -694,40 +676,65 @@ Escalation triggers fired: #1 (low confidence), #2 (feeder hold), #6 (unresponsi
 Confidence trajectory: 0.95 → 0.90 → 0.88 → 0.92 → 0.91 → 0.78 (deviation) → 0.90 (recovery)
 ```
 
-### Demo Script Checklist
+---
 
-- [ ] T6 webhook receives `ITT_COORDINATION_REQUEST` → agent starts (Step 0)
-- [ ] Agent queries all 5 systems (ingest node) — confidence scores logged
-- [ ] Agent computes optimal split (80 road / 40 sea = $10,400)
-- [ ] HITL Gate 1: Split approval → APPROVED
-- [ ] HITL Gate 2: Truck dispatch → APPROVED
-- [ ] HITL Gate 3: Feeder hold → APPROVED
-- [ ] HITL Gate 4: Loading sequence update → APPROVED
-- [ ] **Edge case injection:** Feeder berth conflict at Step 8
-- [ ] Escalation Trigger #6 fires (feeder unresponsive > 15 min)
-- [ ] Escalation Trigger #1 fires (confidence drops to 0.78 < 0.85)
-- [ ] Escalation Trigger #2 fires (feeder hold > 1.5 hrs)
-- [ ] Agent detects deviation, re-computes (100/20 split)
-- [ ] HITL Gate 5: Emergency re-split → APPROVED (duty manager)
-- [ ] Agent dispatches 4 additional trucks, updates Tuas loading sequence
-- [ ] Agent logs deviation with reason
-- [ ] All 7 escalation triggers verified (unit tests)
-- [ ] LangSmith trace shows full execution graph
-- [ ] Confidence scores logged for every decision
-- [ ] Total resolution time < 30 seconds wall time
+## 8. Gap Inventory — What Exists vs. What's Missing
 
-**At Step 8**, the agent detects a feeder berth conflict — a realistic disruption that occurs in approximately 30% of ITT coordination events. The agent's response demonstrates:
+> **Purpose:** This section provides an honest, cynical inventory of every gap between the current prototype and the competition-ready system. Each gap is assigned an ID and severity. Phase plans in `.planning/phases/` will address these gaps in detail.
 
-1. **Real-time monitoring:** Agent continuously polls PORTNET for feeder status updates
-2. **Adaptive reasoning:** Agent re-computes the split under new constraints (feeder delayed)
-3. **Cost-benefit analysis:** Agent shows ITT coordinator the cost comparison (+$1,500 road vs. $5,000 missed connection)
-4. **Graceful recovery:** Agent dispatches additional trucks and updates Tuas loading sequence without human re-planning
-5. **Escalation awareness:** Confidence drops below 0.85 threshold — agent knows when to ask for help
-6. **Full audit trail:** Every decision, tool call, confidence score, and deviation is logged to LangSmith
+### Severity Definitions
+
+| Severity | Meaning |
+|----------|---------|
+| **CRITICAL** | Blocks demo functionality — system cannot run without this |
+| **HIGH** | Significantly degrades demo quality — judges will notice |
+| **MEDIUM** | Reduces polish — affects presentation but not core functionality |
+| **LOW** | Nice-to-have — improves code quality but not demo-critical |
+
+### Gap Inventory
+
+| ID | Severity | Gap | Current State | Required State | Phase Plan |
+|----|----------|-----|---------------|----------------|------------|
+| **G-01** | CRITICAL | **No LangGraph agent core** | Linear async orchestrator (`orchestrator.py`) with `asyncio.gather` — no state machine, no conditional branching, no tool-calling loop | LangGraph StateGraph with INGEST → DECIDE → EXECUTE → HITL → ESCALATE nodes, conditional edges, state checkpointing | Phase 6 |
+| **G-02** | CRITICAL | **LLM not wired into decision-making** | `provider.py` (735 lines, 8 providers) exists but is DEAD CODE — never imported by any orchestration logic. The compute_itt_split is deterministic math, not LLM reasoning | LLM drives all tool selection decisions via ReAct loop. The agent queries tools, reasons about results, and decides next actions. Deterministic math (Tool 4) is called BY the LLM, not INSTEAD of it | Phase 6 |
+| **G-03** | CRITICAL | **No HITL implementation** | `in_approval/` and `post_approval/` directories are empty. No approval card rendering, no callback mechanism, no timeout handling | 5 HITL gates with approval cards rendered in web UI, callback to agent on approve/reject/modify, timeout escalation | Phase 6 + 7 |
+| **G-04** | CRITICAL | **No web UI** | No HTML/CSS/JS files. No SSE streaming. No demo interface. | Web dashboard with: port operations view, execution trace drawer (real-time SSE), HITL approval cards, edge case injection controls | Phase 7 |
+| **G-05** | CRITICAL | **Post-approval tools missing** | `dispatch_road_itt` and `request_feeder_hold` are defined in charter but have no implementation | Functional tool implementations that the agent calls after HITL approval | Phase 5 |
+| **G-06** | HIGH | **Tool invocation architecture unclear** | Tools run as direct Python function calls (in-process). Mock API HTTP endpoints exist but are unused by the orchestrator | Decision needed: (a) In-process calls (simpler, faster, fine for demo) or (b) HTTP calls to same FastAPI server (more realistic, shows API orchestration). Recommendation: in-process for demo, document as architectural decision | Phase 4 |
+| **G-07** | HIGH | **Confidence scoring is deterministic, not LLM-generated** | `_compute_confidence()` in compute_itt_split.py uses hardcoded math (margin, truck ratio, feeder headroom) | LLM outputs structured JSON with confidence score per decision. Deterministic score serves as backup/validation, not primary source | Phase 6 |
+| **G-08** | HIGH | **No execution trace / observability** | No LangSmith integration, no deviation logging, no structured trace output | Full execution trace: timestamp, step name, agent reasoning, tool called, arguments, response, risk score, approval status. Streamed to UI and logged to LangSmith | Phase 6 + 7 |
+| **G-09** | HIGH | **provider.py not tested end-to-end** | 8 providers implemented but never validated with actual API keys | End-to-end test with at least one provider (Anthropic or OpenAI). Verify: chat works, tool calling works, retry works, fallback works | Phase 4 |
+| **G-10** | HIGH | **Webhook duplication** | Two separate webhook implementations: `mocks/webhook.py` (in FastAPI app) and `container_readiness/webhook.py` (standalone). Different schemas, different validation. | Single unified webhook endpoint that receives the event, validates, bootstraps agent state, and triggers the LangGraph agent | Phase 4 |
+| **G-11** | HIGH | **Edge cases not connected to agent** | `mocks/edge_cases.py` has `simulate_feeder_conflict()` and `simulate_stale_data()` but they're only importable, not triggered by any API or UI | Edge case injection API endpoint + UI controls. Demo operator clicks "Inject Berth Conflict" → agent receives modified feeder data at step 8 | Phase 7 |
+| **G-12** | HIGH | **Tool 5 (update_tuas_loading_sequence) has no tool function** | Schema exists in `schemas.py` but no `update_tuas_loading_sequence()` function implemented | Functional tool that the agent calls after dispatch to update Tuas QC loading sequence | Phase 5 |
+| **G-13** | MEDIUM | **prototype/ directory structure is misleading** | Top-level dirs: `pre_approval/`, `in_approval/` (empty), `post_approval/` (empty). Doesn't map to agent architecture. Tool files scattered across nested dirs. | Recommended restructuring: `agent/` (core graph), `tools/` (all tool implementations), `mocks/` (mock servers), `hitl/` (approval gates), `ui/` (frontend), `shared/` (provider, utils), `configs/` | Phase 4 |
+| **G-14** | MEDIUM | **No frontend tech stack decision** | Charter says "HTML/JS + SSE from FastAPI" but no decision on framework (vanilla JS, Alpine.js, htmx, React) | Decide: HTML/JS + vanilla SSE (simplest, fastest to build) or Streamlit (quickest prototype but less polished). Given 8 days left: recommend vanilla HTML/JS + SSE | Phase 7 |
+| **G-15** | MEDIUM | **No Docker/deploy configuration** | No Dockerfile, no docker-compose.yml, no deployment config | Dockerfile + docker-compose.yml for local dev. Railway/Render config for free-tier deployment | Phase 8 |
+| **G-16** | MEDIUM | **No demo video or presentation deck** | No slides, no video recording | 10-slide deck + 10-minute demo video per competition requirements | Phase 8 |
+| **G-17** | MEDIUM | **Confidence scoring method unclear** | Charter says "LLM self-assessment" but doesn't specify HOW the LLM outputs structured confidence | Options: (a) JSON mode with confidence field, (b) Prompt instruction to include confidence in response, (c) Post-parse from natural language. Recommend: JSON mode with structured output schema | Phase 6 |
+| **G-18** | MEDIUM | **Feeder berth conflict injection method undefined** | No clear mechanism for injecting the edge case during demo | Options: (a) API query parameter `inject_berth_conflict=True` (already in sea_itt_tools.py), (b) Timed injection at step 8, (c) UI button. Recommend: UI button that sets a flag, agent picks up at next feeder query | Phase 7 |
+| **G-19** | MEDIUM | **main.py only serves mocks** | `prototype/main.py` is a mock API server (42 lines). Not the unified FastAPI app that should serve agent + mocks + webhook + UI | Unified FastAPI app that mounts: agent routes, mock API routes, webhook endpoint, SSE endpoint, static files (UI) | Phase 4 |
+| **G-20** | MEDIUM | **No scenario runner** | No way to trigger the full demo scenario (webhook → agent → tools → HITL → edge case → recovery) from a single action | "Run Demo" button in UI that: sends webhook payload, agent processes, HITL cards appear, edge case injectable at step 8 | Phase 7 |
+| **G-21** | LOW | **YAML configs not loaded by agent** | 7 YAML configs exist in `configs/` but the agent/orchestrator doesn't read them. Config data is hardcoded in tool files | Agent loads YAML config at startup, uses it to determine which tools to call, what systems to query, what HITL gates to enforce | Phase 6 |
+| **G-22** | LOW | **No unit test coverage** | Only `tests/test_orchestrator.py` exists. No tests for tools, provider, HITL, escalation | Unit tests for all tools, integration test for full pipeline, HITL gate tests, escalation trigger tests | Phase 6 |
+| **G-23** | LOW | **No logging/structured output** | Basic `logging.info()` calls. No structured JSON logging for audit trail | Structured JSON logging to stdout + file. Each log entry: timestamp, run_id, step, event_type, payload | Phase 6 |
+
+### LangGraph Decision — Addressed
+
+The team has raised valid questions about whether LangGraph is necessary. Here is the resolution:
+
+| Question | Answer |
+|----------|--------|
+| **Can the solution be agentic without LangGraph?** | Yes — but the competition explicitly evaluates "ReAct/Plan-and-Execute mechanics, tool orchestration, state management" (Evaluation Criterion 1). A linear pipeline does not demonstrate these. |
+| **Is LangGraph overkill?** | For the pre-approval phase (T1→T2→T3→T4), the flow IS largely sequential — LangGraph adds overhead. But for the full lifecycle (ingest → decide → execute → HITL → monitor → re-compute → re-approve), conditional branching is essential. LangGraph handles the HITL pause/resume natively. |
+| **What does LangGraph accomplish for the frontend?** | LangGraph itself does nothing for the frontend. The frontend connects via SSE to stream agent state. LangGraph provides the state machine that GENERATES the events the frontend consumes. |
+| **Tool call order pre-split — isn't it deterministic?** | T1→T2→T3 IS deterministic (query all systems). But T4→HITL→dispatch→monitor→re-compute is NOT — the agent must decide whether to re-compute, which tools to re-query, and whether to escalate. That's where LangGraph earns its keep. |
+| **Post-split — can it be a deterministic pipeline?** | It COULD be. But the demo's drama comes from the feeder berth conflict edge case at step 8, where the agent must dynamically re-plan. A deterministic pipeline can't handle that without hardcoding the recovery path — which defeats the "agentic" requirement. |
+| **Recommendation** | Use LangGraph for the full agent lifecycle (G-01). The pre-approval pipeline (T1→T2→T3→T4) can be a simple sub-graph or sequential node. The HITL gates, monitoring loop, and re-computation path use LangGraph's conditional edges. This gives the best of both worlds: simple where possible, agentic where necessary. |
 
 ---
 
-## 8. Technical Implementation (Build Plan)
+## 9. Technical Implementation (Target Architecture)
 
 ### Tech Stack
 
@@ -794,6 +801,8 @@ Confidence trajectory: 0.95 → 0.90 → 0.88 → 0.92 → 0.91 → 0.78 (deviat
 │  ┌──────────────────────────────────────────────────────────┐    │
 │  │  WEB UI (HTML/JS + SSE)                                   │    │
 │  │  GET /ui → real-time agent decisions streamed via SSE     │    │
+│  │  POST /ui/hitl-response → human approval/rejection        │    │
+│  │  POST /ui/inject-edge-case → trigger demo edge case       │    │
 │  └──────────────────────────────────────────────────────────┘    │
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐    │
@@ -803,68 +812,141 @@ Confidence trajectory: 0.95 → 0.90 → 0.88 → 0.92 → 0.91 → 0.78 (deviat
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### T6 Request Flow (Step by Step)
+### Current Prototype Structure (as-built)
 
-1. **External trigger:** CITOS (PPT) sends `POST /webhook/itt-coordination` with the ITT_COORDINATION_REQUEST event payload
-2. **Validation:** FastAPI validates the payload against the Pydantic `ITTCoordinationEvent` model (checks required fields, container count ≥ 50, vessel departure > now + 2 hrs)
-3. **State bootstrap:** Webhook handler creates the initial agent state dict from the event payload:
-   - `origin_terminal`, `destination_terminal`, `vessel_id`, `container_count`
-   - `tuas_vessel_departure`, `blocks_affected`, `dg_containers`
-   - `current_step: "ingest"`, `hitl_pending: []`, `confidence_scores: []`
-4. **Agent trigger:** Handler calls `agent_graph.ainvoke(initial_state)` — LangGraph starts the agent from the INGEST node
-5. **Response:** Handler returns `{"status": "accepted", "run_id": "..."}` immediately (non-blocking)
-6. **Agent execution:** LangGraph processes the state through INGEST → DECIDE → EXECUTE → HITL → ESCALATE nodes
-7. **Real-time streaming:** Web UI connects via SSE (`GET /ui/stream`) and receives agent thoughts, tool calls, and HITL requests in real time
-8. **HITL interaction:** When a HITL gate fires, the web UI shows the approval card. Human clicks APPROVE/MODIFY/REJECT. Response is sent back to the agent via `POST /ui/hitl-response`
-9. **Completion:** Agent reaches COMPLETE node, logs final state, writes deviation log if any
-
-### YAML Config (Per Problem)
-
-The same agent core handles all 7 Cluster C2 problems. Only the YAML config changes:
-
-```yaml
-# prototype/configs/pb-12-itt.yaml — PB-12: Multi-Party ITT Coordination
-problem:
-  id: PB-12
-  name: "Multi-Party ITT Coordination Failure"
-
-systems: [citos_ppt, citos_tuas, optetruck, feeder, portnet]
-tools: [query_container_readiness, check_road_itt_capacity, check_sea_itt_capacity,
-        compute_itt_split, update_tuas_loading_sequence, receive_webhook]
-hitl_gates: [hitl_1, hitl_2, hitl_3, hitl_4, hitl_5]
-escalation_triggers: [esc_1, esc_2, esc_3, esc_4, esc_5, esc_6, esc_7]
-confidence: {threshold: 0.85, method: "llm_self_assessment"}
-cost_params: {road_cost_per_trip: 150, vessel_demurrage_per_hr: 2500, ...}
-constraints: {lta_chassis: "1x 40ft OR 2x 20ft", ...}
-edge_cases: [feeder_berth_conflict, data_staleness]
+```
+prototype/
+├── main.py                  # Mock API server only (NOT the unified app)
+├── path_config.py           # Path resolution
+├── __init__.py
+├── configs/                 # YAML configs (7 problems) — NOT loaded by agent
+│   ├── config_manager.py
+│   ├── pb-12-itt.yaml      # Flagship config
+│   └── pb-*.yaml           # 6 sibling problem configs
+├── shared/
+│   └── utils/
+│       ├── provider.py      # LLM abstraction (DEAD CODE — not wired in)
+│       └── yaml_reader.py   # YAML config loader
+├── pre_approval/            # Agent tools (scattered, not integrated)
+│   ├── orchestrator.py      # Linear async pipeline (NOT LangGraph)
+│   ├── container_readiness/ # T6 webhook (duplicate of mocks/webhook.py)
+│   ├── ppt_citos/           # Tool 1 (has its own mock data, router)
+│   ├── road_itt/            # Tool 2
+│   ├── sea_itt/             # Tool 3 (has its own mock data, router, models)
+│   └── ai_optimisation/     # Tool 4 (deterministic math, works standalone)
+├── in_approval/             # EMPTY — no HITL implementation
+├── post_approval/           # EMPTY — no dispatch/hold tools
+├── mocks/                   # Mock API server (5 PSA systems)
+│   ├── schemas.py           # Pydantic models (well-defined)
+│   ├── webhook.py           # Webhook endpoint (duplicate)
+│   ├── edge_cases.py        # Edge case simulators (not connected)
+│   ├── citos_ppt.py, citos_tuas.py, optetruck.py, feeder.py, portnet.py
+│   └── data.py              # Mock data loader
+└── tests/
+    └── test_orchestrator.py # Single test file
 ```
 
-To add a new problem (e.g., PB-01 Berth Delay): duplicate the YAML, swap `systems` and `tools` to VTIS/OptEVoyage/CITOS berth tools, adjust `cost_params` and `constraints`. The LangGraph graph doesn't change.
+### Target Prototype Structure (recommended)
 
-### Build Order
+```
+prototype/
+├── main.py                  # Unified FastAPI app (agent + mocks + UI + webhook)
+├── agent/                   # NEW: LangGraph agent core
+│   ├── graph.py             # StateGraph definition (INGEST→DECIDE→EXECUTE→HITL→ESCALATE)
+│   ├── state.py             # Agent state TypedDict
+│   ├── nodes/               # Graph nodes
+│   │   ├── ingest.py        # Data gathering from mock systems
+│   │   ├── decide.py        # LLM reasoning + tool selection
+│   │   ├── execute.py       # Tool execution
+│   │   ├── hitl.py          # HITL gate management
+│   │   ├── escalate.py      # Escalation trigger checks
+│   │   └── complete.py      # Incident resolution + deviation logging
+│   └── trace.py             # LangSmith trace wrapper
+├── tools/                   # REORGANIZED: All tool implementations
+│   ├── container_readiness.py  # Tool 1
+│   ├── road_itt.py             # Tool 2
+│   ├── sea_itt.py              # Tool 3
+│   ├── compute_split.py        # Tool 4
+│   ├── loading_sequence.py     # Tool 5
+│   ├── dispatch_road.py        # Post-approval: Tool 6
+│   └── feeder_hold.py          # Post-approval: Tool 7
+├── hitl/                    # NEW: HITL gate implementation
+│   ├── gates.py             # Gate logic (approve/reject/modify/timeout)
+│   ├── cards.py             # Approval card rendering
+│   └── callbacks.py         # SSE callback for human responses
+├── mocks/                   # KEEP: Mock API servers (cleaned up)
+│   ├── routers/             # FastAPI routers per system
+│   ├── data.py              # Shared mock data
+│   └── edge_cases.py        # Edge case injection
+├── ui/                      # NEW: Frontend
+│   ├── index.html           # Demo dashboard
+│   ├── app.js               # SSE client + HITL interaction
+│   └── style.css            # Styling
+├── shared/
+│   └── utils/
+│       ├── provider.py      # LLM abstraction (WIRED IN)
+│       └── yaml_reader.py
+├── configs/                 # YAML configs (loaded by agent)
+└── tests/                   # Expanded test suite
+```
 
-| Day | Morning | Afternoon | Deliverable |
-|-----|---------|-----------|------------|
-| **1** | Project scaffold, LangGraph setup, LLM abstraction, T6 webhook endpoint | Mock API server (all 5 systems with realistic data) | FastAPI app with mock endpoints + webhook |
-| **2** | Agent state definition, graph skeleton | Tool registration (all 6 tools: 5 + webhook) | Agent can read from all mocks |
-| **3** | ITT split logic, cost computation | All 5 HITL gate nodes with timeout logic | Agent computes split, requests approval at each gate |
-| **4** | 7 escalation trigger checks, confidence scoring | Edge cases: stale data detection, berth conflict simulation | Agent handles all Master Charter scenarios |
-| **5** | Deviation logger, LangSmith tracing setup | Web UI (real-time agent decisions via SSE) | Presentable demo with trace dashboard |
-| **6** | End-to-end testing (happy path + edge cases) | Deploy to Railway/Render | Live demo URL |
-| **7** | Buffer / bug fixes | Record demo video, practice pitch | Competition-ready |
+---
+
+## 10. Build Order (Revised — 8 Days to Submission)
+
+| Day | Focus | Deliverable |
+|-----|-------|-------------|
+| **1** | Foundation reformation: unified FastAPI app, wire provider.py, test LLM end-to-end | Working FastAPI app with LLM chat verified |
+| **2** | LangGraph agent core: StateGraph, INGEST/DECIDE/EXECUTE nodes, tool registration | Agent can receive webhook, call tools, return result |
+| **3** | HITL gates: all 5 gates with approval cards, timeout logic, approve/reject/modify flow | Agent pauses at HITL gates, resumes on human response |
+| **4** | Post-approval tools: dispatch_road_itt, request_feeder_hold, update_tuas_loading_sequence | Full tool chain works end-to-end |
+| **5** | Escalation triggers (7), confidence scoring (LLM-driven), deviation logging | Agent handles all edge cases per Master Charter |
+| **6** | Web UI: SSE streaming, HITL approval cards, edge case injection controls, demo scenario runner | Presentable demo interface |
+| **7** | End-to-end testing, Docker, deploy to Railway/Render | Live demo URL |
+| **8** | Buffer, demo video recording, presentation deck, submission | Competition-ready |
 
 ---
 
 ## Acceptance Criteria Verification
 
-- [x] **Exact mock tool JSON signatures defined with parameters and outputs** — 6 tools (5 + T6 webhook) with full JSON schemas in Section 3
-- [x] **Cost model differentiates between cargo tiers** — N/A for ITT (no reefer/DG differentiation in transport mode split), but risk assessment includes DG container handling
-- [x] **Realistic multi-party coordination model including downstream destination constraints** — Feeder downstream tidal window at Port Klang integrated into split computation
-- [x] **Demo script includes both Happy Path and Injected Edge-Case Failure** — Feeder berth conflict scenario at Step 8
-- [x] **All 5 HITL gates defined with timeout and escalation logic** — Section 4
-- [x] **All 7 escalation triggers with threshold conditions** — Section 4
-- [x] **Confidence scoring integrated into agent decisions** — LLM self-assessment, threshold 0.85
-- [x] **LangSmith trace output demonstrated** — Full execution graph with tool calls, HITL events, and deviations
+> **Note:** This checklist distinguishes between *designed* (documented in charter), *partially built* (code exists but broken/not integrated), and *done* (works end-to-end). See Section 8 gap inventory for full status.
+
+### Designed (charter-level, awaiting implementation)
+
+- [ ] **LangGraph agent core with tool-calling loop** — G-01: Charter specifies the graph, but implementation is a linear async orchestrator. Needs full rewrite.
+- [ ] **LLM drives all decision making** — G-02: `provider.py` exists (735 lines, 8 providers) but is dead code. No LLM call happens anywhere in the pipeline.
+- [ ] **5 HITL gates with approval cards, timeout, approve/reject/modify** — G-03: Gates defined in YAML config and charter, but `in_approval/` and `post_approval/` are empty. Zero implementation.
+- [ ] **7 escalation triggers with threshold detection** — Defined in YAML config, but no code evaluates them at runtime.
+- [ ] **Confidence scoring via LLM self-assessment** — G-07: Charter says LLM outputs confidence, but current `_compute_confidence()` is deterministic math. Not LLM-driven.
+- [ ] **Execution trace (LangSmith) with full graph, tool calls, HITL events** — G-08: No LangSmith integration. No trace output. No deviation logging.
+- [ ] **Web UI with real-time SSE streaming, HITL cards, edge case injection** — G-04: No frontend exists. No HTML/CSS/JS files.
+- [ ] **HITL disapproval flow** — Designed in Section 4 (reject = halt + alternatives; modify = re-validate + re-approve) but has no implementation to test against.
+- [ ] **Demo script: Happy Path + Feeder Berth Conflict edge case at step 8** — Script defined in charter, but no code orchestrates the scenario end-to-end.
+- [ ] **Docker deployment to Railway/Render free tier** — No Dockerfile. No deploy config.
+
+### Partially Built (code exists, but broken or not integrated)
+
+- [~] **Tool 1: Container readiness query** — `pre_approval/container_readiness/` has a webhook handler, but it's a duplicate of `mocks/webhook.py`. Not connected to any agent.
+- [~] **Tool 2: Road ITT capacity** — `pre_approval/road_itt/optetruck_tools.py` works standalone (510 lines, well-structured). Not wired into agent or orchestrator.
+- [~] **Tool 3: Sea ITT capacity** — `pre_approval/sea_itt/sea_itt_tools.py` works standalone (580 lines, tidal feasibility). Not wired into agent.
+- [~] **Tool 4: Multi-constraint optimisation** — `pre_approval/ai_optimisation/compute_itt_split.py` works standalone (1148 lines, deterministic math). Not wired into agent. Confidence scoring is deterministic, not LLM-driven.
+- [~] **Tool 5: Tuas loading sequence update** — Schema exists in `schemas.py`. No tool function implemented.
+- [~] **Tool 6: Webhook (T6)** — Two duplicate implementations (`mocks/webhook.py` and `container_readiness/webhook.py`). Neither triggers an agent.
+- [~] **Post-approval tools (dispatch_road_itt, request_feeder_hold)** — Defined in charter Section 3. No implementation.
+- [~] **Mock API server** — `prototype/main.py` serves 5 mock systems. Works for standalone tool testing. Not integrated with agent.
+- [~] **Edge case simulation** — `mocks/edge_cases.py` has `simulate_feeder_conflict()` and `simulate_stale_data()`. Not connected to any trigger mechanism.
+- [~] **YAML config system** — 7 problem configs exist in `configs/`. Agent doesn't read them.
+- [~] **LLM provider abstraction** — `shared/utils/provider.py` (735 lines, 8 providers). Never imported by any orchestration code. Not tested with API keys.
+- [~] **Pre-approval orchestrator** — `pre_approval/orchestrator.py` (207 lines). Linear async pipeline with `asyncio.gather`. No LLM, no LangGraph, no conditional branching.
+
+### Done (works end-to-end)
+
+- [x] **Mock tool JSON signatures (schemas)** — `mocks/schemas.py` defines Pydantic models for all 5 tools + webhook. Structurally complete.
+- [x] **Cost model grounded in Singapore parameters** — Road ITT $150/trip, LTA chassis limits, feeder charter $800/hr, vessel demurrage $2,500/hr. All sourced and audited.
+- [x] **Problem selection locked** — PB-12 selected via 5-Point Litmus Test, Cluster C2 scoring (4.80/5.00), and Master Problem Charter.
+- [x] **ROI model mathematically verified** — $8,000/incident net savings, $384K–$576K annual flagship, $1.26M–$2.08M cluster addressable.
+- [x] **Research phases (1–3) complete** — 4 sectors mapped, 7 baseline systems documented, 16 problem bank, litmus test, autonomy level defined.
+- [x] **Gap inventory complete** — Section 8: 23 gaps, severity-classified with current/required state.
 
 ---
 
@@ -889,3 +971,4 @@ To add a new problem (e.g., PB-01 Berth Delay): duplicate the YAML, swap `system
 - `research/flows/critical-flows.md` — ITT coordination decision flow
 - `research/systems/baseline-systems.md` — OptETruck, CITOS, PORTNET profiles
 - `buildplan/tech-stack.md` — Technical implementation plan, LangSmith tracing, YAML config
+- `prototype/` — Current codebase (fragmented, see Section 8 gap inventory)
