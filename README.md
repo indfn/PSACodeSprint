@@ -150,122 +150,122 @@ Every candidate problem was scored against 5 yes/no questions. A problem must pa
 
 ```
  ╔══════════════════════════════════════════════════════════════════════╗
- ║         PSA NEXUS — HOW IT SOLVES A PROBLEM                        ║
- ║         Example: Moving 120 containers from PPT to Tuas            ║
+ ║         PSA NEXUS — HOW IT SOLVES A PROBLEM                          ║
+ ║         Example: Moving 120 containers from PPT to Tuas              ║
  ╚══════════════════════════════════════════════════════════════════════╝
 
   ┌─────────────────────────────────────────────────────────┐
   │  ①  SOMETHING HAPPENS                                  │
-  │  PPT yard says: "120 containers need to get to Tuas"   │
-  │  → System receives an alert (webhook)                  │
-  │  → Checks: Is this real? (≥50 containers, ship still  │
-  │    2+ hours away) — if not, ignore                     │
+  │  PPT yard says: "120 containers need to get to Tuas"    │
+  │  → System receives an alert (webhook)                   │
+  │  → Checks: Is this real? (≥50 containers, ship still    │
+  │    2+ hours away) — if not, ignore                      │
   └───────────────────────┬─────────────────────────────────┘
                           │
                           ▼
   ┌─────────────────────────────────────────────────────────┐
   │  ②  THE AGENT LOOKS AROUND (Gathers Information)       │
-  │  The AI asks 3 systems at once:                        │
-  │                                                        │
-  │   📦  "What containers are ready?"     → PPT Yard      │
-  │   🚛  "How many trucks are free?       → Road System   │
-  │        How long is the drive?"           (OptETruck)   │
-  │   🚢  "Is the feeder ship available?   → Port Network  │
-  │        Will it catch the tide?"                        │
+  │  The AI asks 3 systems at once:                         │
+  │                                                         │
+  │   📦  "What containers are ready?"     → PPT Yard       │
+  │   🚛  "How many trucks are free?       → Road System    │
+  │        How long is the drive?"           (OptETruck)    │
+  │   🚢  "Is the feeder ship available?   → Port Network   │
+  │        Will it catch the tide?"                         │
   └───────────────────────┬─────────────────────────────────┘
                           │
                           ▼
   ┌─────────────────────────────────────────────────────────┐
   │  ③  THE AGENT THINKS (Makes a Plan)                    │
   │  AI weighs all the answers and calculates:              │
-  │                                                        │
-  │   "Best plan:  80 by road  +  40 by sea  = $10,400"   │
-  │   "Other options: 100/20 or 60/60 if needed"           │
-  │   Also checks 6 safety rules: Are weights OK? Is      │
-  │   there enough space? Will we make it on time?         │
+  │                                                         │
+  │   "Best plan:  80 by road  +  40 by sea  = $10,400"     │
+  │   "Other options: 100/20 or 60/60 if needed"            │
+  │   Also checks 6 safety rules: Are weights OK? Is        │
+  │   there enough space? Will we make it on time?          │
   └───────────────────────┬─────────────────────────────────┘
                           │
                           ▼
   ┌─────────────────────────────────────────────────────────┐
   │  ④  ASK THE HUMAN (Approval Gates)                     │
-  │  The agent NEVER acts alone on big decisions.          │
-  │  It shows a card and waits:                            │
-  │                                                        │
-  │   Gate 1 ─ "Approve this split?"         (30 min)      │
-  │   Gate 2 ─ "Send these trucks?"          (15 min)      │
-  │   Gate 3 ─ "Hold the feeder ship?"       (15 min)      │
-  │   Gate 4 ─ "Update Tuas loading order?"  (10 min)      │
-  │                                                        │
-  │   Human can:  ✅ Approve  ✏️ Change  ❌ Reject         │
-  │   If no answer in time → auto-escalate or cancel      │
-  │   If rejected → agent shows other options              │
-  │   If changed → agent re-checks and asks again          │
+  │  The agent NEVER acts alone on big decisions.           │
+  │  It shows a card and waits:                             │
+  │                                                         │
+  │   Gate 1 ─ "Approve this split?"         (30 min)       │
+  │   Gate 2 ─ "Send these trucks?"          (15 min)       │
+  │   Gate 3 ─ "Hold the feeder ship?"       (15 min)       │
+  │   Gate 4 ─ "Update Tuas loading order?"  (10 min)       │
+  │                                                         │
+  │   Human can:  ✅ Approve  ✏️ Change  ❌ Reject           │
+  │   If no answer in time → auto-escalate or cancel        │
+  │   If rejected → agent shows other options               │
+  │   If changed → agent re-checks and asks again           │
   └───────────────────────┬─────────────────────────────────┘
                           │
               ┌───────────┴───────────┐
               ▼                       ▼
-  ┌────────────────────┐  ┌────────────────────────────┐
-  │  ✅ APPROVED        │  │  ⚠️  SOMETHING IS OFF?     │
-  │  Agent goes ahead:  │  │  Agent watches for 7       │
-  │  • Sends trucks     │  │  warning signs:            │
-  │    (West Coast Hwy  │  │  • Not confident (<85%)    │
-  │     → AYE → Tuas)  │  │  • Ship hold too long      │
-  │  • Holds feeder     │  │  • Cost too high (>$10K)   │
-  │  • Updates Tuas     │  │  • Data is old (>30 min)   │
-  │    loading plan     │  │  • Not enough trucks       │
-  └──────────┬─────────┘  │  • Ship not responding     │
-             │            │  • Planners disagree         │
-             │            │  → Escalate to Duty Manager  │
-             │            └──────────────┬─────────────┘
+  ┌─────────────────────┐ ┌─────────────────────────────┐
+  │  ✅ APPROVED        │ │  ⚠️  SOMETHING IS OFF?      │
+  │  Agent goes ahead:  │ │  Agent watches for 7        │
+  │  • Sends trucks     │ │  warning signs:             │
+  │    (West Coast Hwy  │ │  • Not confident (<85%)     │
+  │     → AYE → Tuas)   │ │  • Ship hold too long       │
+  │  • Holds feeder     │ │  • Cost too high (>$10K)    │
+  │  • Updates Tuas     │ │  • Data is old (>30 min)    │
+  │    loading plan     │ │  • Not enough trucks        │
+  └──────────┬──────────┘ │  • Ship not responding      │
+             │            │  • Planners disagree        │
+             │            │  → Escalate to Duty Manager │
+             │            └──────────────┬──────────────┘
              │                           │ (Gate 5, 30 min → halt if no reply)
              ▼                           ▼
   ┌─────────────────────────────────────────────────────────┐
   │  ⑤  KEEP WATCHING (The Clever Part)                    │
-  │  Even after dispatch, the agent keeps checking:        │
-  │                                                        │
-  │   "Is the feeder still on time?"  → asks Port again   │
-  │                                                        │
-  │   ┌─ No problem ──────────────►  ✅ Done               │
-  │   │                                                    │
-  │   └─ 🚨 Berth conflict! Ship delayed to 4pm            │
-  │       → Agent thinks again: "New plan: 100 by road,   │
-  │         20 by sea — costs $1,500 more but saves        │
-  │         a $5,000 missed connection"                    │
-  │       → Shows EMERGENCY card to human                  │
-  │       → If approved: sends 4 more trucks, updates      │
-  │         Tuas again, logs what went wrong               │
+  │  Even after dispatch, the agent keeps checking:         │
+  │                                                         │
+  │   "Is the feeder still on time?"  → asks Port again     │
+  │                                                         │
+  │   ┌─ No problem ──────────────►  ✅ Done                │
+  │   │                                                     │
+  │   └─ 🚨 Berth conflict! Ship delayed to 4pm             │
+  │       → Agent thinks again: "New plan: 100 by road,     │
+  │         20 by sea — costs $1,500 more but saves         │
+  │         a $5,000 missed connection"                     │
+  │       → Shows EMERGENCY card to human                   │
+  │       → If approved: sends 4 more trucks, updates       │
+  │         Tuas again, logs what went wrong                │
   └───────────────────────┬─────────────────────────────────┘
                           │
                           ▼
   ┌─────────────────────────────────────────────────────────┐
   │  ⑥  WHAT YOU SEE (Live Dashboard)                      │
-  │                                                        │
-  │   The judge / operator watches everything live:        │
-  │   • 💭  What the AI is thinking (streaming text)       │
-  │   • 🔧  Which tools it called and what they returned   │
-  │   • 📋  Approval cards with Approve / Reject / Modify  │
-  │   • 📊  Full trace: every step, time, confidence       │
-  │   • 🎮  Buttons to test: "Inject ship conflict"        │
-  │         "Inject stale data"  "Run Demo"  "Reset"      │
-  │   • 🔄  Problem switcher: PB-12 ↔ PB-01 (same core!)  │
+  │                                                         │
+  │   The judge / operator watches everything live:         │
+  │   • 💭  What the AI is thinking (streaming text)        │
+  │   • 🔧  Which tools it called and what they returned    │
+  │   • 📋  Approval cards with Approve / Reject / Modify   │
+  │   • 📊  Full trace: every step, time, confidence        │
+  │   • 🎮  Buttons to test: "Inject ship conflict"         │
+  │         "Inject stale data"  "Run Demo"  "Reset"        │
+  │   • 🔄  Problem switcher: PB-12 ↔ PB-01 (same core!)    │
   └─────────────────────────────────────────────────────────┘
                           │
                           ▼
   ┌─────────────────────────────────────────────────────────┐
-  │  📝  EVERYTHING IS RECORDED                            │
-  │  • Trace: who did what, when, how long, risk score     │
-  │  • Deviation log: why the first plan failed            │
-  │  • Confidence: 95% → 78% (problem!) → 90% (fixed)    │
-  │  • Structured logs for audit  |  LangSmith if enabled  │
+  │  📝  EVERYTHING IS RECORDED                             │
+  │  • Trace: who did what, when, how long, risk score      │
+  │  • Deviation log: why the first plan failed             │
+  │  • Confidence: 95% → 78% (problem!) → 90% (fixed)       │
+  │  • Structured logs for audit  |  LangSmith if enabled   │
   └─────────────────────────────────────────────────────────┘
 
   ┌─────────────────────────────────────────────────────────┐
-  │  💡  WHY THIS MATTERS                                  │
-  │  Before: 4–8 hours, 12+ phone calls, $8,450/event     │
-  │  After:  ~27 minutes, 2 approvals, $450/event          │
-  │  Saving: $8,000 per incident → $384K–$576K per year   │
-  │  Same brain works for 7 other port problems            │
-  │  ($1.26M–$2.08M across the cluster)                    │
+  │  💡  WHY THIS MATTERS                                   │
+  │  Before: 4–8 hours, 12+ phone calls, $8,450/event       │
+  │  After:  ~27 minutes, 2 approvals, $450/event           │
+  │  Saving: $8,000 per incident → $384K–$576K per year     │
+  │  Same brain works for 7 other port problems             │
+  │  ($1.26M–$2.08M across the cluster)                     │
   └─────────────────────────────────────────────────────────┘
 ```
 
@@ -287,8 +287,8 @@ Every candidate problem was scored against 5 yes/no questions. A problem must pa
  ┌─────────────────────────────────────────────────────────────────┐
  │  [PROCESS]  INITIALIZE                                          │
  │  • Load settings from file (which port, which AI to use)        │
- │  • Load all 7 problem configs (pb-01..pb-12 YAML)              │
- │  • Prepare AI provider (any of 8: anthropic/openai/gemini/     │
+ │  • Load all 7 problem configs (pb-01..pb-12 YAML)               │
+ │  • Prepare AI provider (any of 8: anthropic/openai/gemini/      │
  │    deepseek/ollama/vllm/lmstudio/custom + base_url)             │
  │  • Prepare tool adapter (translates between AI tool formats)    │
  └───────────────────────────┬─────────────────────────────────────┘
@@ -309,11 +309,11 @@ Every candidate problem was scored against 5 yes/no questions. A problem must pa
  ┌─────────────────────────────────────────────────────────────────┐
  │  [PROCESS]  START SERVER  (port 8000)                           │
  │  • Mock systems:  /api/citos/ppt  /api/optetruck                │
- │  │                /api/feeder  /api/portnet  /api/citos/tuas   │
- │  │                /api/vtis  /api/optevoyage (sibling PB-01)   │
+ │  │                /api/feeder  /api/portnet  /api/citos/tuas    │
+ │  │                /api/vtis  /api/optevoyage (sibling PB-01)    │
  │  • Entry point:   POST /webhook/itt-coordination → run_agent()  │
  │  • Problem switch: POST /agent/switch-problem/{id}              │
- │  • Live stream:   GET  /agent/stream/{run_id}  (SSE)           │
+ │  • Live stream:   GET  /agent/stream/{run_id}  (SSE)            │
  │  • Controls:      POST /agent/hitl/respond  (approve/reject)    │
  │  │                POST /agent/inject-edge-case                  │
  │  │                POST /agent/run-demo                          │
@@ -323,176 +323,176 @@ Every candidate problem was scored against 5 yes/no questions. A problem must pa
                              ▼
  ┌─────────────────────────────────────────────────────────────────┐
  │  [DECISION]  Wait for event?  ◇                                 │
- │                        ┌── No ──►  [PROCESS] stay idle         │
- │                        │              heartbeat every 30s        │
- │                        │                    │                    │
- │                        │ ◄─────────────────┘                    │
+ │                        ┌── No ──►  [PROCESS] stay idle          │
+ │                        │              heartbeat every 30s       │
+ │               event?  ◇│◄──────────────────┘                    │
+ │                        │                                        │
  │                        ▼                                        │
  │                   Yes (event arrives)                           │
  └───────────────────────────┬─────────────────────────────────────┘
                              │
                              ▼
- ╔═══════════════════════════════════════════════════════════════════╗
- ║  [SUBPROCESS]  HANDLE EVENT  (called per request)               ║
- ╠═══════════════════════════════════════════════════════════════════╣
- ║                                                                 ║
+ ╔══════════════════════════════════════════════════════════════════╗
+ ║  [SUBPROCESS]  HANDLE EVENT  (called per request)                ║
+ ╠══════════════════════════════════════════════════════════════════╣
+ ║                                                                  ║
  ║  ┌──────────────────────────────────────────────────────────┐    ║
- ║  │ [INPUT]  Receive ITTCoordinationEvent                   │    ║
- ║  │  vessel_id, container_count, blocks, departure_time     │    ║
+ ║  │ [INPUT]  Receive ITTCoordinationEvent                    │    ║
+ ║  │  vessel_id, container_count, blocks, departure_time      │    ║
  ║  └──────────────────────┬───────────────────────────────────┘    ║
- ║                         │                                       ║
- ║                         ▼                                       ║
+ ║                         │                                        ║
+ ║                         ▼                                        ║
  ║  ┌──────────────────────────────────────────────────────────┐    ║
  ║  │ [DECISION]  Input valid?  ◇                              │    ║
- ║  │  Pydantic checks: count ≥ 50?  departure > now + 2h?    │    ║
- ║  │  weight 0–60000?  block ≤ 4500 TEU?  422 if invalid     │    ║
- ║  │       ┌── No ──► [OUTPUT] return 422 error, [END] run  │    ║
- ║  │       ▼                                                  │    ║
- ║  │      Yes ──► check LLM rate limit (429 → retry+fallback)│    ║
+ ║  │  Pydantic checks: count ≥ 50?  departure > now + 2h?     │    ║
+ ║  │  weight 0–60000?  block ≤ 4500 TEU?  422 if invalid      │    ║
+ ║  │      No ──► [OUTPUT] return 422 error, [END] run         │    ║
+ ║  │                                                          │    ║
+ ║  │      Yes ──► check LLM rate limit (429 → retry+fallback) │    ║
  ║  └──────────────────────┬───────────────────────────────────┘    ║
- ║                         │                                       ║
- ║                         ▼                                       ║
+ ║                         │                                        ║
+ ║                         ▼                                        ║
  ║  ┌──────────────────────────────────────────────────────────┐    ║
  ║  │ [PROCESS]  Create initial state                          │    ║
- ║  │  run_id = new ID (also thread_id for LangGraph resume)  │    ║
+ ║  │  run_id = new ID (also thread_id for LangGraph resume)   │    ║
  ║  │  state = { messages, tool_results={}, hitl_pending=null, │    ║
- ║  │           confidence=1.0, trace=[], deviation_log=[],     │    ║
+ ║  │           confidence=1.0, trace=[], deviation_log=[],    │    ║
  ║  │           problem_config: active YAML, run_id, status }  │    ║
  ║  │  Validate 6 guardrails (weight, block, trucks, feeder,   │    ║
- ║  │  margin, tide) before any tool call                     │    ║
+ ║  │  margin, tide) before any tool call                      │    ║
  ║  └──────────────────────┬───────────────────────────────────┘    ║
- ║                         │                                       ║
- ║                         ▼                                       ║
- ║  ╔══════════════════════════════════════════════════════════╗     ║
- ║  ║  [MAIN GRAPH]  LangGraph StateGraph                      ║     ║
- ║  ║  Loops through agent_node until END                      ║     ║
- ║  ║                                                          ║     ║
- ║  ║   ┌──────────────────────────────┐                        ║     ║
- ║  ║   │  agent_node  (AI thinks)     │ ◄── loopback from      ║     ║
- ║  ║   │  1. Build prompt from        │     every other node   ║     ║
- ║  ║   │     ProblemConfig + history  │                        ║     ║
- ║  ║   │  2. Adapt tool schemas for   │                        ║     ║
- ║  ║   │     provider (Anthropic /    │                        ║     ║
- ║  ║   │     OpenAI / Gemini format)  │                        ║     ║
- ║  ║   │  3. chat(messages, tools)    │                        ║     ║
- ║  ║   │     with retry               │                        ║     ║
- ║  ║   │  4. Filter hallucinated      │                        ║     ║
- ║  ║   │     tools → error ToolResult │                        ║     ║
- ║  ║   │  5. Check 7 triggers +       │                        ║     ║
- ║  ║   │     compute risk_score       │                        ║     ║
- ║  ║   │  6. Write trace + SSE event  │                        ║     ║
- ║  ║   └──────────────┬───────────────┘                        ║     ║
- ║  ║                  │                                        ║     ║
- ║  ║                  ▼                                        ║     ║
- ║  ║          ┌───────────────┐                                ║     ║
- ║  ║          │ ◇ route?      │  conditional_edge              ║     ║
- ║  ║          │ (what next?)  │                                ║     ║
- ║  ║          └──┬──┬───┬──┬──┘                                ║     ║
- ║  ║             │  │   │  │                                   ║     ║
- ║  ║     tool_calls │   │  │  done                             ║     ║
- ║  ║             │ need │ need │                               ║     ║
- ║  ║             │ hitl │ esc. │ monitor                       ║     ║
- ║  ║             ▼  ▼   ▼  ▼   ▼                               ║     ║
- ║  ║        ┌──────┐┌──────┐┌──────┐┌─────────┐  ┌─────┐       ║     ║
- ║  ║        │ tool ││ hitl ││ HITL ││ monitor │  │ END │       ║     ║
- ║  ║        │ node ││ node ││  -5  ││  node   │  │     │       ║     ║
- ║  ║        └──┬───┘└──┬───┘└──┬───┘└────┬────┘  └─────┘       ║     ║
- ║  ║           │       │       │         │                     ║     ║
- ║  ║           └───────┴───────┴─────────┘                     ║     ║
- ║  ║                   │  all return to agent_node ────────────║─────╫── loop
- ║  ╚═══════════════════╪═══════════════════════════════════════╝     ║
-                     │                                             ║
-                     │  expanded below — what each node does       ║
-                     ▼                                             ║
- ║  ┌─────────────────────────────────┐                            ║
- ║  │ EXPANDED: tool_node             │  ← when agent emits       ║
- ║  │ ─────────────────────────────   │    tool_calls              ║
- ║  │ FOR EACH tool in tool_calls:    │                            ║
- ║  │   try: call tool (in-process)   │                            ║
- ║  │   except Timeout  → fallback    │                            ║
- ║  │   except 503      → fallback    │                            ║
- ║  │   except partial  → save what   │                            ║
- ║  │     succeeded, continue batch   │                            ║
- ║  │   save ToolResult + risk_score  │                            ║
- ║  │   publish SSE tool_result       │                            ║
- ║  │ END FOR                         │                            ║
- ║  │ ──► return to agent_node        │                            ║
- ║  └─────────────────────────────────┘                            ║
- ║                                                                 ║
- ║  ┌─────────────────────────────────┐                            ║
- ║  │ EXPANDED: hitl_node             │  ← when approval needed   ║
- ║  │ ─────────────────────────────   │                            ║
- ║  │ interrupt({ approval_card })    │                            ║
- ║  │   ── PAUSE execution ──         │                            ║
- ║  │   wait for POST /hitl/respond   │                            ║
- ║  │   (identified by thread_id)     │                            ║
- ║  │                                 │                            ║
- ║  │   ◇ human replied?              │                            ║
- ║  │   ├─ approve ─► clear pending,  │                            ║
- ║  │   │           notify, back to   │                            ║
- ║  │   │           agent_node        │                            ║
- ║  │   ├─ reject ─► show alts or     │                            ║
- ║  │   │           escalate(HITL-5), │                            ║
- ║  │   │           back to agent_node│                            ║
- ║  │   ├─ modify ─► re-validate,     │                            ║
- ║  │   │           re-run T4, then   │                            ║
- ║  │   │           ask again         │                            ║
- ║  │   ├─ timeout ─► per-gate rule:  │                            ║
- ║  │   │           escalate / cancel │                            ║
- ║  │   │           / hold / halt     │                            ║
- ║  │   └─ late resume after timeout? │                            ║
- ║  │      → return stale error (422) │                            ║
- ║  │   ──► all paths return to       │                            ║
- ║  │       agent_node (or END)       │                            ║
- ║  └─────────────────────────────────┘                            ║
- ║                                                                 ║
+ ║                         │                                        ║
+ ║                         ▼                                        ║
+ ║  ╔═══════════════════════════════════════════════════════════╗   ║
+ ║  ║  [MAIN GRAPH]  LangGraph StateGraph                       ║   ║
+ ║  ║  Loops through agent_node until END                       ║   ║
+ ║  ║                                                           ║   ║
+ ║  ║   ┌──────────────────────────────┐                        ║   ║
+ ║  ║   │  agent_node  (AI thinks)     │ ◄── loopback from      ║   ║
+ ║  ║   │  1. Build prompt from        │     every other node   ║   ║
+ ║  ║   │     ProblemConfig + history  │                        ║   ║
+ ║  ║   │  2. Adapt tool schemas for   │                        ║   ║
+ ║  ║   │     provider (Anthropic /    │                        ║   ║
+ ║  ║   │     OpenAI / Gemini format)  │                        ║   ║
+ ║  ║   │  3. chat(messages, tools)    │                        ║   ║
+ ║  ║   │     with retry               │                        ║   ║
+ ║  ║   │  4. Filter hallucinated      │                        ║   ║
+ ║  ║   │     tools → error ToolResult │                        ║   ║
+ ║  ║   │  5. Check 7 triggers +       │                        ║   ║
+ ║  ║   │     compute risk_score       │                        ║   ║
+ ║  ║   │  6. Write trace + SSE event  │                        ║   ║
+ ║  ║   └──────────────┬───────────────┘                        ║   ║
+ ║  ║                  │                                        ║   ║
+ ║  ║                  ▼                                        ║   ║
+ ║  ║          ┌────────────────────────────────────────┐       ║   ║
+ ║  ║          │ ◇ route?             (conditional_edge)│       ║   ║
+ ║  ║          │ (what next?)                           │       ║   ║
+ ║  ║          └──┬─────┬────────┬─────────┬──────────┬─┘       ║   ║
+ ║  ║             │     │        │         │          │         ║   ║
+ ║  ║     tool_calls    │        │         │        done        ║   ║
+ ║  ║             │    need     need       │          │         ║   ║
+ ║  ║             │    hitl     esc.     monitor      │         ║   ║
+ ║  ║             ▼     ▼        ▼         ▼          ▼         ║   ║
+ ║  ║        ┌──────┐┌──────┐┌──────┐┌─────────┐  ┌─────┐       ║   ║
+ ║  ║        │ tool ││ hitl ││ HITL ││ monitor │  │ END │       ║   ║
+ ║  ║        │ node ││ node ││  -5  ││  node   │  │     │       ║   ║
+ ║  ║        └──┬───┘└──┬───┘└──┬───┘└────┬────┘  └─────┘       ║   ║
+ ║  ║           │       │       │         │                     ║   ║
+ ║  ║           └───────┴───────┴─────────┘                     ║   ║
+ ║  ║                   └── all return to agent_node ──── loop  ║   ║
+ ║  ╚═══════════════════╪═══════════════════════════════════════╝   ║
+                     │                                              ║
+                     │  expanded below — what each node does        ║
+                     ▼                                              ║
+ ║  ┌─────────────────────────────────┐                             ║
+ ║  │ EXPANDED: tool_node             │  ← when agent emits         ║
+ ║  │ ─────────────────────────────   │    tool_calls               ║
+ ║  │ FOR EACH tool in tool_calls:    │                             ║
+ ║  │   try: call tool (in-process)   │                             ║
+ ║  │   except Timeout  → fallback    │                             ║
+ ║  │   except 503      → fallback    │                             ║
+ ║  │   except partial  → save what   │                             ║
+ ║  │     succeeded, continue batch   │                             ║
+ ║  │   save ToolResult + risk_score  │                             ║
+ ║  │   publish SSE tool_result       │                             ║
+ ║  │ END FOR                         │                             ║
+ ║  │ ──► return to agent_node        │                             ║
+ ║  └─────────────────────────────────┘                             ║
+ ║                                                                  ║
+ ║  ┌─────────────────────────────────┐                             ║
+ ║  │ EXPANDED: hitl_node             │  ← when approval needed     ║
+ ║  │ ─────────────────────────────   │                             ║
+ ║  │ interrupt({ approval_card })    │                             ║
+ ║  │   ── PAUSE execution ──         │                             ║
+ ║  │   wait for POST /hitl/respond   │                             ║
+ ║  │   (identified by thread_id)     │                             ║
+ ║  │                                 │                             ║
+ ║  │   ◇ human replied?              │                             ║
+ ║  │   ├─ approve ─► clear pending,  │                             ║
+ ║  │   │           notify, back to   │                             ║
+ ║  │   │           agent_node        │                             ║
+ ║  │   ├─ reject ─► show alts or     │                             ║
+ ║  │   │           escalate(HITL-5), │                             ║
+ ║  │   │           back to agent_node│                             ║
+ ║  │   ├─ modify ─► re-validate,     │                             ║
+ ║  │   │           re-run T4, then   │                             ║
+ ║  │   │           ask again         │                             ║
+ ║  │   ├─ timeout ─► per-gate rule:  │                             ║
+ ║  │   │           escalate / cancel │                             ║
+ ║  │   │           / hold / halt     │                             ║
+ ║  │   └─ late resume after timeout? │                             ║
+ ║  │      → return stale error (422) │                             ║
+ ║  │   ──► all paths return to       │                             ║
+ ║  │       agent_node (or END)       │                             ║
+ ║  └─────────────────────────────────┘                             ║
+ ║                                                                  ║
  ║  ┌──────────────────────────────────────────────────────────┐    ║
- ║  │ [DETAIL]  Tools the agent can call                      │    ║
- ║  │  T1 get_itt_candidates      → what is ready at PPT      │    ║
- ║  │  T2 check_road_itt_capacity → trucks + drive time       │    ║
- ║  │  T3 check_sea_itt_capacity  → ship + tide window        │    ║
- ║  │  T4 compute_itt_split       → best road/sea mix ($10,400)│   ║
- ║  │     + cost_vs_baseline ($12K→$10.4K) + ROI ($8K/incident)│  ║
- ║  │  T5 update_tuas_loading     → new loading order at Tuas │    ║
- ║  │  T6 dispatch_road_itt       → send trucks (needs HITL-2)│    ║
- ║  │  T7 request_feeder_hold     → ask ship to wait (HITL-3) │    ║
+ ║  │ [DETAIL]  Tools the agent can call                       │    ║
+ ║  │  T1 get_itt_candidates      → what is ready at PPT       │    ║
+ ║  │  T2 check_road_itt_capacity → trucks + drive time        │    ║
+ ║  │  T3 check_sea_itt_capacity  → ship + tide window         │    ║
+ ║  │  T4 compute_itt_split       → best road/sea mix ($10,400)│    ║
+ ║  │     + cost_vs_baseline ($12K→$10.4K) + ROI ($8K/incident)│    ║
+ ║  │  T5 update_tuas_loading     → new loading order at Tuas  │    ║
+ ║  │  T6 dispatch_road_itt       → send trucks (needs HITL-2) │    ║
+ ║  │  T7 request_feeder_hold     → ask ship to wait (HITL-3)  │    ║
  ║  │  T8 notify_parties          → alert stakeholders         │    ║
- ║  │  PB-01 siblings: query_vessel_arrival, berth_avail, ... │    ║
+ ║  │  PB-01 siblings: query_vessel_arrival, berth_avail, ...  │    ║
  ║  └──────────────────────────────────────────────────────────┘    ║
- ║                                                                 ║
+ ║                                                                  ║
  ║  ┌──────────────────────────────────────────────────────────┐    ║
- ║  │ [DETAIL]  7 warning checks (run after every tool batch) │    ║
+ ║  │ [DETAIL]  7 warning checks (run after every tool batch)  │    ║
  ║  │  1. confidence < 0.85 ─────────► escalate to human       │    ║
- ║  │  2. ship hold > 1.5 hours ────► escalate to manager     │    ║
- ║  │  3. cost > $10,000 ───────────► escalate to manager     │    ║
- ║  │  4. data older than 30 min ───► escalate to human       │    ║
- ║  │  5. trucks < 60% of needed ──► escalate to human       │    ║
- ║  │  6. ship not replying >15 min ► escalate to human       │    ║
- ║  │  7. planners disagree ────────► escalate to manager     │    ║
- ║  │  Any trigger → set HITL-5 card → hitl_node              │    ║
+ ║  │  2. ship hold > 1.5 hours ────► escalate to manager      │    ║
+ ║  │  3. cost > $10,000 ───────────► escalate to manager      │    ║
+ ║  │  4. data older than 30 min ───► escalate to human        │    ║
+ ║  │  5. trucks < 60% of needed ──► escalate to human         │    ║
+ ║  │  6. ship not replying >15 min ► escalate to human        │    ║
+ ║  │  7. planners disagree ────────► escalate to manager      │    ║
+ ║  │  Any trigger → set HITL-5 card → hitl_node               │    ║
  ║  └──────────────────────────────────────────────────────────┘    ║
- ║                                                                 ║
+ ║                                                                  ║
  ║  ┌──────────────────────────────────────────────────────────┐    ║
- ║  │ [DETAIL]  monitor_node (runs after dispatch)            │    ║
- ║  │  1. Ask Port again: "Is the feeder still on time?"      │    ║
- ║  │  2. ◇ Berth conflict? ── No ──► mark done, go to END   │    ║
- ║  │                      └─ Yes ─► log deviation,           │    ║
- ║  │     lower confidence to 0.78, re-run T4:                │    ║
- ║  │     80/40 → 100/20, build emergency card (HITL-5),     │    ║
- ║  │     on approve: send 4 more trucks, call T5 again       │    ║
+ ║  │ [DETAIL]  monitor_node (runs after dispatch)             │    ║
+ ║  │  1. Ask Port again: "Is the feeder still on time?"       │    ║
+ ║  │  2. ◇ Berth conflict? ── No ──► mark done, go to END     │    ║
+ ║  │                      └─ Yes ─► log deviation,            │    ║
+ ║  │     lower confidence to 0.78, re-run T4:                 │    ║
+ ║  │     80/40 → 100/20, build emergency card (HITL-5),       │    ║
+ ║  │     on approve: send 4 more trucks, call T5 again        │    ║
  ║  └──────────────────────────────────────────────────────────┘    ║
- ║                                                                 ║
- ╚══════════════════════════╤══════════════════════════════════════╝
+ ║                                                                  ║
+ ╚══════════════════════════╤═══════════════════════════════════════╝
                             │
                             ▼
  ┌─────────────────────────────────────────────────────────────────┐
- │  [PROCESS]  RECORD & STREAM                                      │
+ │  [PROCESS]  RECORD & STREAM                                     │
  │  Every step: TraceEntry(time, node, action, result, risk_score, │
- │  confidence, duration_ms, fallback_used) → state.trace           │
- │  On deviation: append to deviation_log                           │
+ │  confidence, duration_ms, fallback_used) → state.trace          │
+ │  On deviation: append to deviation_log                          │
  │  Stream 10 event types via SSE (replay buffer for late join):   │
  │   thinking, tool_call, tool_result, hitl_card, escalation,      │
- │   trace_entry, confidence, deviation, notification, heartbeat    │
+ │   trace_entry, confidence, deviation, notification, heartbeat   │
  │  Structured JSON log → console + file (for audit)               │
  │  LLM metrics: latency_ms, input/output tokens per call          │
  │  If LangSmith key exists → also send trace there                │
@@ -500,7 +500,7 @@ Every candidate problem was scored against 5 yes/no questions. A problem must pa
                              │
                              ▼
  ┌─────────────────────────────────────────────────────────────────┐
- │  [OUTPUT]  RETURN RESULT                                         │
+ │  [OUTPUT]  RETURN RESULT                                        │
  │  { run_id, final_state, trace, deviation_log, confidence,       │
  │    risk_score, cost_vs_baseline, roi }                          │
  │  Shown on dashboard + available via API + GET /runs/{run_id}    │
@@ -509,19 +509,19 @@ Every candidate problem was scored against 5 yes/no questions. A problem must pa
                              ▼
  ┌─────────────────────────────────────────────────────────────────┐
  │  [DECISION]  Demo controls  ◇  (user may interact at any time)  │
- │  • POST /agent/inject-edge-case → mutates mock data            │
- │    (so next Port check sees the problem — per-run isolated)    │
- │  • POST /agent/switch-problem/{id} → swaps YAML + tool set     │
- │    (PB-12 ↔ PB-01, same core, different tools)                 │
- │  • POST /agent/run-demo → creates sample event + starts flow   │
- │  • POST /agent/reset-mocks → restores clean mock data          │
+ │  • POST /agent/inject-edge-case → mutates mock data             │
+ │    (so next Port check sees the problem — per-run isolated)     │
+ │  • POST /agent/switch-problem/{id} → swaps YAML + tool set      │
+ │    (PB-12 ↔ PB-01, same core, different tools)                  │
+ │  • POST /agent/run-demo → creates sample event + starts flow    │
+ │  • POST /agent/reset-mocks → restores clean mock data           │
  └───────────────────────────┬─────────────────────────────────────┘
                              │
-              ┌───────────────┴───────────────┐
-              ▼                               ▼
+              ┌──────────────┴───────────────┐
+              ▼                              ▼
  ┌────────────────────────┐    ┌──────────────────────────────┐
- │ [PROCESS] Go back to   │    │ [TERMINAL]  SHUTDOWN        │
- │ Wait for next event    │    │  Stop server, save logs     │
+ │ [PROCESS] Go back to   │    │ [TERMINAL]  SHUTDOWN         │
+ │ Wait for next event    │    │  Stop server, save logs      │
  └────────────────────────┘    └──────────────────────────────┘
 
 
