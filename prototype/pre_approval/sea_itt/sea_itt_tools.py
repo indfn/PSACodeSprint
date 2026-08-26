@@ -25,7 +25,9 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .mock_data import (
+from prototype.configs import load_config
+
+from .data_access import (
     FEEDER_FLEET,
     get_feeder_status,
     get_available_feeders,
@@ -38,29 +40,19 @@ logger = logging.getLogger(__name__)
 
 SGT = timezone(timedelta(hours=8))
 
+_PARAMS = load_config("sea_itt_params.yaml")
 
 # ---------------------------------------------------------------------------
-# Constants — grounded in PSA / Singapore operational parameters
+# Constants — loaded from sea_itt_params.yaml
 # ---------------------------------------------------------------------------
 
-# Feeder vessel charter rate (Master Charter §5)
-FEEDER_CHARTER_PER_HR_SGD = 800
-
-# Feeder loading rate at PPT (containers per hour)
-FEEDER_LOADING_RATE_PER_HR = 20
-
-# Maximum loading time window at berth (hours)
-FEEDER_MAX_LOADING_HOURS = 4
-
-# Missed connection cost (Master Charter §5)
-MISSED_CONNECTION_COST_SGD = 5000
-
-# Response timeout for feeder operator (for esc_6)
-FEEDER_RESPONSE_TIMEOUT_MIN = 15
-
-# Tidal risk thresholds (hours of margin before tidal window)
-TIDAL_RISK_SAFE_HOURS = 2.0
-TIDAL_RISK_MARGINAL_HOURS = 1.0
+FEEDER_CHARTER_PER_HR_SGD = _PARAMS["feeder_charter_per_hr_sgd"]
+FEEDER_LOADING_RATE_PER_HR = _PARAMS["feeder_loading_rate_per_hr"]
+FEEDER_MAX_LOADING_HOURS = _PARAMS["feeder_max_loading_hours"]
+MISSED_CONNECTION_COST_SGD = _PARAMS["missed_connection_cost_sgd"]
+FEEDER_RESPONSE_TIMEOUT_MIN = _PARAMS["feeder_response_timeout_min"]
+TIDAL_RISK_SAFE_HOURS = _PARAMS["tidal_risk_safe_hours"]
+TIDAL_RISK_MARGINAL_HOURS = _PARAMS["tidal_risk_marginal_hours"]
 
 
 # ---------------------------------------------------------------------------

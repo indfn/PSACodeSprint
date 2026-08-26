@@ -1,0 +1,19 @@
+# Sea ITT Parameters — Constants extracted from sea_itt_tools.py and mock_data.py
+# Wired into sea_itt_tools.py and data_access.py
+
+# Charter rate (Master Charter §5)
+feeder_charter_per_hr_sgd: 800
+
+# Loading constraints
+feeder_loading_rate_per_hr: 20
+feeder_max_loading_hours: 4
+
+# Costs (Master Charter §5)
+missed_connection_cost_sgd: 5000
+
+# Response timeout for esc_6
+feeder_response_timeout_min: 15
+
+# Tidal risk thresholds (hours of margin before tidal window)
+tidal_risk_safe_hours: 2.0
+tidal_risk_marginal_hours: 1.0

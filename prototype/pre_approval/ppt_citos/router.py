@@ -17,7 +17,7 @@ from .models import (
     WebhookEvent,
     WebhookResponse,
 )
-from .mock_data import get_itt_candidates, get_itt_candidates_stale, get_yard_status
+from .data_access import get_itt_candidates, get_itt_candidates_stale, get_yard_status
 
 router = APIRouter(prefix="/citos/ppt", tags=["PPT CITOS"])
 

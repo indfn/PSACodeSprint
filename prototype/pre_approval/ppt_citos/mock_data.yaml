@@ -1,0 +1,70 @@
+# PPT CITOS Mock Data — Static reference data for container generation
+# Based on Master Charter §3 Tool 1 sample output
+
+consignees:
+  - "DB Schenker"
+  - "Kuehne+Nagel"
+  - "DHL Supply Chain"
+  - "Sinotrans"
+  - "CMA CGM Logistics"
+  - "Maersk Logistics"
+  - "PSA Marine"
+  - "YCH Group"
+  - "CEVA Logistics"
+  - "Agility Logistics"
+  - "Bolloré Logistics"
+  - "Expeditors"
+
+destination_ports:
+  - "LA"
+  - "Rotterdam"
+  - "Port Klang"
+  - "Tanjung Pelepas"
+  - "Laem Chabang"
+  - "Hai Phong"
+  - "Shanghai"
+  - "Busan"
+  - "Colombo"
+  - "Dubai"
+
+yard_blocks:
+  - "B-07"
+  - "B-08"
+  - "B-12"
+  - "B-14"
+
+container_id_prefixes:
+  - "MSKU"
+  - "TCLU"
+  - "CMAU"
+  - "SEGU"
+  - "PCIU"
+  - "EISU"
+  - "KKFU"
+  - "OOLU"
+
+yard_block_status:
+  B-07:
+    block_id: "B-07"
+    capacity_teu: 4500
+    current_occupancy_teu: 3200
+    containers_in_block: 85
+    status: "normal"
+  B-08:
+    block_id: "B-08"
+    capacity_teu: 4500
+    current_occupancy_teu: 3800
+    containers_in_block: 92
+    status: "moderate"
+  B-12:
+    block_id: "B-12"
+    capacity_teu: 4500
+    current_occupancy_teu: 2900
+    containers_in_block: 71
+    status: "normal"
+  B-14:
+    block_id: "B-14"
+    capacity_teu: 4500
+    current_occupancy_teu: 4100
+    containers_in_block: 103
+    status: "high"

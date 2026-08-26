@@ -1,0 +1,23 @@
+# PPT CITOS Parameters — Magic numbers extracted from mock_data.py
+# Used by mock_fakers.py and data_access.py
+
+default_vessel_id: "MV PACIFIC STAR"
+tuas_departure: "2026-08-19T20:00:00+08:00"
+
+generation:
+  total_containers: 120
+  fortyft_count: 40
+  twentyft_count: 80
+  dg_container_count: 3
+  high_priority_count: 45
+  seed: 42
+
+weight_ranges:
+  fortyft_min_kg: 18000
+  fortyft_max_kg: 32000
+  twentyft_min_kg: 8000
+  twentyft_max_kg: 18000
+
+dg_classes:
+  - "3"
+  - "8"
