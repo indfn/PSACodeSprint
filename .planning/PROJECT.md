@@ -122,7 +122,7 @@ Build **PSA Nexus** — a working, provider-agnostic agentic platform that handl
 - **Evaluation Gates:** The four competition evaluation criteria act as acceptance gates
 - **Non-Trivial Requirement:** Selected problem must pass Innovation & Originality criterion
 - **No Database:** In-memory state + YAML configs sufficient for demo scope
-- **Provider Agnostic:** Must work with Claude, GPT-4o, Gemini, DeepSeek, Ollama, or any OpenAI-compatible API
+- **Provider Agnostic (8 endpoints):** Must work with any of `anthropic, openai, gemini, deepseek, ollama, vllm, lmstudio, custom` — i.e. Claude, GPT-4o, Gemini, DeepSeek, local Ollama/LM Studio/vLLM, or any OpenAI-compatible API (OpenRouter, Together, Groq, etc.) via `provider: custom + base_url`
 
 ## Key Decisions
 

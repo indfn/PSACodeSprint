@@ -77,18 +77,18 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 - `app/mocks/routers/portnet.py` — PORTNET endpoints
 - Webhook: scaffold `POST /webhook/itt-coordination` in `app/main.py` (validates `ITTCoordinationEvent`, bootstraps 11-field initial_state; full wiring in Phase 6.9) — NOT in `app/mocks/`
 - `app/mocks/edge_cases.py` — edge case simulation (from prototype/mocks/edge_cases.py)
-- `app/shared/tool_adapter.py` — provider ↔ tool schema adapter (for Phase 4.3)
+- `app/shared/tool_adapter.py` — provider ↔ tool schema adapter covering all 8 names / 4 families (anthropic, gemini, openai-compatible×5) (for Phase 4.3)
 - Delete: prototype/pre_approval/ppt_citos/, prototype/pre_approval/sea_itt/app.py+router.py+models.py, prototype/pre_approval/container_readiness/webhook.py
 **Depends on:** 4.1
 **Verification:** All mock endpoints respond + `python -c "from app.shared.models import ITTCoordinationEvent; print('OK')"`
 
 ##### 4.3: Validate provider.py + Tool-Calling Adapter
-**What:** Test provider.py end-to-end with a real API key. Build adapter so any provider can call tools.
+**What:** Test provider.py end-to-end for all 8 provider names. Build adapter so any provider family can call tools.
 **Duration:** ~1.5 hours
 **Deliverables:**
-- `app/shared/provider.py` — provider.py moved from prototype/shared/utils/
+- `app/shared/provider.py` — 8 providers: anthropic, openai, gemini, deepseek, ollama, vllm, lmstudio, custom (any `base_url` — OpenRouter, Together, Groq, local)
 - `app/shared/yaml_reader.py` — yaml_reader.py moved
-- `app/shared/tool_adapter.py` — translates OpenAI tool schemas ↔ Anthropic `tool_use` / Gemini format
+- `app/shared/tool_adapter.py` — 4 families: OpenAI-compatible (openai/deepseek/ollama/vllm/lmstudio/custom = direct), Anthropic (`input_schema`), Gemini (`functionDeclarations`)
 - Test script or pytest that creates a provider, calls chat() with tool schemas, verifies tool_calls in response
 - Documented: which providers work, which have issues
 **Depends on:** 4.1

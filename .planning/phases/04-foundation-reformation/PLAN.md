@@ -91,45 +91,61 @@ curl localhost:8000/api/portnet/feeder/F001    # returns portnet data
 curl localhost:8000/webhook/runs               # returns run status
 ```
 
-### 4.3: Validate provider.py + Tool-Calling Adapter
+### 4.3: Validate provider.py + Tool-Calling Adapter (8 Providers)
 **Duration:** ~1.5 hours
-**What:** Test provider.py end-to-end with a real API key. Build adapter so any provider can call tools.
+**What:** Test provider.py end-to-end — NOT just big 3. The abstraction supports 8 provider names (anthropic, openai, gemini, deepseek, ollama, vllm, lmstudio, custom) covering hosted, local, and any OpenAI-compatible API.
+
+> **Supported providers (from `PROVIDERS` registry):**
+> `anthropic`→AnthropicProvider, `openai`→OpenAIProvider, `gemini`→GeminiProvider, `deepseek`→DeepSeekProvider, `ollama`/`vllm`/`lmstudio`/`custom`→CustomProvider (all use OpenAI-compatible `base_url`). Any `base_url` + `api_key` works (OpenRouter, Together, Groq, HuggingFace, local Ollama, etc.).
 
 **Steps:**
-1. Copy `prototype/shared/utils/provider.py` → `app/shared/provider.py`
-2. Create `app/shared/tool_adapter.py` — translates tool schemas between provider formats:
+1. Copy `prototype/shared/utils/provider.py` → `app/shared/provider.py` — verify all 8 names in `PROVIDERS` dict
+2. Create `app/shared/tool_adapter.py` — translates tool schemas between provider families:
    ```python
    def adapt_tools_for_provider(schemas: list[dict], provider: str) -> list[dict]:
        """Convert OpenAI-format tool schemas to provider-specific format."""
        if provider == "anthropic":
-           # OpenAI: {name, description, parameters: {type, properties}} → Anthropic: {name, description, input_schema}
+           # OpenAI: {name, description, parameters: {...}} → Anthropic: {name, description, input_schema}
            return [{"name": s["name"], "description": s["description"], "input_schema": s["parameters"]} for s in schemas]
        elif provider == "gemini":
-           # Gemini uses different function declaration format
-           return convert_to_gemini(schemas)
-       else:  # openai, deepseek, ollama, vllm, custom
+           # Gemini uses functionDeclarations: {name, description, parameters}
+           return [{"name": s["name"], "description": s["description"], "parameters": s["parameters"]} for s in schemas]
+       else:
+           # All OpenAI-compatible families (openai, deepseek, ollama, vllm, lmstudio, custom)
+           # use OpenAI `tools` format directly — no translation needed
            return schemas
+       # For 'custom' the provider.py already handles base_url + api_key via CustomProvider(openai.OpenAI(base_url=...))
    ```
 3. Create `app/tests/test_provider.py`:
-   - Test `create_provider()` with mock config
-   - Test `create_provider_with_fallback()`
-   - Test `chat()` with mocked HTTP response
-   - Test `chat()` with tool schemas (mocked tool_calls in response)
+   - Test `create_provider()` for ALL 8 provider names (loop through `PROVIDERS` dict) — verify no KeyError
+   - Test `create_provider_with_fallback()` — primary fails → fallback succeeds
+   - Test `CustomProvider` with `base_url` + mock (e.g. `base_url: http://localhost:11434/v1`, `model: llama3.1:8b` for Ollama)
+   - Test `chat()` with tool schemas (mocked tool_calls in response) for anthropic, openai, and custom
    - Test `health_check()` with mocked response
-   - Test tool adapter for anthropic/gemini/openai
-4. Manual test with real API key (if available):
+   - Test tool adapter for all 4 families: anthropic, gemini, openai, custom (should be no-op for custom)
+4. Manual tests with real API keys (if available):
    ```python
+   # Hosted — Anthropic
    from app.shared.provider import create_provider
-   config = {'provider': 'anthropic', 'model': 'claude-sonnet-4-20250514', 'api_key': 'sk-...'}
-   p = create_provider(config)
-   response = p.chat('Say hello in one word')
-   print(response.content)
-   # Tool calling test
+   p = create_provider({'provider': 'anthropic', 'model': 'claude-sonnet-4-20250514', 'api_key_env': 'ANTHROPIC_API_KEY'})
+   print(p.chat([{"role":"user","content":"Say hello in one word"}]).content)
+
+   # Hosted via OpenRouter — any model, any provider, one API key
+   p = create_provider({'provider': 'custom', 'model': 'anthropic/claude-sonnet-4', 'base_url': 'https://openrouter.ai/api/v1', 'api_key_env': 'OPENROUTER_API_KEY'})
+   print(p.chat([{"role":"user","content":"Say hello"}]).content)
+
+   # Local — Ollama (no API key needed)
+   p = create_provider({'provider': 'ollama', 'model': 'llama3.1:8b', 'base_url': 'http://localhost:11434/v1', 'api_key': 'ollama'})
+   print(p.chat([{"role":"user","content":"Say hello"}]).content)
+
+   # Tool calling
    tools = [{"name": "get_itt_candidates", "description": "...", "parameters": {...}}]
-   response = p.chat([{"role": "user", "content": "Get containers for MV SOPHIA"}], tools=adapt_tools_for_provider(tools, "anthropic"))
-   print(response.tool_calls)
+   for prov in ["anthropic", "openai", "custom"]:
+       adapted = adapt_tools_for_provider(tools, prov)
+       print(f"{prov}: {adapted[0].keys()}")
    ```
-5. Document which providers work and any issues found
+5. Document which providers work and any issues found — include a matrix: provider → model → API key env → verified?
+6. Update `app/main.py` or `app/configs/` so `LLM_PROVIDER` can be switched at runtime without code change (env var `LLM_PROVIDER` + `LLM_MODEL` + `LLM_BASE_URL` + `LLM_API_KEY` — not hardcoded to two keys)
 
 **Verification:**
 ```bash

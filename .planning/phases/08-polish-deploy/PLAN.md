@@ -86,8 +86,15 @@ curl localhost:8000/health  # returns OK
        environment:
          - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
          - OPENAI_API_KEY=${OPENAI_API_KEY}
-         - LLM_PROVIDER=${LLM_PROVIDER:-anthropic}
+         - GEMINI_API_KEY=${GEMINI_API_KEY}
+         - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+         - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+         - CUSTOM_API_KEY=${CUSTOM_API_KEY}
+         - LLM_PROVIDER=${LLM_PROVIDER:-anthropic}   # any of: anthropic, openai, gemini, deepseek, ollama, vllm, lmstudio, custom
          - LLM_MODEL=${LLM_MODEL:-claude-sonnet-4-20250514}
+         - LLM_BASE_URL=${LLM_BASE_URL:-}              # for custom/ollama/vllm/lmstudio (e.g. http://localhost:11434/v1)
+         - LLM_FALLBACK_PROVIDER=${LLM_FALLBACK_PROVIDER:-openai}
+         - LLM_FALLBACK_MODEL=${LLM_FALLBACK_MODEL:-gpt-4o}
        volumes:
          - ./app/configs:/app/app/configs
    ```
@@ -107,10 +114,11 @@ curl localhost:8000/health
    - Railway: `railway login` → `railway init` → `railway up`
    - Render: connect GitHub repo, auto-deploy
 2. Configure environment variables:
-   - `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`
-   - `LLM_PROVIDER` and `LLM_MODEL`
+   - `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `DEEPSEEK_API_KEY` / `OPENROUTER_API_KEY` / `CUSTOM_API_KEY` (any one suffices — provider-agnostic)
+   - `LLM_PROVIDER` (any of: `anthropic`, `openai`, `gemini`, `deepseek`, `ollama`, `vllm`, `lmstudio`, `custom`) + `LLM_MODEL` + `LLM_BASE_URL` (for local/custom)
+   - `LLM_FALLBACK_PROVIDER` + `LLM_FALLBACK_MODEL` (optional fallback)
    - `LANGSMITH_API_KEY` (optional, for trace visualization)
-   - `LANGSMITH_PROJECT=psa-itt-demo`
+   - `LANGSMITH_PROJECT=psa-nexus`
 3. Verify health check passes
 4. Verify UI loads at public URL
 5. Verify `LANGSMITH_API_KEY` wiring: if set, traces appear in LangSmith dashboard
