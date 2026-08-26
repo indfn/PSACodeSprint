@@ -13,9 +13,10 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 | 5 | Tool Integration | 1–2 days | Phase 4 |
 | 6 | Agent Core (LangGraph) | 2–3 days | Phase 5 |
 | 7 | Web UI & Integration | 1–2 days | Phase 6 |
-| 8 | Polish & Deploy | 1–2 days | Phase 7 |
+| 07.1 | Integrated Verification (INSERTED) | 0.5–1 day | Phase 7 |
+| 8 | Polish & Deploy | 1–2 days | 07.1 |
 
-**Critical path:** 4 → 5 → 6 → 7 → 8
+**Critical path:** 4 → 5 → 6 → 7 → 07.1 → 8
 
 ---
 
@@ -572,9 +573,84 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 
 ---
 
+### Phase 07.1: Integrated Verification — System-Level E2E, Resilience, and Cross-Problem Regression (INSERTED)
+
+**Goal:** Prove the entire PSA Nexus platform works as one system before deploy — aggregate every seam (webhook → agent → tools → HITL → monitor → SSE → problem-switch) into a single local gate.
+**Requirements**: Verifies F-01..F-13, T-01..T-18, A-01..A-23, U-01..U-12, D-05 (no new reqs — system-level gate)
+**Depends on:** Phase 7
+**Success Criteria** (what must be TRUE):
+  1. Full 17-step E2E (happy + deviation) passes via HTTP + SSE with real `thread_id`/`interrupt()`/`Command(resume=)`
+  2. HITL matrix 5×5 (approve/reject/modify/timeout/stale) green with per-gate timeout_action + 30-min halt
+  3. Resilience chaos green: 429→retry→fallback, 503/timeout→fallback, partial batch, hallucinated tool, concurrency, webhook 422
+  4. Robustness S1–S4 re-run in integrated context (nominal/incomplete/503/safety)
+  5. Cross-problem PB-12↔PB-01 regression: tool set, prompt, SSE, mock isolation
+  6. Trace completeness: `risk_score` in every entry, 10 SSE types, `deviation_log`, structured logs, cost/ROI `$10.4K`/`$8K`
+  7. `pytest app/tests/integration/ -v` is the gate — Phase 8 blocked until green
+**Status:** ○ NOT STARTED
+
+#### Sub-phases
+
+##### 07.1.1: Integration Harness & Fixtures
+**What:** Reusable `TestClient` + SSE harness with per-run `run_id` isolation and mock reset between tests.
+**Duration:** ~1 hour
+**Deliverables:** `app/tests/integration/conftest.py` (client, clean_mocks, charter_event, mock_llm), `helpers.py` (start_run, hitl_respond, inject_edge, switch_problem, trace/sse asserts)
+**Depends on:** Phase 7
+**Verification:** Two concurrent `start_run` produce isolated `run_id` + `broadcaster.buffers`
+
+##### 07.1.2: Full E2E — 17-Step Happy + Deviation via HTTP + SSE
+**What:** Charter 17-step workflow through real endpoints + SSE replay (race fix), not mocked `run_agent()` alone.
+**Duration:** ~1.5 hours
+**Deliverables:** `app/tests/integration/test_e2e_system.py` — happy (T1→T4→HITL-1..4→dispatch→T5→complete, `$10.4K`, `deviation_log==[]`) + deviation (inject feeder conflict → monitor detects → `0.78` + esc #1/#2 → re-compute `100/20` → HITL-5 → delta `+4 trucks` → second T5)
+**Depends on:** 07.1.1, 6.11
+**Verification:** Both paths green + 10 SSE event types observed + webhook `422` on bad inputs
+
+##### 07.1.3: HITL Lifecycle Matrix (5 Gates × 5 Outcomes)
+**What:** Every gate × approve/reject/modify/timeout/stale via `POST /agent/hitl/respond` + `thread_id`.
+**Duration:** ~1 hour
+**Deliverables:** `app/tests/integration/test_hitl_matrix.py` — parametrized 25 cases: approve clears `hitl_pending`, reject shows alternatives or escalates to HITL-5, modify re-validates LTA/feeder/timeline + re-runs T4 + re-presents, timeout per-gate (escalate/cancel/hold/halt + 30-min halt), stale late resume → `422`
+**Depends on:** 07.1.1, 6.5
+**Verification:** 25 cases green + `Last-Event-ID` SSE replay
+
+##### 07.1.4: Resilience & Fault Injection (Chaos Matrix)
+**What:** Competition-probed failures in integrated context (real registry/broadcaster).
+**Duration:** ~1.5 hours
+**Deliverables:** `app/tests/integration/test_resilience_system.py` — LLM 429→retry→fallback_provider, tool 503 vs timeout distinct + `fallback_used`, partial batch continues, hallucinated tool→error ToolResult, webhook `422`, concurrency 3× runs isolated, per-run edge injection isolated
+**Depends on:** 07.1.1, 6.12, 5.1
+**Verification:** Chaos matrix all green
+
+##### 07.1.5: Robustness Scenarios (S1–S4) — Integrated Re-Run
+**What:** Re-exercise CodeSprint 5.3 robustness now on full stack (5.13 stubs were isolated).
+**Duration:** ~1 hour
+**Deliverables:** `app/tests/integration/test_robustness_system.py` — S1 nominal, S2 incomplete (weight missing → guardrail → operator input), S3 503 → fallback + notify, S4 safety (cost>$10K → HITL-5 halt)
+**Depends on:** 07.1.1, 5.13, 6.5/6.6
+**Verification:** All 4 pass post-Phase 6
+
+##### 07.1.6: Cross-Problem Regression (PB-12 ↔ PB-01)
+**What:** Prove Nexus is a platform — switching doesn't leak tools/prompt/mocks/SSE.
+**Duration:** ~1 hour
+**Deliverables:** `app/tests/integration/test_switch_regression.py` — switch PB-12→PB-01 (tool set flips, prompt changes) → E2E PB-12 → switch → E2E PB-01 (2 gates, VTIS/OptEVoyage) → switch back → re-run PB-12; mock isolation + concurrent SSE streams
+**Depends on:** 07.1.1, 4.8, 5.11
+**Verification:** Back-to-back E2Es green, no leak
+
+##### 07.1.7: Trace, Streaming & Observability Audit
+**What:** Judge-scored observability completeness audit.
+**Duration:** ~45 min
+**Deliverables:** `app/tests/integration/test_observability_audit.py` — every `TraceEntry` has `risk_score = 1 - confidence + 0.15*esc`, structured JSON logs per trace, `deviation_log` on deviation only, `notification` SSE on `notify_parties`, cost math `$10.4K`/`$1.6K`/`$8K`, 6 guardrails (weight/block/trucks/feeder/margin/tidal)
+**Depends on:** 07.1.1..07.1.6
+**Verification:** Audit green + `integration_coverage.md` table
+
+##### 07.1.8: Pre-Deploy Gate (Go/No-Go)
+**What:** The gate that blocks Phase 8 until all 07.1.x green.
+**Duration:** ~30 min
+**Deliverables:** `app/tests/integration/test_gate.py` + `reports/predeploy_gate.md` (PASS/FAIL per sub-phase), optional `docker build` smoke; blocks `Phase 8` via `Depends on: 07.1`
+**Depends on:** 07.1.1..07.1.7
+**Verification:** `pytest app/tests/integration/ -v` green → `STATE.md` `07.1 gate: PASS`
+
+**Plans:** 1 plan (this file)
+
 ### Phase 8: Polish & Deploy — PSA Nexus Launch
 **Goal:** Dockerise, deploy to free tier, instrument latency, prepare submission assets showcasing PSA Nexus as a generalizable platform.
-**Depends on:** Phase 7
+**Depends on:** Phase 07.1
 **Requirements:** D-01 through D-08
 **Success Criteria** (what must be TRUE):
   1. Docker image builds and runs on Railway/Render free tier
@@ -680,15 +756,16 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 |-------|-----------|-----------|
 | 4. Foundation Reformation + Platform | 9 (4.1–4.9) | ~1.5 days |
 | 5. Tool Integration + Notification + Robustness | 13 (5.1–5.13) | ~2 days |
-| 6. Agent Core (LangGraph) — Nexus Brain | 11 (6.1–6.11) | ~2–3 days |
+| 6. Agent Core (LangGraph) — Nexus Brain | 12 (6.1–6.12) | ~2–3 days |
 | 7. Web UI — Nexus Dashboard | 8 (7.1–7.8) | ~2 days |
+| 07.1 Integrated Verification (INSERTED) | 8 (07.1.1–07.1.8) | ~0.5–1 day |
 | 8. Polish & Deploy — Nexus Launch | 7 (8.1–8.7) | ~1–2 days |
-| **Total** | **48** | **~7–11 days** |
+| **Total** | **57** | **~7.5–12 days** |
 
 ## Progress
 
 **Execution Order:**
-Phases execute in order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
+Phases execute in order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 07.1 → 8
 
 | Phase | Status | Completed |
 |-------|--------|-----------|
@@ -699,4 +776,5 @@ Phases execute in order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 5. Tool Integration | ○ Not Started | — |
 | 6. Agent Core (LangGraph) | ○ Not Started | — |
 | 7. Web UI & Integration | ○ Not Started | — |
+| 07.1 Integrated Verification (INSERTED) | ○ Not Started | — |
 | 8. Polish & Deploy | ○ Not Started | — |

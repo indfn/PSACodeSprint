@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-08-27)
 
 ## Current Position
 
-Phase: 4 of 8 (Foundation + Platform — next to execute)
-Plans: 8 detailed plans created (Phases 1–3 research + Phases 4–8 build, 48 sub-phases)
-Status: Phases 1–3 complete. Phases 4–8 fully planned, cross-checked twice (23 + 17 gaps fixed), PSA Nexus rebrand complete.
-Last activity: 2026-08-27 — PSA Nexus rebrand + platform generalisability + 17 additional gaps fixed
+Phase: 4 of 9 (Foundation + Platform — next to execute)
+Plans: 9 detailed plans created (Phases 1–3 research + Phases 4–8 build + 07.1 Integrated Verification, 57 sub-phases)
+Status: Phases 1–3 complete. Phases 4–8 (+07.1 gate) fully planned, cross-checked twice (23 + 17 gaps fixed) + integrated verification inserted.
+Last activity: 2026-08-27 — Inserted Phase 07.1: Integrated Verification (8 sub-phases) — system E2E + HITL matrix + resilience chaos + cross-problem regression (INSERTED)
 
-Progress: ███░░░░░░░ 38% (3/8 phases complete, 5 planned + verified)
+Progress: ███░░░░░░░ 33% (3/9 phases complete, 6 planned + verified)
 
 ## What's Built
 
@@ -24,12 +24,13 @@ Progress: ███░░░░░░░ 38% (3/8 phases complete, 5 planned + v
 | Master charter (gap-aware) | ✅ Done | `buildplan/03-03-master-charter.md` — 23 gaps, 5 HITL gates, 7 triggers, 8 tools |
 | Planning: PROJECT.md (PSA Nexus) | ✅ Done | `.planning/PROJECT.md` — Nexus platform rebrand |
 | Planning: REQUIREMENTS.md | ✅ Done | `.planning/REQUIREMENTS.md` — 70 requirements (F-01..F-13, T-01..T-18, A-01..A-23, U-01..U-12, D-01..D-08) |
-| Planning: ROADMAP.md | ✅ Done | `.planning/ROADMAP.md` — 8 phases, 48 sub-phases, critical path 4→5→6→7→8 |
+| Planning: ROADMAP.md | ✅ Done | `.planning/ROADMAP.md` — 9 phases (incl. 07.1 gate), 57 sub-phases, critical path 4→5→6→7→07.1→8 |
 | Planning: Phase 4 PLAN | ✅ Done | `.planning/phases/04-foundation-reformation/PLAN.md` — 9 sub-phases (incl. sibling YAMLs + problem switcher) |
 | Planning: Phase 5 PLAN | ✅ Done | `.planning/phases/05-tool-integration/PLAN.md` — 13 sub-phases (incl. notification + PB-01 stubs + ROI + robustness) |
 | Planning: Phase 6 PLAN | ✅ Done | `.planning/phases/06-agent-core/PLAN.md` — 11 sub-phases (correct interrupt+Command, monitor loop, templated prompt) |
 | Planning: Phase 7 PLAN | ✅ Done | `.planning/phases/07-web-ui/PLAN.md` — 8 sub-phases (Nexus branding + problem switcher + notifications) |
 | Planning: Phase 8 PLAN | ✅ Done | `.planning/phases/08-polish-deploy/PLAN.md` — 7 sub-phases (Nexus deck+video per rubric, latency metrics) |
+| Planning: Phase 07.1 PLAN | ✅ Done | `.planning/phases/07.1-integrated-verification-system-level-e2e-resilience-and-cros/PLAN.md` — 8 sub-phases (harness, E2E 17-step, HITL matrix, resilience, robustness, switch regression, observability, gate) (INSERTED) |
 | FastAPI scaffold | ⚠️ Fragmented | `prototype/main.py` — to be reformed in Phase 4 |
 | LLM provider abstraction | ⚠️ Fragmented | `prototype/shared/utils/provider.py` — to be wired + adapter in Phase 4.3 |
 | YAML config system | ⚠️ Fragmented | `prototype/configs/` — 7 files, but 6 siblings incomplete → Phase 4.7 |
@@ -64,9 +65,10 @@ Progress: ███░░░░░░░ 38% (3/8 phases complete, 5 planned + v
 | 3. Problem Evaluation | ✅ Complete | 3 plans |
 | 4. Foundation + Platform | ○ Planned → ready to execute | 9 |
 | 5. Tool Integration + Notification + Robustness | ○ Planned → depends on Phase 4 | 13 |
-| 6. Agent Core — Nexus Brain | ○ Planned → depends on Phase 5 | 11 |
+| 6. Agent Core — Nexus Brain | ○ Planned → depends on Phase 5 | 12 |
 | 7. Web UI — Nexus Dashboard | ○ Planned → depends on Phase 6 | 8 |
-| 8. Polish & Deploy — Nexus Launch | ○ Planned → depends on Phase 7 | 7 |
+| 07.1 Integrated Verification (INSERTED) | ○ Planned → depends on Phase 7 | 8 |
+| 8. Polish & Deploy — Nexus Launch | ○ Planned → depends on 07.1 | 7 |
 
 ## Accumulated Context
 
@@ -141,18 +143,22 @@ Deep sweep flagged 5 HIGH + several MEDIUM gaps previously missed (review was ch
 | **Scenario B (stale data)** | Charter Scenario B 120→117 via customs hold not implemented (only trigger existed) | ✅ Covered by T-16 (S2 incomplete data) + Phase 5.13 S2: guardrail → secondary query → HITL |
 | **Phase counts** | 39 stated → actually 48 after adding platform sub-phases | ✅ Updated to 48 total (4:9, 5:13, 6:11, 7:8, 8:7) |
 
+### Roadmap Evolution
+- Phase 07.1 inserted after Phase 7: Integrated Verification — system-level E2E, resilience, and cross-problem regression (URGENT)
+
 ### Pending Todos
 
 - Execute Phase 4: Foundation + Platform (9 sub-phases)
 - Execute Phase 5: Tool Integration + Notification + Robustness (13 sub-phases)
 - Execute Phase 6: Agent Core — Nexus Brain (11 sub-phases)
 - Execute Phase 7: Web UI — Nexus Dashboard (8 sub-phases)
-- Execute Phase 8: Polish & Deploy — Nexus Launch (7 sub-phases)
+- Execute Phase 07.1: Integrated Verification — gate before deploy (8 sub-phases)
+- Execute Phase 8: Polish & Deploy — Nexus Launch (7 sub-phases, depends on 07.1)
 
 ### Blockers/Concerns
 
 - **Deadline:** 2026-09-04 — 8 days remaining
-- **Ground-up rebuild:** All 48 sub-phases need to be executed
+- **Ground-up rebuild:** All 57 sub-phases need to be executed (+07.1 inserted as pre-deploy gate)
 - **LLM API key:** Need at least one provider API key for testing
 - **Demo recording:** Need screen capture tool for video
 - **Sibling YAMLs:** 6 files need to be manually completed (Phase 4.7)
@@ -163,7 +169,7 @@ Items acknowledged and carried forward:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Build | All phases 4–8 (48 sub-phases) | Planned + double cross-checked, not started | 2026-08-27 |
+| Build | All phases 4–8 + 07.1 (57 sub-phases) | Planned + double cross-checked + 07.1 gate inserted, not started | 2026-08-27 |
 | Deploy | Docker + Railway/Render | Planned | 2026-08-27 |
 | Submission | Demo video + deck (Nexus) | Planned per rubric | 2026-08-27 |
 
@@ -172,3 +178,4 @@ Items acknowledged and carried forward:
 Last session: 2026-08-27
 Stopped at: PSA Nexus rebrand + platform generalisability + 17 additional gaps fixed. 48 sub-phases, 70 requirements. Ready to execute Phase 4.
 Resume at: Phase 4 — Foundation + Platform (sibling YAMLs + problem switching + platform proof)
+Roadmap Evolution: Phase 07.1 inserted after Phase 7: Integrated Verification — system-level E2E, resilience, and cross-problem regression (URGENT)
