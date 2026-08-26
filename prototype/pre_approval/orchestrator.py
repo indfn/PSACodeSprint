@@ -14,15 +14,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .container_readiness.webhook import (
-    ITTCoordinationEvent,
-    bootstrap_agent_state,
-    validate_event,
-)
+from .container_readiness import ITTCoordinationEvent, receive_container_readiness
 from .ppt_citos.mock_data import get_itt_candidates
 from .road_itt.optetruck_tools import check_road_itt_capacity
 from .sea_itt.sea_itt_tools import check_sea_itt_capacity
@@ -62,33 +57,55 @@ class PreApprovalResult:
 
 
 # ---------------------------------------------------------------------------
-# Step 1: Validate & bootstrap from webhook
+# Main entry point
 # ---------------------------------------------------------------------------
 
-def _validate_and_bootstrap(
+async def run_pre_approval_pipeline(
     event: ITTCoordinationEvent,
-) -> tuple[dict[str, Any], str]:
-    """Validate webhook event and create initial agent state.
+) -> PreApprovalResult:
+    """Execute the full pre-approval pipeline.
+
+    Flow:
+        T6 (validate) → [T1 ‖ T2 ‖ T3] → T4 (optimise) → return
+
+    Args:
+        event: Validated webhook payload from PPT CITOS.
 
     Returns:
-        (agent_state, run_id)
+        PreApprovalResult with raw split data.
 
     Raises:
-        ValueError: If validation fails.
+        ValueError: If webhook validation fails.
     """
-    errors = validate_event(event)
-    if errors:
-        raise ValueError(f"Webhook validation failed: {'; '.join(errors)}")
+    # Step 1: validate & bootstrap via container_readiness webhook
+    response = await receive_container_readiness(event)
+    run_id = response["run_id"]
+    agent_state = response
 
-    run_id = f"run-{uuid.uuid4().hex[:12]}"
-    agent_state = bootstrap_agent_state(event, run_id)
+    # Step 2: parallel data gathering
+    candidates, road_capacity, sea_capacity = await _gather_parallel(agent_state)
 
-    logger.info(
-        "T6 validated | run_id=%s | vessel=%s | containers=%d",
-        run_id, event.vessel_id, event.container_count,
+    # Step 3: optimisation
+    split_result = _run_optimisation(
+        agent_state, candidates, road_capacity, sea_capacity,
     )
 
-    return agent_state, run_id
+    # Step 4: assemble result
+    result = PreApprovalResult(
+        run_id=run_id,
+        event=event.model_dump(),
+        agent_state=agent_state,
+        split_result=split_result,
+    )
+
+    logger.info(
+        "Pipeline complete | run_id=%s | optimal=%s | confidence=%s",
+        run_id,
+        split_result.get("optimal_split"),
+        split_result.get("confidence"),
+    )
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -185,56 +202,6 @@ def _run_optimisation(
         result.get("optimal_split", {}).get("total_transport_cost", "?"),
         result.get("confidence", 0),
         len(result.get("escalation_flags", [])),
-    )
-
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Main entry point
-# ---------------------------------------------------------------------------
-
-async def run_pre_approval_pipeline(
-    event: ITTCoordinationEvent,
-) -> PreApprovalResult:
-    """Execute the full pre-approval pipeline.
-
-    Flow:
-        T6 (validate) → [T1 ‖ T2 ‖ T3] → T4 (optimise) → return
-
-    Args:
-        event: Validated webhook payload from PPT CITOS.
-
-    Returns:
-        PreApprovalResult with raw split data.
-
-    Raises:
-        ValueError: If webhook validation fails.
-    """
-    # Step 1: validate & bootstrap
-    agent_state, run_id = _validate_and_bootstrap(event)
-
-    # Step 2: parallel data gathering
-    candidates, road_capacity, sea_capacity = await _gather_parallel(agent_state)
-
-    # Step 3: optimisation
-    split_result = _run_optimisation(
-        agent_state, candidates, road_capacity, sea_capacity,
-    )
-
-    # Step 4: assemble result
-    result = PreApprovalResult(
-        run_id=run_id,
-        event=event.model_dump(),
-        agent_state=agent_state,
-        split_result=split_result,
-    )
-
-    logger.info(
-        "Pipeline complete | run_id=%s | optimal=%s | confidence=%s",
-        run_id,
-        split_result.get("optimal_split"),
-        split_result.get("confidence"),
     )
 
     return result

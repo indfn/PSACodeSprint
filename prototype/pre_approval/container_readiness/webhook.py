@@ -5,37 +5,22 @@ Receives ITT_COORDINATION_REQUEST events from PPT CITOS via webhook.
 This is the agent entry point (Tool 6 in Master Charter §3).
 
 Called by CITOS (PPT) when containers are ready for cross-terminal
-transfer to Tuas Port. Validates payload, bootstraps initial agent state,
-and triggers the LangGraph agent.
+transfer to Tuas Port. Validates payload and bootstraps initial agent state.
 """
 
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
-import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from prototype.configs import load_config
 
 router = APIRouter()
 
 SGT = timezone(timedelta(hours=8))
-
-_CONFIG_PATH = Path(__file__).resolve().parents[2] / "configs" / "container_readiness.yaml"
-
-def _load_config() -> dict:
-    """Load config from YAML, falling back to defaults if file is missing."""
-    defaults = {"min_container_count": 50}
-    try:
-        with open(_CONFIG_PATH) as f:
-            config = yaml.safe_load(f) or {}
-        defaults.update(config)
-    except FileNotFoundError:
-        logging.warning("Config not found at %s, using defaults", _CONFIG_PATH)
-    return defaults
-
-_CONFIG = _load_config()
+CONFIG_FILENAME = "container_readiness.yaml"
+_CONFIG = load_config(CONFIG_FILENAME)
 MIN_CONTAINER_COUNT: int = _CONFIG["min_container_count"]
 
 
@@ -89,9 +74,59 @@ class ITTCoordinationEvent(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Webhook endpoint — T6
+# ---------------------------------------------------------------------------
+@router.post("/webhook/itt-coordination")
+async def receive_container_readiness(event: ITTCoordinationEvent) -> dict:
+    """
+    **T6 — Container Readiness Event Receiver**
+
+    Webhook endpoint for ``ITT_COORDINATION_REQUEST`` events.
+
+    Called by CITOS (PPT) when containers are ready for cross-terminal
+    transfer.  Validates the payload and creates the initial agent state.
+
+    Returns:
+        ``{"status": "accepted", "run_id": "<uuid>"}``
+    """
+    errors = _validate_event(event)
+    if errors:
+        raise HTTPException(status_code=422, detail={"errors": errors})
+
+    run_id = f"run-{uuid.uuid4().hex[:12]}"
+
+    logger = logging.getLogger("container_readiness.webhook")
+    logger.info(
+        "T6 webhook accepted | run_id=%s | vessel=%s | containers=%d | "
+        "blocks=%s | departure=%s",
+        run_id,
+        event.vessel_id,
+        event.container_count,
+        event.blocks_affected,
+        event.tuas_vessel_departure,
+    )
+
+    return {
+        "run_id": run_id,
+        "event": event.model_dump(),
+        "origin_terminal": event.origin_terminal,
+        "destination_terminal": event.destination_terminal,
+        "vessel_id": event.vessel_id,
+        "container_count": event.container_count,
+        "containers_ready": event.containers_ready,
+        "tuas_vessel_departure": event.tuas_vessel_departure,
+        "blocks_affected": event.blocks_affected,
+        "dg_containers": event.dg_containers,
+        "priority_containers": event.priority_containers,
+        "requested_by": event.requested_by,
+        "priority": event.priority,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Validation helpers
 # ---------------------------------------------------------------------------
-def validate_event(event: ITTCoordinationEvent) -> list[str]:
+def _validate_event(event: ITTCoordinationEvent) -> list[str]:
     """Return a list of validation error messages (empty = valid)."""
     errors: list[str] = []
 
@@ -126,104 +161,28 @@ def validate_event(event: ITTCoordinationEvent) -> list[str]:
     return errors
 
 
-# ---------------------------------------------------------------------------
-# Initial agent state bootstrap
-# ---------------------------------------------------------------------------
-def bootstrap_agent_state(event: ITTCoordinationEvent, run_id: str) -> dict:
-    """Create the initial LangGraph agent state from the webhook payload."""
-    return {
-        "run_id": run_id,
-        "event": event.model_dump(),
-        "origin_terminal": event.origin_terminal,
-        "destination_terminal": event.destination_terminal,
-        "vessel_id": event.vessel_id,
-        "container_count": event.container_count,
-        "containers_ready": event.containers_ready,
-        "tuas_vessel_departure": event.tuas_vessel_departure,
-        "blocks_affected": event.blocks_affected,
-        "dg_containers": event.dg_containers,
-        "priority_containers": event.priority_containers,
-        "requested_by": event.requested_by,
-        "priority": event.priority,
-        "current_step": "ingest",
-        "hitl_pending": [],
-        "escalations": [],
-        "confidence_scores": [],
-        "deviation_log": [],
-    }
-
-
-# ---------------------------------------------------------------------------
-# Webhook endpoint — T6
-# ---------------------------------------------------------------------------
-@router.post("/webhook/itt-coordination")
-async def receive_container_readiness(event: ITTCoordinationEvent) -> dict:
-    """
-    **T6 — Container Readiness Event Receiver**
-
-    Webhook endpoint for ``ITT_COORDINATION_REQUEST`` events.
-
-    Called by CITOS (PPT) when containers are ready for cross-terminal
-    transfer.  Validates the payload, creates the initial agent state, and
-    triggers the LangGraph agent.
-
-    Returns:
-        ``{"status": "accepted", "run_id": "<uuid>"}``
-    """
-    errors = validate_event(event)
-    if errors:
-        raise HTTPException(status_code=422, detail={"errors": errors})
-
-    run_id = f"run-{uuid.uuid4().hex[:12]}"
-
-    # --- Agent trigger (mock) -----------------------------------------------
-    # TODO: wire in LangGraph agent
-    #     initial_state = bootstrap_agent_state(event, run_id)
-    #     result = await agent_graph.ainvoke(initial_state)
-    logger = logging.getLogger("container_readiness.webhook")
-    logger.info(
-        "T6 webhook accepted | run_id=%s | vessel=%s | containers=%d | "
-        "blocks=%s | departure=%s",
-        run_id,
-        event.vessel_id,
-        event.container_count,
-        event.blocks_affected,
-        event.tuas_vessel_departure,
-    )
-
-    return {
-        "status": "accepted",
-        "run_id": run_id,
-        "event_type": event.event_type,
-        "origin": event.origin_terminal,
-        "destination": event.destination_terminal,
-        "vessel_id": event.vessel_id,
-        "container_count": event.container_count,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Sample payload — for manual testing / demo triggers
-# ---------------------------------------------------------------------------
-def _sample_payload() -> dict:
-    """Generate a fresh sample payload with a valid future departure time."""
-    return {
-        "event_type": "ITT_COORDINATION_REQUEST",
-        "timestamp": "2026-08-19T10:30:00+08:00",
-        "source": "CITOS_PPT",
-        "priority": "high",
-        "origin_terminal": "PPT",
-        "destination_terminal": "TUAS",
-        "vessel_id": "MV PACIFIC STAR",
-        "tuas_vessel_departure": (datetime.now(SGT) + timedelta(hours=6)).isoformat(),
-        "container_count": 120,
-        "containers_ready": 120,
-        "blocks_affected": ["B-07", "B-08", "B-12", "B-14"],
-        "dg_containers": 3,
-        "priority_containers": 45,
-        "requested_by": "PPT_Yard_Planner_Lim",
-        "notes": (
-            "Priority transhipment for MV PACIFIC STAR. "
-            "120 containers ready for cross-terminal ITT."
-        ),
-    }
+# # ---------------------------------------------------------------------------
+# # Sample payload — for manual testing / demo triggers
+# # ---------------------------------------------------------------------------
+# def _sample_payload() -> dict:
+#     """Generate a fresh sample payload with a valid future departure time."""
+#     return {
+#         "event_type": "ITT_COORDINATION_REQUEST",
+#         "timestamp": "2026-08-19T10:30:00+08:00",
+#         "source": "CITOS_PPT",
+#         "priority": "high",
+#         "origin_terminal": "PPT",
+#         "destination_terminal": "TUAS",
+#         "vessel_id": "MV PACIFIC STAR",
+#         "tuas_vessel_departure": (datetime.now(SGT) + timedelta(hours=6)).isoformat(),
+#         "container_count": 120,
+#         "containers_ready": 120,
+#         "blocks_affected": ["B-07", "B-08", "B-12", "B-14"],
+#         "dg_containers": 3,
+#         "priority_containers": 45,
+#         "requested_by": "PPT_Yard_Planner_Lim",
+#         "notes": (
+#             "Priority transhipment for MV PACIFIC STAR. "
+#             "120 containers ready for cross-terminal ITT."
+#         ),
+#     }
