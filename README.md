@@ -888,5 +888,3 @@ All research claims are cited with a priority ladder: **PSA official → Singapo
 ---
 
 *PSA Nexus is a competition prototype — not a production deployment. It runs on mock data that mirrors real PSA operations with Singapore-grounded cost parameters.*
-
-*Built for the PSA Code Sprint: Agentic AI in Action. Deadline: 4 September 2026.*
