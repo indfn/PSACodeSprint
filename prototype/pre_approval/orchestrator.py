@@ -18,10 +18,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .container_readiness import ITTCoordinationEvent, receive_container_readiness
-from .ppt_citos.data_access import get_itt_candidates
-from .road_itt.optetruck_tools import check_road_itt_capacity
-from .sea_itt.sea_itt_tools import check_sea_itt_capacity
-from .ai_optimisation.compute_itt_split import compute_optimal_split
+from .ppt_citos import get_itt_candidates
+from .road_itt import check_road_itt_capacity
+from .sea_itt import check_sea_itt_capacity
+from .ai_optimisation import compute_optimal_split
 
 logger = logging.getLogger(__name__)
 

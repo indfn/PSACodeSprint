@@ -222,7 +222,6 @@ class AnthropicProvider(LLMProvider):
         response = client.messages.create(
             model=self.model,
             max_tokens=max_tokens,
-            temperature=temperature,
             system=system_msg,
             messages=chat_messages,
             tools=anthropic_tools if anthropic_tools else [],
@@ -248,7 +247,7 @@ class AnthropicProvider(LLMProvider):
         return LLMResponse(
             content=content,
             tool_calls=tool_calls,
-            finish_reason=response.stop_reason,
+            finish_reason=str(response.stop_reason or "stop"),
             usage={
                 "input_tokens": response.usage.input_tokens,
                 "output_tokens": response.usage.output_tokens,
@@ -355,16 +354,16 @@ class GeminiProvider(LLMProvider):
         temperature: float = 0.0,
         max_tokens: int = 4096,
     ) -> LLMResponse:
-        import google.generativeai as genai
+        from google import genai
 
-        genai.configure(api_key=self.api_key)
-        model = genai.GenerativeModel(self.model)
+        client = genai.Client(api_key=self.api_key)
 
         # Convert messages to Gemini format
         contents = []
+        system_instruction = None
         for msg in messages:
             if msg["role"] == "system":
-                # Gemini doesn't have a system role in contents; prepend to first user message
+                system_instruction = msg["content"]
                 continue
             role = "model" if msg["role"] == "assistant" else "user"
             contents.append({"role": role, "parts": [msg["content"]]})
@@ -382,21 +381,25 @@ class GeminiProvider(LLMProvider):
                 })
             gemini_tools = [{"function_declarations": function_declarations}]
 
-        t0 = time.monotonic()
-        response = model.generate_content(
-            contents,
-            generation_config=genai.types.GenerationConfig(
-                temperature=temperature,
-                max_output_tokens=max_tokens,
-            ),
+        config = genai.types.GenerateContentConfig(
+            temperature=temperature,
+            max_output_tokens=max_tokens,
+            system_instruction=system_instruction,
             tools=gemini_tools if gemini_tools else None,
+        )
+
+        t0 = time.monotonic()
+        response = client.models.generate_content(
+            model=self.model,
+            contents=contents,
+            config=config,
         )
         latency_ms = (time.monotonic() - t0) * 1000
 
         content = response.text if response.text else None
         tool_calls = []
 
-        if response.candidates and response.candidates[0].content.parts:
+        if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
             for part in response.candidates[0].content.parts:
                 if part.function_call:
                     tool_calls.append({
@@ -404,7 +407,7 @@ class GeminiProvider(LLMProvider):
                         "type": "function",
                         "function": {
                             "name": part.function_call.name,
-                            "arguments": json.dumps(dict(part.function_call.args)),
+                            "arguments": json.dumps(part.function_call.args or {}),
                         },
                     })
 
@@ -413,8 +416,16 @@ class GeminiProvider(LLMProvider):
             tool_calls=tool_calls,
             finish_reason="stop",
             usage={
-                "input_tokens": response.usage_metadata.prompt_token_count if response.usage_metadata else 0,
-                "output_tokens": response.usage_metadata.candidates_token_count if response.usage_metadata else 0,
+                "input_tokens": (
+                    response.usage_metadata.prompt_token_count
+                    if response.usage_metadata and response.usage_metadata.prompt_token_count is not None
+                    else 0
+                ),
+                "output_tokens": (
+                    response.usage_metadata.candidates_token_count
+                    if response.usage_metadata and response.usage_metadata.candidates_token_count is not None
+                    else 0
+                ),
             },
             model=self.model,
             provider=self.name,
