@@ -363,66 +363,88 @@ Every candidate problem was scored against 5 yes/no questions. A problem must pa
  ║  └──────────────────────┬───────────────────────────────────┘    ║
  ║                         │                                       ║
  ║                         ▼                                       ║
- ║  ╔══════════════════════════════════════════════════════════╗    ║
- ║  ║  [MAIN GRAPH]  LangGraph State Machine                 ║    ║
- ║  ║                                                        ║    ║
- ║  ║   ┌──────────────┐                                     ║    ║
- ║  ║   │  agent_node  │  ◄──── lives here until END         ║    ║
- ║  ║   │  (AI thinks) │                                     ║    ║
- ║  ║   │  1. Build prompt from ProblemConfig + history       ║    ║
- ║  ║   │  2. Adapt tool schemas for provider (Anthropic /   ║    ║
- ║  ║   │     OpenAI / Gemini format)                         ║    ║
- ║  ║   │  3. Call AI: chat(messages, tools) with retry       ║    ║
- ║  ║   │  4. Validate: filter hallucinated tools → error     ║    ║
- ║  ║   │     ToolResult instead of crash                     ║    ║
- ║  ║   │  5. Check 7 warning triggers + compute risk_score   ║    ║
- ║  ║   │  6. Write trace entry (with risk_score) + SSE       ║    ║
- ║  ║   └──────┬───────┬────────┬──────────┬─────────────────┘    ║
- ║  ║          │       │        │          │                      ║
- ║  ║    tool_calls  hitl_card escalation  monitor?  done         ║
- ║  ║          │       │        │          │         │            ║
- ║  ║          ▼       ▼        ▼          ▼         ▼            ║
- ║  ║   ┌────────┐ ┌────────┐ ┌──────┐ ┌─────────┐ ┌─────┐       ║
- ║  ║   │ tool_  │ │  hitl_ │ │ set  │ │ monitor_│ │ END │       ║
- ║  ║   │ node   │ │  node  │ │HITL-5│ │  node   │ │     │       ║
- ║  ║   └────┬───┘ └───┬────┘ └──┬───┘ └────┬────┘ └─────┘       ║
- ║  ║        │         │         │          │                   ║
- ║  ║        └─────────┴─────────┴──────────┘                   ║
- ║  ║                  │  (all route back to agent_node)        ║
- ║  ╚══════════════════╪═════════════════════════════════════════╝    ║
- ║                     │                                       ║
- ║         ┌───────────┴────────────┐                          ║
- ║         ▼                        ▼                          ║
- ║  ┌──────────────┐    ┌──────────────────────┐               ║
- ║  │ tool_node    │    │ hitl_node            │               ║
- ║  │ FOR EACH     │    │ interrupt({card})    │               ║
- ║  │ tool in list │    │  ── PAUSE ──         │               ║
- ║  │  ┌─ HITL? ─┐ │    │  wait for human      │               ║
- ║  │  │Yes→block│ │    │  via POST            │               ║
- ║  │  └─────────┘ │    │  /hitl/respond       │               ║
- ║  │  try: call   │    │  (with thread_id)    │               ║
- ║  │  except      │    │                      │               ║
- ║  │  Timeout→    │    │  ◇ human replied?    │               ║
- ║  │  fallback    │    │  ┌─ approve ─► clear │               ║
- ║  │  except 503→ │    │  │  pending, back to │               ║
- ║  │  fallback    │    │  │  agent + notify   │               ║
- ║  │  partial     │    │  ├─ reject ─► show   │               ║
- ║  │  batch→cont. │    │  │  alternatives or  │               ║
- ║  │  save result │    │  │  escalate(HITL-5) │               ║
- ║  │  calc risk   │    │  ├─ modify ─► re-    │               ║
- ║  │  SSE publish │    │  │  validate,        │               ║
- ║  │ END FOR      │    │  │  re-run T4,      │               ║
- ║  └──────┬───────┘    │  │  ask again       │               ║
- ║         │            │  ├─ timeout ─► per- │               ║
- ║         └────────────┘  │  gate rule       │               ║
- ║                         │  (escalate/cancel│               ║
- ║                         │  /hold/halt)     │               ║
- ║                         │  late resume?    │               ║
- ║                         │  → return stale  │               ║
- ║                         │  error (422)     │               ║
- ║                         │  └───────┬────────┘               ║
- ║                         │          │                        ║
- ║                         └──────────┘                        ║
+ ║  ╔══════════════════════════════════════════════════════════╗     ║
+ ║  ║  [MAIN GRAPH]  LangGraph StateGraph                      ║     ║
+ ║  ║  Loops through agent_node until END                      ║     ║
+ ║  ║                                                          ║     ║
+ ║  ║   ┌──────────────────────────────┐                        ║     ║
+ ║  ║   │  agent_node  (AI thinks)     │ ◄── loopback from      ║     ║
+ ║  ║   │  1. Build prompt from        │     every other node   ║     ║
+ ║  ║   │     ProblemConfig + history  │                        ║     ║
+ ║  ║   │  2. Adapt tool schemas for   │                        ║     ║
+ ║  ║   │     provider (Anthropic /    │                        ║     ║
+ ║  ║   │     OpenAI / Gemini format)  │                        ║     ║
+ ║  ║   │  3. chat(messages, tools)    │                        ║     ║
+ ║  ║   │     with retry               │                        ║     ║
+ ║  ║   │  4. Filter hallucinated      │                        ║     ║
+ ║  ║   │     tools → error ToolResult │                        ║     ║
+ ║  ║   │  5. Check 7 triggers +       │                        ║     ║
+ ║  ║   │     compute risk_score       │                        ║     ║
+ ║  ║   │  6. Write trace + SSE event  │                        ║     ║
+ ║  ║   └──────────────┬───────────────┘                        ║     ║
+ ║  ║                  │                                        ║     ║
+ ║  ║                  ▼                                        ║     ║
+ ║  ║          ┌───────────────┐                                ║     ║
+ ║  ║          │ ◇ route?      │  conditional_edge              ║     ║
+ ║  ║          │ (what next?)  │                                ║     ║
+ ║  ║          └──┬──┬───┬──┬──┘                                ║     ║
+ ║  ║             │  │   │  │                                   ║     ║
+ ║  ║     tool_calls │   │  │  done                             ║     ║
+ ║  ║             │ need │ need │                               ║     ║
+ ║  ║             │ hitl │ esc. │ monitor                       ║     ║
+ ║  ║             ▼  ▼   ▼  ▼   ▼                               ║     ║
+ ║  ║        ┌──────┐┌──────┐┌──────┐┌─────────┐  ┌─────┐       ║     ║
+ ║  ║        │ tool ││ hitl ││ HITL ││ monitor │  │ END │       ║     ║
+ ║  ║        │ node ││ node ││  -5  ││  node   │  │     │       ║     ║
+ ║  ║        └──┬───┘└──┬───┘└──┬───┘└────┬────┘  └─────┘       ║     ║
+ ║  ║           │       │       │         │                     ║     ║
+ ║  ║           └───────┴───────┴─────────┘                     ║     ║
+ ║  ║                   │  all return to agent_node ────────────║─────╫── loop
+ ║  ╚═══════════════════╪═══════════════════════════════════════╝     ║
+                     │                                             ║
+                     │  expanded below — what each node does       ║
+                     ▼                                             ║
+ ║  ┌─────────────────────────────────┐                            ║
+ ║  │ EXPANDED: tool_node             │  ← when agent emits       ║
+ ║  │ ─────────────────────────────   │    tool_calls              ║
+ ║  │ FOR EACH tool in tool_calls:    │                            ║
+ ║  │   try: call tool (in-process)   │                            ║
+ ║  │   except Timeout  → fallback    │                            ║
+ ║  │   except 503      → fallback    │                            ║
+ ║  │   except partial  → save what   │                            ║
+ ║  │     succeeded, continue batch   │                            ║
+ ║  │   save ToolResult + risk_score  │                            ║
+ ║  │   publish SSE tool_result       │                            ║
+ ║  │ END FOR                         │                            ║
+ ║  │ ──► return to agent_node        │                            ║
+ ║  └─────────────────────────────────┘                            ║
+ ║                                                                 ║
+ ║  ┌─────────────────────────────────┐                            ║
+ ║  │ EXPANDED: hitl_node             │  ← when approval needed   ║
+ ║  │ ─────────────────────────────   │                            ║
+ ║  │ interrupt({ approval_card })    │                            ║
+ ║  │   ── PAUSE execution ──         │                            ║
+ ║  │   wait for POST /hitl/respond   │                            ║
+ ║  │   (identified by thread_id)     │                            ║
+ ║  │                                 │                            ║
+ ║  │   ◇ human replied?              │                            ║
+ ║  │   ├─ approve ─► clear pending,  │                            ║
+ ║  │   │           notify, back to   │                            ║
+ ║  │   │           agent_node        │                            ║
+ ║  │   ├─ reject ─► show alts or     │                            ║
+ ║  │   │           escalate(HITL-5), │                            ║
+ ║  │   │           back to agent_node│                            ║
+ ║  │   ├─ modify ─► re-validate,     │                            ║
+ ║  │   │           re-run T4, then   │                            ║
+ ║  │   │           ask again         │                            ║
+ ║  │   ├─ timeout ─► per-gate rule:  │                            ║
+ ║  │   │           escalate / cancel │                            ║
+ ║  │   │           / hold / halt     │                            ║
+ ║  │   └─ late resume after timeout? │                            ║
+ ║  │      → return stale error (422) │                            ║
+ ║  │   ──► all paths return to       │                            ║
+ ║  │       agent_node (or END)       │                            ║
+ ║  └─────────────────────────────────┘                            ║
  ║                                                                 ║
  ║  ┌──────────────────────────────────────────────────────────┐    ║
  ║  │ [DETAIL]  Tools the agent can call                      │    ║
