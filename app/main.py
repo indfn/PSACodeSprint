@@ -163,9 +163,11 @@ async def switch_problem_endpoint(problem_id: str):
         from app.tools.registry import registry  # type: ignore
 
         registry.register_for_problem(problem_id)  # type: ignore[attr-defined]
-        # registry.list() returns tool names; fallback to config.tools if absent
         try:
-            tools_via_registry = registry.list()  # type: ignore[attr-defined]
+            reg_tools = registry.list()  # type: ignore[attr-defined]
+            cfg_tools = [t.name for t in config.tools]
+            merged = list(dict.fromkeys(reg_tools + cfg_tools))
+            tools_via_registry = merged
         except Exception:
             tools_via_registry = [t.name for t in config.tools]
     except ImportError:
