@@ -1,0 +1,118 @@
+problem:
+  id: PB-04
+  name: Missed Feeder Connection
+  sector: Multimodal Logistics
+  description: Reroute containers when feeder misses connection at downstream port
+llm:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  api_key_env: ANTHROPIC_API_KEY
+  fallback_provider: openai
+  fallback_model: gpt-4o
+systems:
+- name: portnet
+  type: community
+  capabilities:
+  - feeder_schedule
+  - reroute_options
+  - container_tracking
+- name: citos_ppt
+  type: terminal_os
+  capabilities:
+  - container_location
+  - customs_status
+- name: citos_tuas
+  type: terminal_os
+  capabilities:
+  - yard_blocks
+  - vessel_schedule
+tools:
+- name: query_feeder_status
+  systems:
+  - portnet
+  tool_id: tool_1
+- name: check_reroute_options
+  systems:
+  - portnet
+  - citos_ppt
+  tool_id: tool_2
+- name: compute_reroute_plan
+  systems: []
+  tool_id: tool_3
+- name: notify_consignee
+  systems:
+  - portnet
+  tool_id: tool_4
+- name: update_loading_sequence
+  systems:
+  - citos_tuas
+  tool_id: tool_5
+hitl_gates:
+- gate_id: hitl_1
+  trigger: reroute_computed
+  action: require_approval
+  label: Approve Reroute Plan
+  timeout_minutes: 30
+  timeout_action: escalate_to_duty_manager
+- gate_id: hitl_2
+  trigger: reroute_confirmed
+  action: require_approval
+  label: Approve Reroute Confirmation
+  timeout_minutes: 15
+  timeout_action: hold_current_sequence
+cost_params:
+  missed_connection_per_container: 150
+  reroute_cost_per_container: 200
+  storage_per_day: 45
+  downstream_demurrage_per_hr: 100
+  sla_penalty_per_container: 250
+constraints:
+  max_reroute_containers: 60
+  reroute_deadline_hours: 24
+  available_reroute_vessels: 3
+  priority_sla_containers: 20
+confidence:
+  enabled: true
+  threshold: 0.85
+  method: llm_self_assessment
+escalation_triggers:
+- trigger_id: esc_1
+  name: Low model confidence
+  condition: confidence_score < 0.85
+  threshold: 0.85
+- trigger_id: esc_2
+  name: Reroute hold exceeds downstream tolerance
+  condition: reroute_hold_hours > 1.5
+  threshold: 1.5
+- trigger_id: esc_3
+  name: Financial recovery cost exceeds limit
+  condition: recommended_action_cost > 10000
+  threshold: 10000
+- trigger_id: esc_4
+  name: Data latency exceeds freshness window
+  condition: max_data_age_min > 30
+  threshold: 30
+- trigger_id: esc_5
+  name: Reroute capacity below threshold
+  condition: available_vessels < (required_vessels * 0.6)
+  threshold: 0.6
+- trigger_id: esc_6
+  name: Feeder operator unresponsive
+  condition: feeder_response_time_min > 15
+  threshold: 15
+- trigger_id: esc_7
+  name: Conflict between feeder and terminal planners
+  condition: planner_recommendations_conflict == true
+  threshold: null
+edge_cases:
+- case_id: ec_1
+  name: Downstream port closure
+  inject_at_step: 4
+  description: PORTNET reports Port Klang berth closure - feeder FEEDER ATLANTIC-03
+    downstream connection missed
+  agent_response: Compute reroute plan (next feeder in 6h), request re-approval
+- case_id: ec_2
+  name: Customs hold on transhipment
+  inject_at_step: 2
+  description: CITOS reports 20 containers held by customs - reroute delayed
+  agent_response: Trigger escalation, present customs-hold alert

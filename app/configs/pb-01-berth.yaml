@@ -1,0 +1,128 @@
+problem:
+  id: PB-01
+  name: Berth Delay Cascade
+  sector: Berth & Marine
+  description: Reassign berths when vessel arrives late, minimise DTQC idle time
+llm:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  api_key_env: ANTHROPIC_API_KEY
+  fallback_provider: openai
+  fallback_model: gpt-4o
+systems:
+- name: vtis
+  type: vessel_traffic
+  capabilities:
+  - vessel_arrival
+  - pilot_availability
+  - tug_availability
+- name: optevoyage
+  type: voyage_planning
+  capabilities:
+  - berth_booking
+  - draft_restrictions
+  - tidal_windows
+- name: citos_ppt
+  type: terminal_os
+  capabilities:
+  - berth_occupancy
+  - qc_status
+  - yard_capacity
+tools:
+- name: query_vessel_arrival
+  systems:
+  - vtis
+  tool_id: tool_1
+- name: check_berth_availability
+  systems:
+  - optevoyage
+  - citos_ppt
+  tool_id: tool_2
+- name: check_qc_availability
+  systems:
+  - citos_ppt
+  tool_id: tool_3
+- name: compute_berth_reassignment
+  systems: []
+  tool_id: tool_4
+- name: notify_vessel_operator
+  systems:
+  - vtis
+  tool_id: tool_5
+hitl_gates:
+- gate_id: hitl_1
+  trigger: reassignment_computed
+  action: require_approval
+  label: Approve Berth Reassignment
+  timeout_minutes: 30
+  timeout_action: escalate_to_duty_manager
+- gate_id: hitl_2
+  trigger: qc_reallocation_ready
+  action: require_approval
+  label: Approve QC Reallocation
+  timeout_minutes: 15
+  timeout_action: escalate_to_duty_manager
+cost_params:
+  vessel_demurrage_per_hr: 2500
+  berth_idle_cost_per_hr: 500
+  qc_repositioning_cost: 2000
+  pilot_standby_per_hr: 300
+  tidal_window_miss_cost: 5000
+constraints:
+  max_berths: 56
+  min_qc_per_berth: 2
+  max_qc_per_berth: 4
+  tidal_windows:
+  - spring
+  - neap
+  berth_draft_limits:
+    A: 16.5
+    B: 15.0
+    C: 14.0
+confidence:
+  enabled: true
+  threshold: 0.85
+  method: llm_self_assessment
+escalation_triggers:
+- trigger_id: esc_1
+  name: Low model confidence
+  condition: confidence_score < 0.85
+  threshold: 0.85
+- trigger_id: esc_2
+  name: Berth hold exceeds downstream tolerance
+  condition: berth_hold_hours > 1.5
+  threshold: 1.5
+- trigger_id: esc_3
+  name: Financial recovery cost exceeds limit
+  condition: recommended_action_cost > 10000
+  threshold: 10000
+- trigger_id: esc_4
+  name: Data latency exceeds freshness window
+  condition: max_data_age_min > 30
+  threshold: 30
+- trigger_id: esc_5
+  name: QC capacity below threshold
+  condition: available_qc < (required_qc * 0.6)
+  threshold: 0.6
+- trigger_id: esc_6
+  name: Pilot/tug operator unresponsive
+  condition: pilot_response_time_min > 15
+  threshold: 15
+- trigger_id: esc_7
+  name: Conflict between berth and yard planners
+  condition: planner_recommendations_conflict == true
+  threshold: null
+edge_cases:
+- case_id: ec_1
+  name: Berth conflict - double booking
+  inject_at_step: 3
+  description: VTIS reports berth B-12 double-booked - MV EVER GIVEN and MV PACIFIC
+    STAR both scheduled 14:00
+  agent_response: Detect conflict, compute berth reassignment (B-12->B-14), request
+    re-approval
+- case_id: ec_2
+  name: Tidal window miss
+  inject_at_step: 5
+  description: OpteVoyage reports tidal window at B-12 closes at 16:00 - reassigned
+    vessel draft 15.5m exceeds 14.0m limit at low tide
+  agent_response: Trigger escalation, present tidal-risk alert, request pilot standby

@@ -1,0 +1,119 @@
+problem:
+  id: PB-02
+  name: DTQC Breakdown Cascade
+  sector: Container Yard & Internal Transport
+  description: Reallocate cranes when a quay crane breaks down mid-operations
+llm:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  api_key_env: ANTHROPIC_API_KEY
+  fallback_provider: openai
+  fallback_model: gpt-4o
+systems:
+- name: rocc
+  type: crane_control
+  capabilities:
+  - crane_status
+  - diagnostics
+  - maintenance_schedule
+- name: citos_ppt
+  type: terminal_os
+  capabilities:
+  - container_backlog
+  - berth_queue
+  - qc_assignment
+- name: fms
+  type: fleet_management
+  capabilities:
+  - agv_availability
+  - transport_booking
+tools:
+- name: query_crane_status
+  systems:
+  - rocc
+  tool_id: tool_1
+- name: check_container_backlog
+  systems:
+  - citos_ppt
+  tool_id: tool_2
+- name: compute_crane_reallocation
+  systems: []
+  tool_id: tool_3
+- name: notify_yard_planner
+  systems:
+  - citos_ppt
+  tool_id: tool_4
+- name: request_emergency_crane
+  systems:
+  - rocc
+  tool_id: tool_5
+hitl_gates:
+- gate_id: hitl_1
+  trigger: reallocation_computed
+  action: require_approval
+  label: Approve Crane Reallocation
+  timeout_minutes: 30
+  timeout_action: escalate_to_duty_manager
+- gate_id: hitl_2
+  trigger: emergency_crane_ready
+  action: require_approval
+  label: Approve Emergency Crane Request
+  timeout_minutes: 15
+  timeout_action: cancel_dispatch
+cost_params:
+  vessel_demurrage_per_hr: 2500
+  crane_rental_per_hr: 800
+  container_delay_per_teu: 25
+  overtime_labour_per_hr: 75
+  yard_congestion_per_hr: 500
+constraints:
+  max_dtqc: 12
+  min_operational_dtqc: 8
+  crane_repositioning_time_min: 30
+  max_container_throughput_per_qc_per_hr: 30
+  overtime_limit_hours: 4
+confidence:
+  enabled: true
+  threshold: 0.85
+  method: llm_self_assessment
+escalation_triggers:
+- trigger_id: esc_1
+  name: Low model confidence
+  condition: confidence_score < 0.85
+  threshold: 0.85
+- trigger_id: esc_2
+  name: Crane reallocation hold exceeds tolerance
+  condition: crane_hold_hours > 1.5
+  threshold: 1.5
+- trigger_id: esc_3
+  name: Financial recovery cost exceeds limit
+  condition: recommended_action_cost > 10000
+  threshold: 10000
+- trigger_id: esc_4
+  name: Data latency exceeds freshness window
+  condition: max_data_age_min > 30
+  threshold: 30
+- trigger_id: esc_5
+  name: Crane capacity below threshold
+  condition: available_dtqc < (required_dtqc * 0.6)
+  threshold: 0.6
+- trigger_id: esc_6
+  name: Maintenance operator unresponsive
+  condition: operator_response_time_min > 15
+  threshold: 15
+- trigger_id: esc_7
+  name: Conflict between yard and maintenance planners
+  condition: planner_recommendations_conflict == true
+  threshold: null
+edge_cases:
+- case_id: ec_1
+  name: Secondary crane failure
+  inject_at_step: 4
+  description: ROCC reports DTQC-03 also failed - 2 of 12 cranes down, backlog 80
+    containers
+  agent_response: Re-compute crane reallocation (10 cranes -> 8 active), request re-approval
+- case_id: ec_2
+  name: AGV congestion
+  inject_at_step: 6
+  description: FMS reports AGV queue >30 units at yard block B-07 - transport bottleneck
+  agent_response: Trigger escalation, reroute AGVs via alternate path

@@ -1,0 +1,120 @@
+problem:
+  id: PB-09
+  name: Expressway Disruption Gridlock
+  sector: Gate & External Haulage
+  description: Reroute trucks when AYE/ECP is blocked, reallocate time slots
+llm:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  api_key_env: ANTHROPIC_API_KEY
+  fallback_provider: openai
+  fallback_model: gpt-4o
+systems:
+- name: optetruck
+  type: transport
+  capabilities:
+  - truck_tracking
+  - route_optimisation
+  - gate_booking
+- name: smartbooking
+  type: gate_booking
+  capabilities:
+  - time_slot_management
+  - gate_capacity
+- name: ibox
+  type: gate_system
+  capabilities:
+  - truck_arrival
+  - container_verification
+tools:
+- name: query_traffic_status
+  systems:
+  - optetruck
+  tool_id: tool_1
+- name: check_alternate_routes
+  systems:
+  - optetruck
+  tool_id: tool_2
+- name: compute_reroute_plan
+  systems: []
+  tool_id: tool_3
+- name: reallocate_time_slots
+  systems:
+  - smartbooking
+  tool_id: tool_4
+- name: notify_gate_operations
+  systems:
+  - ibox
+  tool_id: tool_5
+hitl_gates:
+- gate_id: hitl_1
+  trigger: reroute_computed
+  action: require_approval
+  label: Approve Truck Reroute
+  timeout_minutes: 15
+  timeout_action: escalate_to_duty_manager
+- gate_id: hitl_2
+  trigger: slot_reallocation_ready
+  action: require_approval
+  label: Approve Slot Reallocation
+  timeout_minutes: 10
+  timeout_action: hold_current_sequence
+cost_params:
+  truck_delay_per_hr: 50
+  slot_waste_cost: 100
+  fuel_detour_per_trip: 30
+  driver_overtime_per_hr: 75
+  gate_congestion_per_hr: 200
+constraints:
+  max_detour_time_min: 30
+  alternate_routes:
+  - TPE
+  - BKE
+  - PIE
+  max_simultaneous_trucks: 20
+  slot_realloc_window_min: 60
+confidence:
+  enabled: true
+  threshold: 0.85
+  method: llm_self_assessment
+escalation_triggers:
+- trigger_id: esc_1
+  name: Low model confidence
+  condition: confidence_score < 0.85
+  threshold: 0.85
+- trigger_id: esc_2
+  name: Route hold exceeds tolerance
+  condition: reroute_hold_hours > 1.5
+  threshold: 1.5
+- trigger_id: esc_3
+  name: Financial recovery cost exceeds limit
+  condition: recommended_action_cost > 10000
+  threshold: 10000
+- trigger_id: esc_4
+  name: Data latency exceeds freshness window
+  condition: max_data_age_min > 30
+  threshold: 30
+- trigger_id: esc_5
+  name: Truck capacity below threshold
+  condition: available_trucks < (required_trucks * 0.6)
+  threshold: 0.6
+- trigger_id: esc_6
+  name: Gate operator unresponsive
+  condition: gate_response_time_min > 15
+  threshold: 15
+- trigger_id: esc_7
+  name: Conflict between gate and transport planners
+  condition: planner_recommendations_conflict == true
+  threshold: null
+edge_cases:
+- case_id: ec_1
+  name: Secondary expressway closure
+  inject_at_step: 4
+  description: OptETruck reports PIE also congested - alternate route TPE blocked
+    by accident at 14:30
+  agent_response: Re-compute reroute (TPE->BKE->PIE), request re-approval
+- case_id: ec_2
+  name: Gate capacity exceeded
+  inject_at_step: 6
+  description: SmartBooking reports gate slots 100% booked - reallocation window missed
+  agent_response: Trigger escalation, hold gate sequence

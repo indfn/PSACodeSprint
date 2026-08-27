@@ -1,0 +1,118 @@
+problem:
+  id: PB-10
+  name: Sea-Air Cut-Off Breach
+  sector: Multimodal Logistics
+  description: Decide modal shift when sea cut-off is missed for air cargo handover
+llm:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  api_key_env: ANTHROPIC_API_KEY
+  fallback_provider: openai
+  fallback_model: gpt-4o
+systems:
+- name: optemodal
+  type: modal_planning
+  capabilities:
+  - modal_selection
+  - cost_comparison
+  - schedule_integration
+- name: tradenet
+  type: trade_document
+  capabilities:
+  - customs_declaration
+  - document_status
+- name: sats
+  type: ground_handling
+  capabilities:
+  - air_cargo_availability
+  - handling_capacity
+tools:
+- name: query_cargo_status
+  systems:
+  - optemodal
+  tool_id: tool_1
+- name: check_air_availability
+  systems:
+  - sats
+  tool_id: tool_2
+- name: compute_modal_shift
+  systems: []
+  tool_id: tool_3
+- name: expedite_customs
+  systems:
+  - tradenet
+  tool_id: tool_4
+- name: notify_shipper
+  systems:
+  - optemodal
+  tool_id: tool_5
+hitl_gates:
+- gate_id: hitl_1
+  trigger: modal_shift_computed
+  action: require_approval
+  label: Approve Modal Shift
+  timeout_minutes: 30
+  timeout_action: escalate_to_duty_manager
+- gate_id: hitl_2
+  trigger: air_booking_ready
+  action: require_approval
+  label: Approve Air Booking
+  timeout_minutes: 15
+  timeout_action: cancel_dispatch
+cost_params:
+  air_freight_per_kg: 4.5
+  sea_freight_per_teu: 800
+  cut_off_breach_penalty: 2000
+  storage_per_day: 60
+  customs_expediting: 500
+constraints:
+  max_air_capacity_kg: 50000
+  air_cut_off_hours: 6
+  sea_cut_off_hours: 2
+  customs_processing_min: 45
+confidence:
+  enabled: true
+  threshold: 0.85
+  method: llm_self_assessment
+escalation_triggers:
+- trigger_id: esc_1
+  name: Low model confidence
+  condition: confidence_score < 0.85
+  threshold: 0.85
+- trigger_id: esc_2
+  name: Modal hold exceeds tolerance
+  condition: modal_hold_hours > 1.5
+  threshold: 1.5
+- trigger_id: esc_3
+  name: Financial recovery cost exceeds limit
+  condition: recommended_action_cost > 10000
+  threshold: 10000
+- trigger_id: esc_4
+  name: Data latency exceeds freshness window
+  condition: max_data_age_min > 30
+  threshold: 30
+- trigger_id: esc_5
+  name: Air capacity below threshold
+  condition: available_air_capacity < (required_capacity * 0.6)
+  threshold: 0.6
+- trigger_id: esc_6
+  name: Airline operator unresponsive
+  condition: airline_response_time_min > 15
+  threshold: 15
+- trigger_id: esc_7
+  name: Conflict between sea and air planners
+  condition: planner_recommendations_conflict == true
+  threshold: null
+edge_cases:
+- case_id: ec_1
+  name: Air cargo capacity exceeded
+  inject_at_step: 4
+  description: SATS reports air cargo hold 95% full - 50 tons requested, 30 tons available
+  agent_response: Compute partial modal shift (30 tons air + 20 tons expedited sea),
+    request re-approval
+- case_id: ec_2
+  name: Customs declaration rejection
+  inject_at_step: 3
+  description: TradeNet reports customs declaration rejected - document error for
+    10 containers
+  agent_response: Trigger escalation, expedite document correction
