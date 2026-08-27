@@ -187,3 +187,27 @@ def test_timeout_handling():
     assert result.confidence == 0.0
     assert "timed out" in result.output["error"]
     assert result.metadata["error"] == "timeout"
+
+
+def test_yaml_charter_names_match_toolsets():
+    from app.configs.problem_config import load_problem_config
+
+    cfg = load_problem_config("pb-12-itt")
+    yaml_tools = {t.name for t in cfg.tools if getattr(t, "type", None) != "event_trigger"}
+    assert yaml_tools == set(TOOLSETS["pb-12-itt"]), f"YAML {yaml_tools} != TOOLSETS {set(TOOLSETS['pb-12-itt'])}"
+    assert "receive_webhook" not in yaml_tools
+    assert len(yaml_tools) == 8
+
+
+def test_post_approval_guard_rejects_without_hitl():
+    r = ToolRegistry()
+    r.register_for_problem("pb-12-itt")
+    result = asyncio.run(r.call("dispatch_road_itt", num_trucks=2, route="PPT → West Coast Highway → AYE → Tuas Port Boulevard", container_ids=["MSKU123"], _run_id="hitl-neg"))
+    assert result.confidence == 0.0
+    assert "HITL approval required" in result.output["error"]
+    assert result.metadata["error"] == "hitl_required"
+    result2 = asyncio.run(r.call("request_feeder_hold", feeder_id="FEEDER ATLANTIC-03", hold_hours=1, _run_id="hitl-neg2"))
+    assert result2.confidence == 0.0
+    assert result2.metadata["error"] == "hitl_required"
+    ok = asyncio.run(r.call("dispatch_road_itt", num_trucks=2, route="x", container_ids=["a"], _run_id="hitl-ok", _hitl_approved=True))
+    assert ok.confidence != 0.0 or "error" not in ok.output or "HITL" not in ok.output.get("error", "")
