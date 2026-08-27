@@ -123,7 +123,11 @@ class NotifyPartiesTool(BaseTool):
             "status": "sent",
             "trace_hint": trace_hint,
         }
-        return ToolResult(output=output, confidence=1.0, metadata={"notification": trace_hint})
+        confidence = 0.7 if unknown else 1.0
+        meta: dict = {"notification": trace_hint}
+        if unknown:
+            meta["unknown_parties"] = unknown
+        return ToolResult(output=output, confidence=confidence, metadata=meta)
 
     async def call(self, **kwargs) -> ToolResult:
         run_id = kwargs.get("_run_id", "") or kwargs.get("run_id", "")
