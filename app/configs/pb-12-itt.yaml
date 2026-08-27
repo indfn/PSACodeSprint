@@ -44,7 +44,7 @@ systems:
   - inventory_sync
   - message_relay
 tools:
-- name: query_container_readiness
+- name: get_itt_candidates
   systems:
   - citos_ppt
   tool_id: tool_1
@@ -57,13 +57,25 @@ tools:
   - feeder
   - citos_tuas
   tool_id: tool_3
-- name: compute_optimal_split
+- name: compute_itt_split
   systems: []
   tool_id: tool_4
 - name: update_tuas_loading_sequence
   systems:
   - citos_tuas
   tool_id: tool_5
+- name: dispatch_road_itt
+  systems:
+  - optetruck
+  tool_id: tool_6
+- name: request_feeder_hold
+  systems:
+  - feeder
+  - portnet
+  tool_id: tool_7
+- name: notify_parties
+  systems: []
+  tool_id: tool_8
 - name: receive_webhook
   systems:
   - citos_ppt

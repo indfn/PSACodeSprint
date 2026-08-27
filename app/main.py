@@ -185,11 +185,11 @@ async def switch_problem_endpoint(problem_id: str):
         registry.register_for_problem(problem_id)  # type: ignore[attr-defined]
         try:
             reg_tools = registry.list()  # type: ignore[attr-defined]
-            cfg_tools = [t.name for t in config.tools]
+            cfg_tools = [t.name for t in config.tools if getattr(t, "type", None) != "event_trigger"]
             merged = list(dict.fromkeys(reg_tools + cfg_tools))
             tools_via_registry = merged
         except Exception:
-            tools_via_registry = [t.name for t in config.tools]
+            tools_via_registry = [t.name for t in config.tools if getattr(t, "type", None) != "event_trigger"]
     except ImportError:
         tools_via_registry = [t.name for t in config.tools]
     except Exception:
@@ -216,7 +216,7 @@ async def get_active_problem():
         "active_problem_id": get_active_problem_id(),
         "problem": cfg.problem.__dict__,
         "systems": [s.name for s in cfg.systems],
-        "tools": [t.name for t in cfg.tools],
+        "tools": [t.name for t in cfg.tools if getattr(t, "type", None) != "event_trigger"],
         "hitl_gates": [g.label for g in cfg.hitl_gates],
     }
 
