@@ -38,14 +38,12 @@ def get_notifications() -> list[dict]:
 
 
 _broadcaster_cache = None
-_broadcaster_checked = False
 
 
 def _get_broadcaster():
-    global _broadcaster_cache, _broadcaster_checked
-    if _broadcaster_checked:
+    global _broadcaster_cache
+    if _broadcaster_cache is not None:
         return _broadcaster_cache
-    _broadcaster_checked = True
     try:
         from app.agent.sse import broadcaster as _bc
 
@@ -60,7 +58,6 @@ def _get_broadcaster():
         return _broadcaster_cache
     except ImportError:
         pass
-    _broadcaster_cache = None
     return None
 
 
@@ -112,8 +109,8 @@ class NotifyPartiesTool(BaseTool):
                 result = broadcaster.publish(run_id, "notification", payload)
                 if asyncio.iscoroutine(result):
                     await result
-        except Exception:
-            pass
+        except Exception as e:
+            warnings.warn(f"SSE publish failed: {e}", UserWarning)
 
         trace_hint = {"event": "notification", "parties": list(parties), "message": message}
         output = {

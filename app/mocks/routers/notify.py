@@ -30,13 +30,16 @@ async def post_notify(body: dict):
                 broadcaster = None
         if broadcaster is not None and hasattr(broadcaster, "publish"):
             import asyncio
+            import warnings
 
             payload = {"message": message, "parties": list(parties), "timestamp": timestamp, "run_id": run_id}
             result = broadcaster.publish(run_id, "notification", payload)
             if asyncio.iscoroutine(result):
                 await result
-    except Exception:
-        pass
+    except Exception as e:
+        import warnings
+
+        warnings.warn(f"SSE publish failed: {e}", UserWarning)
     return {"status": "sent", "notified": list(parties), "message": message, "timestamp": timestamp, "run_id": run_id}
 
 
