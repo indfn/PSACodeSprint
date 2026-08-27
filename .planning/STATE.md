@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-08-27)
 
 **Core Value:** Build PSA Nexus — a generalizable agentic platform (Cluster C2, 7 problems) demonstrated via PB-12 (ITT Coordination, $8K/incident) and proven switchable to a sibling problem (e.g. PB-01 Berth Delay) on the same LangGraph core.
-**Current focus:** Phase 5 — Tool Integration + Notification + Robustness (next to execute)
+**Current focus:** Phase 6 — Agent Core (Nexus Brain) (next to execute)
 
 ## Current Position
 
-Phase: 5 of 9 (Tool Integration — next to execute)
+Phase: 6 of 9 (Agent Core — next to execute)
 Plans: 9 detailed plans created (Phases 1–3 research + Phases 4–8 build + 07.1 Integrated Verification, 57 sub-phases)
-Status: Phases 1–4 complete (Phase 4 executed 2026-08-27 — 57 tests pass, 0 warnings). Phases 5–8 (+07.1 gate) fully planned, cross-checked twice + 04-REVIEW-FIX applied (6 fixes).
-Last activity: 2026-08-27 — Phase 4 executed: unified app, 7 configs, problem switching, 57 tests green; root conftest removed (fixture now single-source at app/tests/conftest.py)
+Status: Phases 1–5 complete (Phase 5 executed 2026-08-27 — 8 PB-12 tools + 5 PB-01 stubs + ROI + 4 robustness, 127 tests pass/3 skipped S4, 05-REVIEW-FIX 15 issues fixed). Phases 6–8 (+07.1 gate) planned, cross-checked twice + 05 deep review.
+Last activity: 2026-08-27 — Phase 5 executed: ToolRegistry canonical + 8 PB-12 tools (80/40=$10,400) + notify + PB-01 switch proof + 4 robustness (S4 skip pending HITL-5); deep review 15 issues (1 critical YAML drift, H1 guard, H2 weight_bounds) all fixed, 127 pass
 
-Progress: ████░░░░░░ 44% (4/9 phases complete, 5 planned + verified)
+Progress: █████░░░░░ 55% (5/9 phases complete, 4 planned + verified)
 
 ## What's Built
 
@@ -36,16 +36,19 @@ Progress: ████░░░░░░ 44% (4/9 phases complete, 5 planned + v
 | YAML config system | ✅ Done | `app/configs/` — 7 YAMLs completed + `problem_config.py` dataclass — Phase 4.4+4.7 |
 | Mock API server | ✅ Done | `app/mocks/` — 5 routers (citos_ppt/tuas, optetruck, feeder, portnet) + `data.py` + `edge_cases.py` — Phase 4.2 |
 | Pydantic schemas | ✅ Done | `app/shared/models.py` — single canonical set (114 example→json_schema_extra fixes, 0 warnings) — Phase 4.2+4.5 |
-| Tool 1–4 | ⚠️ Fragmented | `prototype/pre_approval/` — retained as reference, to be refactored into `app/tools/` in Phase 5 |
-| Tool 5 (Tuas loading) | ❌ Missing | Only mock endpoint exists — to be built in Phase 5.6 |
-| Post-approval tools | ❌ Missing | No implementation — to be built in Phase 5.7a+5.7b |
-| Notification tool | ❌ Missing | Primitive #5 — to be built in Phase 5.10 |
-| Sibling tool stubs | ❌ Missing | PB-01 tools — to be built in Phase 5.11 |
+| Tool 1–4 | ✅ Done | `app/tools/container_readiness.py` (`get_itt_candidates`) + `road_itt.py` + `sea_itt.py` + `optimiser.py` (`compute_itt_split` 80/40=$10,400, guardrails incl. weight_bounds) — Phase 5.2-5.5 |
+| Tool 5 (Tuas loading) | ✅ Done | `app/tools/tuas_loading.py` (`update_tuas_loading_sequence` QC adjustments) — Phase 5.6 |
+| Post-approval tools | ✅ Done | `app/tools/dispatch_road_itt.py` + `request_feeder_hold.py` (HITL-gated `post_approval=True`, guard `hitl_required`, decline/delta) — Phase 5.7, H1 fixed |
+| Notification tool | ✅ Done | `app/tools/notify.py` (`notify_parties` + SSE + `notification_log`) — Phase 5.10 primitive #5 |
+| Sibling tool stubs | ✅ Done | `app/tools/pb01/` 5 tools + `app/mocks/routers/vtis|optevoyage|berth.py` + `pb01_data.py` — switch `pb-12↔pb-01` verified — Phase 5.11 |
+| Cost/ROI | ✅ Done | `app/tools/optimiser.py` `cost_vs_baseline` + `roi` ($8K/incident, $384K-$576K, cluster $1.26M) — Phase 5.12 |
+| ToolRegistry | ✅ Done | `app/tools/base.py` `ToolResult` + `app/tools/registry.py` canonical `TOOLSETS` 7 problems + `register_for_problem` + `FALLBACKS` — Phase 5.1, 05-REVIEW C1/H3/M4 fixed |
+| Edge hooks | ✅ Done | `app/tools/edge_cases.py` mutates `app/mocks/data.py` (FEEDER_DATA/_stale_minutes) — next T3/T1 sees conflict — Phase 5.8 |
+| 4 robustness scenarios | ✅ Done | `app/tests/test_robustness.py` S1 nominal, S2 incomplete (weight_bounds), S3 503→fallback+notify, S4 skipped pending HITL-5 (Phase 6) — Phase 5.13 |
 | LangGraph agent core | ❌ Not started | — Phase 6 (correct interrupt pattern + 7 charter triggers) |
 | HITL gates | ❌ Not started | — Phase 6.5 (5 gates with charter timeouts/timeout_actions) |
 | Escalation triggers | ❌ Not started | — Phase 6.6 (7 triggers with charter thresholds) |
 | Monitoring loop | ❌ Not started | — Phase 6.10 (re-query T3 → detect → re-compute → HITL-5 → delta dispatch) |
-| 4 robustness scenarios | ❌ Not started | — Phase 5.13 (nominal/incomplete/503/safety) |
 | Web UI / SSE | ❌ Not started | — Phase 7 (Nexus branding + SSE replay buffer + problem switcher) |
 | Docker / deploy | ❌ Not started | — Phase 8 (pinned deps + latency metrics) |
 | Demo video / deck | ❌ Not started | — Phase 8 (Nexus deck per rubric, sibling switch demo) |
@@ -64,8 +67,8 @@ Progress: ████░░░░░░ 44% (4/9 phases complete, 5 planned + v
 | 2. Disruption Mining | ✅ Complete | 3 plans |
 | 3. Problem Evaluation | ✅ Complete | 3 plans |
 | 4. Foundation + Platform | ✅ Complete (2026-08-27) | 9 — 57 tests pass, 04-REVIEW-FIX 6 fixes |
-| 5. Tool Integration + Notification + Robustness | ○ Planned → next (depends on Phase 4) | 13 |
-| 6. Agent Core — Nexus Brain | ○ Planned → depends on Phase 5 | 12 |
+| 5. Tool Integration + Notification + Robustness | ✅ Complete (2026-08-27) | 13 — 127 pass/3 skipped S4, 05-REVIEW 15 issues fixed (C1 YAML, H1 guard, H2 weight) |
+| 6. Agent Core — Nexus Brain | ○ Planned → next (depends on Phase 5) | 12 |
 | 7. Web UI — Nexus Dashboard | ○ Planned → depends on Phase 6 | 8 |
 | 07.1 Integrated Verification (INSERTED) | ○ Planned → depends on Phase 7 | 8 |
 | 8. Polish & Deploy — Nexus Launch | ○ Planned → depends on 07.1 | 7 |
@@ -148,19 +151,18 @@ Deep sweep flagged 5 HIGH + several MEDIUM gaps previously missed (review was ch
 
 ### Pending Todos
 
-- Execute Phase 5: Tool Integration + Notification + Robustness (13 sub-phases) — next
-- Execute Phase 6: Agent Core — Nexus Brain (12 sub-phases)
+- Execute Phase 6: Agent Core — Nexus Brain (12 sub-phases) — next
 - Execute Phase 7: Web UI — Nexus Dashboard (8 sub-phases)
 - Execute Phase 07.1: Integrated Verification — gate before deploy (8 sub-phases)
 - Execute Phase 8: Polish & Deploy — Nexus Launch (7 sub-phases, depends on 07.1)
 
 ### Blockers/Concerns
 
-- **Deadline:** 2026-09-04 — 8 days remaining
-- **Ground-up rebuild:** All 57 sub-phases need to be executed (+07.1 inserted as pre-deploy gate)
-- **LLM API key:** Need at least one provider API key for testing
-- **Demo recording:** Need screen capture tool for video
-- **Sibling YAMLs:** 6 files need to be manually completed (Phase 4.7)
+- **Deadline:** 2026-09-04 — 7 days remaining (2026-08-27)
+- **Ground-up rebuild:** 57 sub-phases — 5/9 phases done, 4 remaining (6→7→07.1→8 critical path)
+- **LLM API key:** Need at least one provider API key for Phase 6 agent testing
+- **Demo recording:** Need screen capture tool for video (Phase 8)
+- **S4 robustness:** 3 skipped until HITL-5 — will pass after Phase 6.5/6.6
 
 ## Deferred Items
 
@@ -168,13 +170,13 @@ Items acknowledged and carried forward:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Build | All phases 4–8 + 07.1 (57 sub-phases) | Planned + double cross-checked + 07.1 gate inserted, not started | 2026-08-27 |
-| Deploy | Docker + Railway/Render | Planned | 2026-08-27 |
-| Submission | Demo video + deck (Nexus) | Planned per rubric | 2026-08-27 |
+| Build | Phases 6–8 + 07.1 (27 sub-phases remaining) | Phases 4–5 done (127 tests), 6–8 planned + double cross-checked + 07.1 gate | 2026-08-27 |
+| Deploy | Docker + Railway/Render | Planned (Phase 8) | 2026-08-27 |
+| Submission | Demo video + deck (Nexus) | Planned per rubric (Phase 8) | 2026-08-27 |
 
 ## Session Continuity
 
 Last session: 2026-08-27
-Stopped at: Phase 4 executed — unified app (app/main.py), 7 configs, problem switching (POST /agent/switch-problem), 57 tests green, 04-REVIEW-FIX 6 fixes (drift, fixture isolation, Pydantic, /ui/*+/mocks/*). Root conftest removed, single source at app/tests/conftest.py.
-Resume at: Phase 5 — Tool Integration + Notification + Robustness (app/tools/registry.py + T1-T5 + notify + PB-01 stubs + robustness S1-S4)
+Stopped at: Phase 5 executed — 8 PB-12 tools (80/40=$10,400) + notify + PB-01 switch proof + 4 robustness (127 pass/3 skipped S4 pending HITL-5); deep review 15 issues (C1 YAML drift, H1 guard no-op, H2 weight_bounds) all fixed via 11 commits; warnings 24 from sibling stubs (pb-02/04/09/10/11) benign.
+Resume at: Phase 6 — Agent Core (Nexus Brain) — LangGraph interrupt + thread_id + 5 HITL gates + 7 triggers + monitor loop
 Roadmap Evolution: Phase 07.1 inserted after Phase 7: Integrated Verification — system-level E2E, resilience, and cross-problem regression (URGENT)
