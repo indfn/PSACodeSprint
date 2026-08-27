@@ -66,8 +66,16 @@ def _create_tool_by_name(name: str) -> BaseTool:
             mod = importlib.import_module(module_path)
             cls = getattr(mod, class_name)
             return cls()
-        except Exception:
-            return _GenericStubTool(name)
+        except Exception as exc:
+            import warnings
+
+            warnings.warn(f"Tool factory fallback for {name}: {exc}", UserWarning)
+            stub = _GenericStubTool(name)
+            stub.description += f" [fallback: {exc}]"
+            return stub
+    import warnings
+
+    warnings.warn(f"Tool factory stub for unknown tool {name}", UserWarning)
     return _GenericStubTool(name)
 
 

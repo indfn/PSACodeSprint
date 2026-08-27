@@ -20,7 +20,15 @@ def _load_cost_params() -> dict:
 
         cfg = load_problem_config("pb-12-itt")
         return dict(cfg.cost_params) if cfg.cost_params else {}
-    except Exception:
+    except (FileNotFoundError, ImportError) as exc:
+        import warnings
+
+        warnings.warn(f"_load_cost_params fallback to defaults: {exc}", UserWarning)
+        return {}
+    except Exception as exc:
+        import warnings
+
+        warnings.warn(f"_load_cost_params unexpected error fallback: {exc}", UserWarning)
         return {}
 
 
@@ -108,7 +116,15 @@ class OptimiserTool(BaseTool):
             from app.mocks.data import compute_itt_split_default
 
             canonical = compute_itt_split_default()
-        except Exception:
+        except (ImportError, AttributeError) as exc:
+            import warnings
+
+            warnings.warn(f"compute_itt_split_default fallback: {exc}", UserWarning)
+            canonical = None
+        except Exception as exc:
+            import warnings
+
+            warnings.warn(f"compute_itt_split_default unexpected error: {exc}", UserWarning)
             canonical = None
 
         if canonical is not None:
