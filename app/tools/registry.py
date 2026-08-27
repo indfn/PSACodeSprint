@@ -118,7 +118,11 @@ class ToolRegistry:
                 metadata={"tool_name": name, "error": "hallucinated", "timestamp": datetime.now(timezone.utc).isoformat()},
             )
         if tool.post_approval and not kwargs.pop("_hitl_approved", False):
-            pass
+            return ToolResult(
+                output={"error": f"HITL approval required for post_approval tool {name}"},
+                confidence=0.0,
+                metadata={"error": "hitl_required", "tool_name": name, "timestamp": datetime.now(timezone.utc).isoformat()},
+            )
         return await tool.call(**kwargs)
 
 

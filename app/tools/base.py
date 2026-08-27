@@ -66,9 +66,6 @@ class BaseTool(ABC):
                     },
                 )
 
-        if hitl_approved is not None:
-            kwargs["_hitl_approved"] = hitl_approved
-
         try:
             result: ToolResult = await asyncio.wait_for(
                 self.execute(**kwargs), timeout=self.timeout_seconds
@@ -120,8 +117,6 @@ class BaseTool(ABC):
         meta.setdefault("duration_ms", duration_ms)
         meta.setdefault("run_id", run_id)
         result.metadata = meta
-        if hitl_approved is not None and "_hitl_approved" in kwargs:
-            kwargs.pop("_hitl_approved", None)
         return result
 
     def get_schema(self) -> dict:
