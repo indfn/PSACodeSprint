@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import copy
+
 from app.tools.base import BaseTool, ToolResult
 from app.mocks.data import get_feeder_data, get_truck_data
+
+_LAST_TRUCK_SNAPSHOT: dict = copy.deepcopy(get_truck_data())
+_LAST_FEEDER_SNAPSHOT: dict = copy.deepcopy(get_feeder_data())
 
 
 class CachedRoadCapacityTool(BaseTool):
@@ -19,7 +24,9 @@ class CachedRoadCapacityTool(BaseTool):
     timeout_seconds = 10
 
     async def execute(self, **kwargs) -> ToolResult:
-        data = get_truck_data(terminal=kwargs.get("terminal", "PPT"))
+        data = copy.deepcopy(_LAST_TRUCK_SNAPSHOT)
+        if kwargs.get("terminal"):
+            data["terminal"] = kwargs["terminal"]
         output = {**data, "fallback_used": True, "fallback_source": "cached_road_capacity"}
         return ToolResult(
             output=output,
@@ -42,7 +49,9 @@ class CachedSeaCapacityTool(BaseTool):
     timeout_seconds = 10
 
     async def execute(self, **kwargs) -> ToolResult:
-        data = get_feeder_data(feeder_id=kwargs.get("feeder_id", "FEEDER ATLANTIC-03"))
+        data = copy.deepcopy(_LAST_FEEDER_SNAPSHOT)
+        if kwargs.get("feeder_id"):
+            data["feeder_id"] = kwargs["feeder_id"]
         output = {**data, "fallback_used": True, "fallback_source": "cached_sea_capacity"}
         return ToolResult(
             output=output,
