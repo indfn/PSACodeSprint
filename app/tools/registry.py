@@ -30,6 +30,16 @@ _PB12_MODULE_MAP: dict[str, tuple[str, str]] = {
     "cached_sea_capacity": ("app.tools.fallbacks", "CachedSeaCapacityTool"),
 }
 
+_PB01_MODULE_MAP: dict[str, tuple[str, str]] = {
+    "query_vessel_arrival": ("app.tools.pb01.query_vessel_arrival", "QueryVesselArrivalTool"),
+    "check_berth_availability": ("app.tools.pb01.check_berth_availability", "CheckBerthAvailabilityTool"),
+    "check_qc_availability": ("app.tools.pb01.check_qc_availability", "CheckQCAvailabilityTool"),
+    "compute_berth_reassignment": ("app.tools.pb01.compute_berth_reassignment", "ComputeBerthReassignmentTool"),
+    "notify_vessel_operator": ("app.tools.pb01.notify_vessel_operator", "NotifyVesselOperatorTool"),
+}
+
+_MODULE_MAP: dict[str, tuple[str, str]] = {**_PB12_MODULE_MAP, **_PB01_MODULE_MAP}
+
 
 class _GenericStubTool(BaseTool):
     def __init__(self, name: str):
@@ -48,8 +58,8 @@ class _GenericStubTool(BaseTool):
 
 
 def _create_tool_by_name(name: str) -> BaseTool:
-    if name in _PB12_MODULE_MAP:
-        module_path, class_name = _PB12_MODULE_MAP[name]
+    if name in _MODULE_MAP:
+        module_path, class_name = _MODULE_MAP[name]
         try:
             import importlib
 

@@ -16,6 +16,18 @@ from app.mocks.routers.optetruck import router as optetruck_router
 from app.mocks.routers.feeder import router as feeder_router
 from app.mocks.routers.portnet import router as portnet_router
 from app.mocks.routers.notify import router as notify_router
+try:
+    from app.mocks.routers.vtis import router as vtis_router
+except ImportError:
+    vtis_router = None  # type: ignore
+try:
+    from app.mocks.routers.optevoyage import router as optevoyage_router
+except ImportError:
+    optevoyage_router = None  # type: ignore
+try:
+    from app.mocks.routers.berth import router as berth_router
+except ImportError:
+    berth_router = None  # type: ignore
 from app.agent.problem_switcher import get_active_problem_id, switch_problem
 from app.shared.models import ITTCoordinationEvent, WebhookResponse
 
@@ -40,6 +52,12 @@ app.include_router(optetruck_router)
 app.include_router(feeder_router)
 app.include_router(portnet_router)
 app.include_router(notify_router)
+if vtis_router is not None:
+    app.include_router(vtis_router)
+if optevoyage_router is not None:
+    app.include_router(optevoyage_router)
+if berth_router is not None:
+    app.include_router(berth_router)
 
 # ---------------------------------------------------------------------------
 # Webhook — agent entry point (charter T6), NOT a mock system
