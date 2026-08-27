@@ -355,11 +355,21 @@ class OptimiserTool(BaseTool):
         else:
             guard_feeder_tidal = True
 
+        weight_bounds_valid = True
+        weight_failed_ids: list[str] = []
+        if isinstance(candidates, dict) and isinstance(candidates.get("containers"), list):
+            for c in candidates["containers"]:
+                w = c.get("weight_kg")
+                if w is None or not isinstance(w, (int, float)) or w <= 0:
+                    weight_bounds_valid = False
+                    weight_failed_ids.append(c.get("container_id", "?"))
+
         guardrails_checked = {
             "containers_per_block_le_max": {"value": round(containers_per_block, 2), "max": block_max, "passed": bool(guard_block)},
             "sea_containers_le_feeder_available": {"value": sea_containers_val, "max": feeder_available_teu, "passed": bool(guard_sea_capacity)},
             "itt_arrival_lt_vessel_minus_60": {"itt_arrival": itt_arrival_str, "vessel_departure": tuas_vessel_departure, "passed": bool(guard_itt_deadline)},
             "feeder_departure_lt_tidal_deadline": {"feeder_departure": feeder_departure_str, "tidal_deadline": tidal_deadline_str, "passed": bool(guard_feeder_tidal)},
+            "weight_bounds_valid": {"passed": bool(weight_bounds_valid), "failed_ids": weight_failed_ids, "guardrail": "weight_bounds"},
         }
 
         constraints_validated = {
@@ -393,4 +403,8 @@ class OptimiserTool(BaseTool):
             "cost_params": {"road_cost_per_trip": road_cost_per_trip, "sea_terminal_handling": sea_handling, "feeder_hold_cost_per_hr": feeder_hold_per_hr, "block_max_capacity_teu": block_max},
         }
 
-        return ToolResult(output=output, confidence=confidence, metadata={"guardrails_passed": all_passed, "berth_conflict": berth_conflict})
+        extra_meta: dict = {"guardrails_passed": all_passed, "berth_conflict": berth_conflict}
+        if not weight_bounds_valid:
+            extra_meta["guardrail_failed"] = "weight_bounds"
+            extra_meta["weight_bounds_failed_ids"] = weight_failed_ids
+        return ToolResult(output=output, confidence=confidence, metadata=extra_meta)
