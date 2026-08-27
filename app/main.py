@@ -15,6 +15,7 @@ from app.mocks.routers.citos_tuas import router as citos_tuas_router
 from app.mocks.routers.optetruck import router as optetruck_router
 from app.mocks.routers.feeder import router as feeder_router
 from app.mocks.routers.portnet import router as portnet_router
+from app.mocks.routers.notify import router as notify_router
 from app.agent.problem_switcher import get_active_problem_id, switch_problem
 from app.shared.models import ITTCoordinationEvent, WebhookResponse
 
@@ -38,6 +39,7 @@ app.include_router(citos_tuas_router)
 app.include_router(optetruck_router)
 app.include_router(feeder_router)
 app.include_router(portnet_router)
+app.include_router(notify_router)
 
 # ---------------------------------------------------------------------------
 # Webhook — agent entry point (charter T6), NOT a mock system

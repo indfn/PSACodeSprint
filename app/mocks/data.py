@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 import copy
 import random
 
+notification_log: list[dict] = []
+
 
 # ---------------------------------------------------------------------------
 # Cost parameters (Master Charter §5)
