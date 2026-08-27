@@ -417,10 +417,10 @@ class TestToolRegistryIntegration:
         r5 = await registry.call("update_tuas_loading_sequence", vessel_id="MV PACIFIC STAR", itt_eta_road="2026-08-19T14:30:00+08:00", itt_eta_sea="2026-08-19T16:30:00+08:00", container_ids_road=ids_road, container_ids_sea=ids_sea, _run_id="reg-t5")
         assert r5.output["status"] == "success"
 
-        r6 = await registry.call("dispatch_road_itt", num_trucks=4, route="PPT → West Coast Highway → AYE → Tuas Port Boulevard", container_ids=ids_road[:10], _run_id="reg-t6")
+        r6 = await registry.call("dispatch_road_itt", num_trucks=4, route="PPT → West Coast Highway → AYE → Tuas Port Boulevard", container_ids=ids_road[:10], _run_id="reg-t6", _hitl_approved=True)
         assert r6.output["status"] == "dispatched"
 
-        r7 = await registry.call("request_feeder_hold", feeder_id="FEEDER ATLANTIC-03", hold_hours=1, _run_id="reg-t7")
+        r7 = await registry.call("request_feeder_hold", feeder_id="FEEDER ATLANTIC-03", hold_hours=1, _run_id="reg-t7", _hitl_approved=True)
         assert r7.output["hold_cost"] == 800.0
 
         r8 = await registry.call("notify_parties", message="hello", parties=["PPT_Yard"], _run_id="reg-t8")

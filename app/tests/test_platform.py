@@ -16,7 +16,7 @@ def test_load_all_7_configs_have_counts():
         "pb-09-expressway": {"systems": 3, "tools": 5, "gates": 2, "triggers": 7},
         "pb-10-sea-air": {"systems": 3, "tools": 5, "gates": 2, "triggers": 7},
         "pb-11-customs": {"systems": 3, "tools": 5, "gates": 2, "triggers": 7},
-        "pb-12-itt": {"systems": 5, "tools": 6, "gates": 5, "triggers": 7},
+        "pb-12-itt": {"systems": 5, "tools": 9, "gates": 5, "triggers": 7},
     }
     for pid, exp in expectations.items():
         cfg = load_problem_config(pid)
@@ -55,9 +55,9 @@ def test_all_cost_params_parsed():
 
 def test_switch_pb12_to_pb01_tool_set_changes():
     cfg12 = switch_problem("pb-12-itt")
-    tools12 = {t.name for t in cfg12.tools}
-    assert "query_container_readiness" in tools12
-    assert "compute_optimal_split" in tools12
+    tools12 = {t.name for t in cfg12.tools if getattr(t, "type", None) != "event_trigger"}
+    assert "get_itt_candidates" in tools12
+    assert "compute_itt_split" in tools12
     assert get_active_problem_id() == "pb-12-itt"
 
     cfg01 = switch_problem("pb-01-berth")
@@ -69,7 +69,7 @@ def test_switch_pb12_to_pb01_tool_set_changes():
 
     # Switch back
     cfg_back = switch_problem("pb-12-itt")
-    tools_back = {t.name for t in cfg_back.tools}
+    tools_back = {t.name for t in cfg_back.tools if getattr(t, "type", None) != "event_trigger"}
     assert tools_back == tools12
     assert get_active_problem_id() == "pb-12-itt"
 
@@ -87,7 +87,7 @@ def test_switch_via_http(client):
     assert r2.status_code == 200
     data2 = r2.json()
     assert "citos_ppt" in data2["systems"]
-    assert "query_container_readiness" in data2["tools"]
+    assert "get_itt_candidates" in data2["tools"]
     assert len(data2["hitl_gates"]) == 5
     # verify active-problem endpoint reflects latest
     r3 = client.get("/agent/active-problem")
@@ -103,7 +103,7 @@ def test_prompt_templated_from_config():
     p12 = build_system_prompt(cfg12)
     assert "Multi-Party ITT Coordination Failure" in p12
     assert "PB-12" in p12
-    assert "query_container_readiness" in p12
+    assert "get_itt_candidates" in p12
 
     cfg01 = load_problem_config("pb-01-berth")
     p01 = build_system_prompt(cfg01)

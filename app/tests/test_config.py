@@ -7,7 +7,8 @@ from app.configs.problem_config import load_problem_config
 def test_load_pb12_itt():
     c = load_problem_config("pb-12-itt")
     assert len(c.systems) == 5
-    assert len(c.tools) == 6
+    assert len(c.tools) == 9
+    assert len([t for t in c.tools if getattr(t, "type", None) != "event_trigger"]) == 8
     assert len(c.hitl_gates) == 5
     assert len(c.escalation_triggers) == 7
     assert c.confidence.enabled is True
