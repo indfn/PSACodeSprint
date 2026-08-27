@@ -1,6 +1,7 @@
 """Realistic mock data for PSA systems — grounded in Master Charter cost parameters."""
 
 from datetime import datetime, timedelta
+import copy
 import random
 
 
@@ -96,6 +97,9 @@ def generate_containers() -> list[dict]:
     return containers
 
 
+_stale_minutes: int = 0
+
+
 def get_container_data(vessel_id: str = "MV PACIFIC STAR") -> dict:
     """CITOS PPT container readiness — Tool 1 response."""
     containers = generate_containers()
@@ -110,7 +114,7 @@ def get_container_data(vessel_id: str = "MV PACIFIC STAR") -> dict:
             seen_blocks.add(c["yard_block"])
             blocks_affected.append(c["yard_block"])
 
-    return {
+    result: dict = {
         "status": "success",
         "vessel_id": vessel_id,
         "tuas_departure": "2026-08-19T20:00:00+08:00",
@@ -127,6 +131,17 @@ def get_container_data(vessel_id: str = "MV PACIFIC STAR") -> dict:
         "dg_containers": len(dg),
         "reefer_containers": 0,
     }
+
+    if _stale_minutes > 0:
+        result["data_timestamp"] = (datetime.now() - timedelta(minutes=_stale_minutes)).isoformat()
+        result["data_age_minutes"] = float(_stale_minutes)
+        result["edge_case"] = "data_staleness"
+        result["edge_case_note"] = f"PPT CITOS data is {_stale_minutes} min old — containers may not be ready."
+    else:
+        result["data_timestamp"] = datetime.now().isoformat()
+        result["data_age_minutes"] = 0.5
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +203,8 @@ FEEDER_DATA = {
     "hold_cost_per_hour": COST_PARAMS["feeder_charter_per_hr"],
     "missed_connection_cost": 5000,
 }
+
+_FEEDER_DATA_ORIGINAL: dict = copy.deepcopy(FEEDER_DATA)
 
 
 def get_feeder_data(feeder_id: str = "FEEDER ATLANTIC-03") -> dict:
