@@ -66,6 +66,32 @@ class BaseTool(ABC):
                     },
                 )
 
+        for key, val in list(kwargs.items()):
+            if key.startswith("_"):
+                continue
+            prop = properties.get(key, {}) if isinstance(properties, dict) else {}
+            expected = prop.get("type") if isinstance(prop, dict) else None
+            if expected == "integer" and isinstance(val, str):
+                try:
+                    kwargs[key] = int(val)
+                except Exception:
+                    duration_ms = int((time.monotonic() - t0) * 1000)
+                    return ToolResult(
+                        output={"error": f"Parameter {key} must be integer, got {val!r}"},
+                        confidence=0.0,
+                        metadata={"tool_name": self.name, "timestamp": datetime.now(timezone.utc).isoformat(), "duration_ms": duration_ms, "run_id": run_id, "error": f"type_mismatch:{key}"},
+                    )
+            elif expected == "number" and isinstance(val, str):
+                try:
+                    kwargs[key] = float(val)
+                except Exception:
+                    duration_ms = int((time.monotonic() - t0) * 1000)
+                    return ToolResult(
+                        output={"error": f"Parameter {key} must be number, got {val!r}"},
+                        confidence=0.0,
+                        metadata={"tool_name": self.name, "timestamp": datetime.now(timezone.utc).isoformat(), "duration_ms": duration_ms, "run_id": run_id, "error": f"type_mismatch:{key}"},
+                    )
+
         try:
             result: ToolResult = await asyncio.wait_for(
                 self.execute(**kwargs), timeout=self.timeout_seconds
