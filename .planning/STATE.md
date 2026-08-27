@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-08-27)
 
 **Core Value:** Build PSA Nexus — a generalizable agentic platform (Cluster C2, 7 problems) demonstrated via PB-12 (ITT Coordination, $8K/incident) and proven switchable to a sibling problem (e.g. PB-01 Berth Delay) on the same LangGraph core.
-**Current focus:** Phase 4 — Foundation + Platform (ground-up rebuild, fully planned + double cross-checked)
+**Current focus:** Phase 5 — Tool Integration + Notification + Robustness (next to execute)
 
 ## Current Position
 
-Phase: 4 of 9 (Foundation + Platform — next to execute)
+Phase: 5 of 9 (Tool Integration — next to execute)
 Plans: 9 detailed plans created (Phases 1–3 research + Phases 4–8 build + 07.1 Integrated Verification, 57 sub-phases)
-Status: Phases 1–3 complete. Phases 4–8 (+07.1 gate) fully planned, cross-checked twice (23 + 17 gaps fixed) + integrated verification inserted.
-Last activity: 2026-08-27 — Inserted Phase 07.1: Integrated Verification (8 sub-phases) — system E2E + HITL matrix + resilience chaos + cross-problem regression (INSERTED)
+Status: Phases 1–4 complete (Phase 4 executed 2026-08-27 — 57 tests pass, 0 warnings). Phases 5–8 (+07.1 gate) fully planned, cross-checked twice + 04-REVIEW-FIX applied (6 fixes).
+Last activity: 2026-08-27 — Phase 4 executed: unified app, 7 configs, problem switching, 57 tests green; root conftest removed (fixture now single-source at app/tests/conftest.py)
 
-Progress: ███░░░░░░░ 33% (3/9 phases complete, 6 planned + verified)
+Progress: ████░░░░░░ 44% (4/9 phases complete, 5 planned + verified)
 
 ## What's Built
 
@@ -31,12 +31,12 @@ Progress: ███░░░░░░░ 33% (3/9 phases complete, 6 planned + v
 | Planning: Phase 7 PLAN | ✅ Done | `.planning/phases/07-web-ui/PLAN.md` — 8 sub-phases (Nexus branding + problem switcher + notifications) |
 | Planning: Phase 8 PLAN | ✅ Done | `.planning/phases/08-polish-deploy/PLAN.md` — 7 sub-phases (Nexus deck+video per rubric, latency metrics) |
 | Planning: Phase 07.1 PLAN | ✅ Done | `.planning/phases/07.1-integrated-verification-system-level-e2e-resilience-and-cros/PLAN.md` — 8 sub-phases (harness, E2E 17-step, HITL matrix, resilience, robustness, switch regression, observability, gate) (INSERTED) |
-| FastAPI scaffold | ⚠️ Fragmented | `prototype/main.py` — to be reformed in Phase 4 |
-| LLM provider abstraction | ⚠️ Fragmented | `prototype/shared/utils/provider.py` — to be wired + adapter in Phase 4.3 |
-| YAML config system | ⚠️ Fragmented | `prototype/configs/` — 7 files, but 6 siblings incomplete → Phase 4.7 |
-| Mock API server | ⚠️ Fragmented | `prototype/mocks/` — to be consolidated in Phase 4.2 |
-| Pydantic schemas | ⚠️ Fragmented | 3 duplicate sets — to be consolidated at `app/shared/models.py` in Phase 4.2+4.5 |
-| Tool 1–4 | ⚠️ Fragmented | `prototype/pre_approval/` — to be refactored in Phase 5 |
+| FastAPI scaffold | ✅ Done | `app/main.py` — unified FastAPI (health, webhook, switch-problem, /ui/*, /mocks/* alias) — Phase 4 |
+| LLM provider abstraction | ✅ Done | `app/shared/provider.py` (8 providers) + `app/shared/tool_adapter.py` (4 families) — Phase 4.3 |
+| YAML config system | ✅ Done | `app/configs/` — 7 YAMLs completed + `problem_config.py` dataclass — Phase 4.4+4.7 |
+| Mock API server | ✅ Done | `app/mocks/` — 5 routers (citos_ppt/tuas, optetruck, feeder, portnet) + `data.py` + `edge_cases.py` — Phase 4.2 |
+| Pydantic schemas | ✅ Done | `app/shared/models.py` — single canonical set (114 example→json_schema_extra fixes, 0 warnings) — Phase 4.2+4.5 |
+| Tool 1–4 | ⚠️ Fragmented | `prototype/pre_approval/` — retained as reference, to be refactored into `app/tools/` in Phase 5 |
 | Tool 5 (Tuas loading) | ❌ Missing | Only mock endpoint exists — to be built in Phase 5.6 |
 | Post-approval tools | ❌ Missing | No implementation — to be built in Phase 5.7a+5.7b |
 | Notification tool | ❌ Missing | Primitive #5 — to be built in Phase 5.10 |
@@ -63,8 +63,8 @@ Progress: ███░░░░░░░ 33% (3/9 phases complete, 6 planned + v
 | 1. Operations Mapping | ✅ Complete | 3 plans |
 | 2. Disruption Mining | ✅ Complete | 3 plans |
 | 3. Problem Evaluation | ✅ Complete | 3 plans |
-| 4. Foundation + Platform | ○ Planned → ready to execute | 9 |
-| 5. Tool Integration + Notification + Robustness | ○ Planned → depends on Phase 4 | 13 |
+| 4. Foundation + Platform | ✅ Complete (2026-08-27) | 9 — 57 tests pass, 04-REVIEW-FIX 6 fixes |
+| 5. Tool Integration + Notification + Robustness | ○ Planned → next (depends on Phase 4) | 13 |
 | 6. Agent Core — Nexus Brain | ○ Planned → depends on Phase 5 | 12 |
 | 7. Web UI — Nexus Dashboard | ○ Planned → depends on Phase 6 | 8 |
 | 07.1 Integrated Verification (INSERTED) | ○ Planned → depends on Phase 7 | 8 |
@@ -148,9 +148,8 @@ Deep sweep flagged 5 HIGH + several MEDIUM gaps previously missed (review was ch
 
 ### Pending Todos
 
-- Execute Phase 4: Foundation + Platform (9 sub-phases)
-- Execute Phase 5: Tool Integration + Notification + Robustness (13 sub-phases)
-- Execute Phase 6: Agent Core — Nexus Brain (11 sub-phases)
+- Execute Phase 5: Tool Integration + Notification + Robustness (13 sub-phases) — next
+- Execute Phase 6: Agent Core — Nexus Brain (12 sub-phases)
 - Execute Phase 7: Web UI — Nexus Dashboard (8 sub-phases)
 - Execute Phase 07.1: Integrated Verification — gate before deploy (8 sub-phases)
 - Execute Phase 8: Polish & Deploy — Nexus Launch (7 sub-phases, depends on 07.1)
@@ -176,6 +175,6 @@ Items acknowledged and carried forward:
 ## Session Continuity
 
 Last session: 2026-08-27
-Stopped at: PSA Nexus rebrand + platform generalisability + 17 additional gaps fixed. 48 sub-phases, 70 requirements. Ready to execute Phase 4.
-Resume at: Phase 4 — Foundation + Platform (sibling YAMLs + problem switching + platform proof)
+Stopped at: Phase 4 executed — unified app (app/main.py), 7 configs, problem switching (POST /agent/switch-problem), 57 tests green, 04-REVIEW-FIX 6 fixes (drift, fixture isolation, Pydantic, /ui/*+/mocks/*). Root conftest removed, single source at app/tests/conftest.py.
+Resume at: Phase 5 — Tool Integration + Notification + Robustness (app/tools/registry.py + T1-T5 + notify + PB-01 stubs + robustness S1-S4)
 Roadmap Evolution: Phase 07.1 inserted after Phase 7: Integrated Verification — system-level E2E, resilience, and cross-problem regression (URGENT)
