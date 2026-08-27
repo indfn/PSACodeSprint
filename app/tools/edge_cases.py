@@ -5,6 +5,13 @@ from datetime import datetime, timedelta
 
 from app.mocks import data as mock_data
 
+"""
+Demo-only edge injection hooks — not thread-safe.
+Mutates module-global FEEDER_DATA / _stale_minutes so next tool call sees conflict/staleness.
+reset_edge_cases() restores from deepcopy(_FEEDER_DATA_ORIGINAL) captured at import time;
+concurrent injections need external locking or per-run copy. Tests use autouse fixture for isolation.
+"""
+
 
 def inject_feeder_berth_conflict(
     feeder_id: str = "FEEDER ATLANTIC-03",
