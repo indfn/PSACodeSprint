@@ -157,8 +157,16 @@ async def hitl_node(state: dict[str, Any]) -> Command:
         "timeout_action": timeout_action,
     }
 
+    # Schedule timeout before interrupt — task will fire if not cancelled by manual decision
+    from app.hitl.timeout_scheduler import schedule_timeout
+    schedule_timeout(state.get("run_id", ""), gate_id, timeout_seconds, state, gate)
+
     # This line pauses execution; upon resume, decision is the value passed to Command(resume=...)
     decision = interrupt(interrupt_payload)  # type: ignore
+
+    # Cancel timeout on manual decision
+    from app.hitl.timeout_scheduler import cancel_timeout
+    cancel_timeout(state.get("run_id", ""), gate_id)
 
     # Guard: stale resume via single resilience helper (normalizes HITL-1 == hitl_1, checks TTL)
     try:
