@@ -8,6 +8,9 @@ Canonical schema import: from app.shared.models import ITTCoordinationEvent
 import uuid
 from collections import OrderedDict
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
