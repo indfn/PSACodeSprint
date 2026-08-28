@@ -479,18 +479,34 @@ async def reset_run(run_id: str):
 async def run_demo(payload: dict | None = None):
     """Trigger demo run (SSE-first): connects SSE before starting agent.
 
-    This endpoint is a convenience wrapper around /webhook/itt-coordination that
-    returns run_id immediately so the caller can connect SSE before agent emits.
+    Accepts optional `scenario` field: "nominal", "deviation", "stale", "escalation".
+    When provided, mock data is randomized within scenario distributions.
     """
-    # Build default PB-12 event if none provided
+    # Extract scenario before building event
+    scenario_id = "nominal"
+    if payload:
+        scenario_id = payload.get("scenario", "nominal")
+
+    # Set active scenario (randomizes mock data for this run)
+    from app.agent.problem_switcher import get_active_problem_id
+    from app.mocks.scenarios import set_scenario
+    import time
+    set_scenario(get_active_problem_id(), scenario_id, seed=int(time.time_ns()))
+
+    # Build event from scenario data if no explicit event provided
     if payload and "event" in payload:
         event_data = payload["event"]
     elif payload and "event_type" in payload:
         event_data = payload
     else:
-        # Default PB-12 demo event (120 containers PPT→Tuas) — departure is future per A-21
         from datetime import datetime, timedelta, timezone
         _now = datetime.now(timezone.utc)
+
+        # Get randomized data from scenario
+        from app.mocks.data import get_container_data, get_truck_data
+        container_data = get_container_data()
+        truck_data = get_truck_data()
+
         event_data = {
             "event_type": "ITT_COORDINATION_REQUEST",
             "timestamp": (_now - timedelta(minutes=5)).isoformat(),
@@ -500,13 +516,13 @@ async def run_demo(payload: dict | None = None):
             "destination_terminal": "TUAS",
             "vessel_id": "MV PACIFIC STAR",
             "tuas_vessel_departure": (_now + timedelta(hours=12)).isoformat(),
-            "container_count": 120,
-            "containers_ready": 120,
-            "blocks_affected": ["B-07", "B-08", "B-12", "B-14"],
-            "dg_containers": 3,
-            "priority_containers": 45,
+            "container_count": container_data["total_containers"],
+            "containers_ready": container_data["total_containers"],
+            "blocks_affected": container_data["blocks_affected"],
+            "dg_containers": container_data["dg_containers"],
+            "priority_containers": sum(1 for c in container_data["containers"] if c.get("priority") == "high"),
             "requested_by": "PPT_Yard_Planner_Lim",
-            "notes": "Demo run — 120 containers PPT→Tuas",
+            "notes": f"Demo run — {container_data['total_containers']} containers PPT→Tuas [{scenario_id}]",
         }
 
     try:
@@ -526,12 +542,22 @@ async def run_demo(payload: dict | None = None):
             "hitl_pending": result.get("hitl_pending"),
             "state": result.get("state", {}),
             "trace": result.get("trace", {}),
+            "scenario": scenario_id,
         }
         if len(runs) > MAX_RUNS:
             runs.popitem(last=False)
-        return {"run_id": run_id, "status": result.get("status"), "hitl_card": result.get("hitl_card")}
+        return {"run_id": run_id, "status": result.get("status"), "hitl_card": result.get("hitl_card"), "scenario": scenario_id}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/agent/scenarios", tags=["Agent"])
+async def list_scenarios():
+    """List available demo scenarios for the active problem."""
+    from app.agent.problem_switcher import get_active_problem_id
+    from app.mocks.scenarios import list_scenarios as _list_scenarios
+    problem_id = get_active_problem_id()
+    return {"problem_id": problem_id, "scenarios": _list_scenarios(problem_id)}
 
 
 # ---------------------------------------------------------------------------

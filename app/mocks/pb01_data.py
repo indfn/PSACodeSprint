@@ -1,3 +1,5 @@
+"""PB-01 Berth Delay mock data — supports scenario-based randomization."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -5,43 +7,99 @@ from datetime import datetime, timezone
 notification_log: list[dict] = []
 
 
+def _get_scenario_rng():
+    """Get active scenario RNG, or None."""
+    try:
+        from app.mocks.scenarios import _active_scenario_id, _rng, PB01_SCENARIOS
+        if _active_scenario_id in PB01_SCENARIOS:
+            return _active_scenario_id, _rng, PB01_SCENARIOS[_active_scenario_id]
+    except ImportError:
+        pass
+    return None, None, None
+
+
+VESSEL_NAMES = [
+    "MV EVER GIVEN", "MV MAERSK ALABAMA", "MV COSCO SHIPPING UNIVERSE",
+    "MV MSC GULSUN", "MV CMA CGM JACQUES SAADE", "MV ONE AQUILA",
+    "MV HAPAG-LLOYD BERLIN", "MV YANG MING INTEGRITY",
+]
+
+
 def get_vessel_data(vessel_id: str = "MV EVER GIVEN") -> dict:
+    """VTIS vessel arrival data — randomized when scenario active."""
+    scenario_id, rng, sc = _get_scenario_rng()
+
+    if rng is not None and sc is not None:
+        delay = sc.vessel_delay_hours.sample(rng)
+        draft = sc.vessel_draft_m.sample(rng)
+        status = "delayed" if delay > 2 else "approaching"
+    else:
+        delay = 0
+        draft = 14.5
+        status = "approaching"
+
     return {
         "vessel_id": vessel_id,
         "eta": "2026-08-19T18:00:00+08:00",
         "pilot_available": True,
         "tug_available": True,
-        "status": "approaching",
-        "delay": 0,
+        "status": status,
+        "delay_hours": round(delay, 1),
+        "draft_m": round(draft, 1),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
 def get_berth_data(vessel_id: str = "MV EVER GIVEN", berth_id: str = "B-03") -> dict:
+    """OptEVoyage berth availability — randomized when scenario active."""
+    scenario_id, rng, sc = _get_scenario_rng()
+
+    if rng is not None and sc is not None:
+        occupancy = sc.berth_occupancy.sample(rng)
+        available_count = sc.berth_count_available.sample_int(rng)
+        available = available_count > 0
+    else:
+        occupancy = 0.7
+        available = True
+        available_count = 2
+
     return {
         "vessel_id": vessel_id,
         "berth_id": berth_id,
-        "available": True,
+        "available": available,
+        "available_count": available_count,
         "window": {
             "earliest": "2026-08-19T18:00:00+08:00",
             "latest": "2026-08-19T22:00:00+08:00",
         },
         "draft_limit": 16.0,
         "tidal_window": "2026-08-19T23:00:00+08:00",
-        "occupancy": 0.7,
+        "occupancy": round(occupancy, 2),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
 def get_qc_data(berth_id: str = "B-03") -> dict:
-    qc_status = [
-        {"qc_id": "QC-07", "status": "available"},
-        {"qc_id": "QC-08", "status": "available"},
-        {"qc_id": "QC-09", "status": "maintenance"},
-    ]
+    """Berth QC availability — randomized when scenario active."""
+    scenario_id, rng, sc = _get_scenario_rng()
+
+    if rng is not None and sc is not None:
+        qc_available = sc.qc_available.sample_int(rng)
+    else:
+        qc_available = 2
+
+    total = 3
+    qc_status = []
+    for i in range(1, total + 1):
+        qc_id = f"QC-0{i + 6}"  # QC-07, QC-08, QC-09
+        if i <= qc_available:
+            qc_status.append({"qc_id": qc_id, "status": "available"})
+        else:
+            qc_status.append({"qc_id": qc_id, "status": "maintenance"})
+
     return {
         "berth_id": berth_id,
-        "qc_count": 3,
+        "qc_count": total,
         "qc_status": qc_status,
         "crane_status": {q["qc_id"]: q["status"] for q in qc_status},
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -49,12 +107,23 @@ def get_qc_data(berth_id: str = "B-03") -> dict:
 
 
 def compute_berth_reassignment_data(vessel_id: str = "MV EVER GIVEN", constraints: dict | None = None) -> dict:
+    """Compute berth reassignment — uses scenario data when active."""
+    scenario_id, rng, sc = _get_scenario_rng()
+
+    if rng is not None and sc is not None:
+        berths_available = sc.berth_count_available.sample_int(rng)
+        assigned_berth = "B-07" if berths_available >= 2 else "B-03"
+        cost = 2400 + (500 if berths_available < 2 else 0)
+    else:
+        assigned_berth = "B-07"
+        cost = 2400
+
     return {
         "vessel_id": vessel_id,
         "original_berth": "B-03",
-        "new_berth": "B-07",
+        "new_berth": assigned_berth,
         "qc_allocation": ["QC-07", "QC-08"],
-        "estimated_cost": 2400,
+        "estimated_cost": cost,
         "timeline": {
             "reassignment_computed": datetime.now(timezone.utc).isoformat(),
             "original_eta": "2026-08-19T18:00:00+08:00",
