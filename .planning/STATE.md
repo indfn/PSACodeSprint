@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-08-27)
 
 **Core Value:** Build PSA Nexus — a generalizable agentic platform (Cluster C2, 7 problems) demonstrated via PB-12 (ITT Coordination, $8K/incident) and proven switchable to a sibling problem (e.g. PB-01 Berth Delay) on the same LangGraph core.
-**Current focus:** Phase 7 — Web UI — Nexus Dashboard (next to execute)
+**Current focus:** Phase 6.5 — Integration Wiring & Cleanup (next to execute)
 
 ## Current Position
 
-Phase: 7 of 9 (Web UI — next to execute)
-Plans: 9 detailed plans created (Phases 1–3 research + Phases 4–8 build + 07.1 Integrated Verification, 57 sub-phases)
-Status: Phases 1–6 complete (Phase 6 executed 2026-08-28 — LangGraph 4 nodes + 5 HITL gates interrupt/Command + 7 escalation + monitor deviation 100/20 + e2e 5 tests green 37-43s, fix: HITL-5 pending vs history, truncation 120→5). Phases 7–8 (+07.1 gate) planned, cross-checked twice + 05 deep review.
-Last activity: 2026-08-28 — Phase 6 verified: agent_node + tool_node + hitl_node + monitor_node, MemorySaver(thread_id), mock provider deterministic, e2e happy + deviation both PASSED isolated (42s/37s/43s), truncation avoids deepcopy stall
+Phase: 6.5 of 10 (Integration Wiring — next to execute)
+Plans: 10 detailed plans created (Phases 1–3 research + Phases 4–8 build + 6.5 wiring + 07.1 Integrated Verification, 63 sub-phases)
+Status: Phases 1–6 complete (Phase 6 executed 2026-08-28 — LangGraph 4 nodes + 5 HITL gates interrupt/Command + 7 escalation + monitor deviation 100/20 + e2e 5 tests green 37-43s). Phase 6.5 planned (14 gaps identified: C1-C4 requirements/env/startup, H1-H5 timeouts/SSE/config, M1-M5 cleanup/relocation). Phases 7–8 (+07.1 gate) planned.
+Last activity: 2026-08-28 — Phase 6.5 designed: 6 sub-phases (requirements fix, lifespan validation, HITL timeout scheduler, SSE events, cleanup/relocation, integration tests)
 
-Progress: ██████░░░░ 66% (6/9 phases complete, 3 planned + verified)
+Progress: ██████░░░░ 60% (6/10 phases complete, 4 planned + verified)
 
 ## What's Built
 
@@ -23,13 +23,14 @@ Progress: ██████░░░░ 66% (6/9 phases complete, 3 planned + v
 | Research & problem selection | ✅ Done | `research/`, `problems/`, `problem-selection/`, `buildplan/` |
 | Master charter (gap-aware) | ✅ Done | `buildplan/03-03-master-charter.md` — 23 gaps, 5 HITL gates, 7 triggers, 8 tools |
 | Planning: PROJECT.md (PSA Nexus) | ✅ Done | `.planning/PROJECT.md` — Nexus platform rebrand |
-| Planning: REQUIREMENTS.md | ✅ Done | `.planning/REQUIREMENTS.md` — 70 requirements (F-01..F-13, T-01..T-18, A-01..A-23, U-01..U-12, D-01..D-08) |
-| Planning: ROADMAP.md | ✅ Done | `.planning/ROADMAP.md` — 9 phases (incl. 07.1 gate), 57 sub-phases, critical path 4→5→6→7→07.1→8 |
+| Planning: REQUIREMENTS.md | ✅ Done | `.planning/REQUIREMENTS.md` — 70 requirements (F-01..F-13, T-01..T-18, A-01..A-23, U-01..U-12, D-01..D-08) + startup validation, timeout scheduler (Phase 6.5 additions) |
+| Planning: ROADMAP.md | ✅ Done | `.planning/ROADMAP.md` — 10 phases (incl. 6.5 wiring + 07.1 gate), 63 sub-phases, critical path 4→5→6→6.5→7→07.1→8 |
 | Planning: Phase 4 PLAN | ✅ Done | `.planning/phases/04-foundation-reformation/PLAN.md` — 9 sub-phases (incl. sibling YAMLs + problem switcher) |
 | Planning: Phase 5 PLAN | ✅ Done | `.planning/phases/05-tool-integration/PLAN.md` — 13 sub-phases (incl. notification + PB-01 stubs + ROI + robustness) |
-| Planning: Phase 6 PLAN | ✅ Done | `.planning/phases/06-agent-core/PLAN.md` — 11 sub-phases (correct interrupt+Command, monitor loop, templated prompt) |
+| Planning: Phase 6 PLAN | ✅ Done | `.planning/phases/06-agent-core/PLAN.md` — 12 sub-phases (correct interrupt+Command, monitor loop, templated prompt) |
+| Planning: Phase 6.5 PLAN | ✅ Done | `.planning/phases/06.5-integration-wiring/PLAN.md` — 6 sub-phases (requirements fix, lifespan validation, HITL timeout scheduler, SSE events, cleanup/relocation, integration tests) |
 | Planning: Phase 7 PLAN | ✅ Done | `.planning/phases/07-web-ui/PLAN.md` — 8 sub-phases (Nexus branding + problem switcher + notifications) |
-| Planning: Phase 8 PLAN | ✅ Done | `.planning/phases/08-polish-deploy/PLAN.md` — 7 sub-phases (Nexus deck+video per rubric, latency metrics) |
+| Planning: Phase 8 PLAN | ✅ Done | `.planning/phases/08-polish-deploy/PLAN.md` — 7 sub-phases (8.3 DISABLED local-only demo — no Railway/Render, deck+video per rubric, latency metrics) |
 | Planning: Phase 07.1 PLAN | ✅ Done | `.planning/phases/07.1-integrated-verification-system-level-e2e-resilience-and-cros/PLAN.md` — 8 sub-phases (harness, E2E 17-step, HITL matrix, resilience, robustness, switch regression, observability, gate) (INSERTED) |
 | FastAPI scaffold | ✅ Done | `app/main.py` — unified FastAPI (health, webhook, switch-problem, /ui/*, /mocks/* alias) — Phase 4 |
 | LLM provider abstraction | ✅ Done | `app/shared/provider.py` (8 providers) + `app/shared/tool_adapter.py` (4 families) — Phase 4.3 |
@@ -46,18 +47,19 @@ Progress: ██████░░░░ 66% (6/9 phases complete, 3 planned + v
 | Edge hooks | ✅ Done | `app/tools/edge_cases.py` mutates `app/mocks/data.py` (FEEDER_DATA/_stale_minutes) — next T3/T1 sees conflict — Phase 5.8 |
 | 4 robustness scenarios | ✅ Done | `app/tests/test_robustness.py` S1 nominal, S2 incomplete (weight_bounds), S3 503→fallback+notify, S4 skipped pending HITL-5 (Phase 6) — Phase 5.13 |
 | LangGraph agent core | ✅ Done | `app/agent/graph.py` 4 nodes agent/tools/hitl/monitor + MemorySaver(thread_id), `run.py` ainvoke/Command(resume) — Phase 6 |
-| HITL gates | ✅ Done | `app/hitl/models.py` 5 gates 30/15/15/10/30 + timeout_actions escalate/cancel/hold/halt, `gates.py` single hitl_node interrupt + `handler.py` REJECT/MODIFY/TIMEOUT — Phase 6.5 |
+| HITL gates | ✅ Done | `app/hitl/models.py` 5 gates 30/15/15/10/30 + timeout_actions escalate/cancel/hold/halt, `gates.py` single hitl_node interrupt + `handler.py` REJECT/MODIFY/TIMEOUT — Phase 6 |
+| HITL timeout scheduler | ❌ Not started | — Phase 6.5 (background asyncio task, auto-fire timeout_action after timeout_seconds) |
 | Escalation triggers | ✅ Done | `app/agent/escalation.py` 7 triggers `<0.85/>1.5h/>$10k/>30m/<60%/>15m/planner_conflict`, confidence 0.92→0.78→0.90 — Phase 6.6 |
 | Monitoring loop | ✅ Done | `app/agent/monitor.py` re-query T3 → detect berth conflict → re-compute 80/40→100/20 + HITL-5 emergency, `e2e` deviation PASSED 37s — Phase 6.10 |
 | Web UI / SSE | ❌ Not started | — Phase 7 (Nexus branding + SSE replay buffer + problem switcher) |
-| Docker / deploy | ❌ Not started | — Phase 8 (pinned deps + latency metrics) |
+| Docker / deploy | ❌ Not started | — Phase 8 (pinned deps + local docker-compose only, 8.3 Railway/Render DISABLED) |
 | Demo video / deck | ❌ Not started | — Phase 8 (Nexus deck per rubric, sibling switch demo) |
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 9 (research phases)
-- Build phases: fully planned + double cross-checked, 40 gaps fixed total
+- Total plans completed: 10 (research phases + 6.5 wiring)
+- Build phases: fully planned + double cross-checked, 40 gaps fixed total + 14 new gaps identified (Phase 6.5)
 
 **By Phase:**
 
@@ -69,9 +71,10 @@ Progress: ██████░░░░ 66% (6/9 phases complete, 3 planned + v
 | 4. Foundation + Platform | ✅ Complete (2026-08-27) | 9 — 57 tests pass, 04-REVIEW-FIX 6 fixes |
 | 5. Tool Integration + Notification + Robustness | ✅ Complete (2026-08-27) | 13 — 127 pass/3 skipped S4, 05-REVIEW 15 issues fixed (C1 YAML, H1 guard, H2 weight) |
 | 6. Agent Core — Nexus Brain | ✅ Complete (2026-08-28) | 12 — e2e 5 green (42s happy/37s deviation), truncation + HITL-5 pending fix |
-| 7. Web UI — Nexus Dashboard | ○ Planned → next (depends on Phase 6 ✅) | 8 |
+| 6.5. Integration Wiring & Cleanup | ○ Planned → next (depends on Phase 6 ✅) | 6 — 14 gaps (C1-C4, H1-H5, M1-M5): requirements, lifespan, timeout, SSE, cleanup |
+| 7. Web UI — Nexus Dashboard | ○ Planned → depends on Phase 6.5 | 8 |
 | 07.1 Integrated Verification (INSERTED) | ○ Planned → depends on Phase 7 | 8 |
-| 8. Polish & Deploy — Nexus Launch | ○ Planned → depends on 07.1 | 7 |
+| 8. Polish & Deploy — Nexus Launch | ○ Planned → depends on 07.1 | 7 (**8.3 DISABLED local-only demo**) |
 
 ## Accumulated Context
 
