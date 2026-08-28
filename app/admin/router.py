@@ -81,6 +81,17 @@ async def get_config(request: Request):
         if key_name:
             api_key_status[key_name] = "set" if os.environ.get(key_name) else "not set"
 
+    # Resolve which env var the current provider requires
+    _PROVIDER_KEY_MAP = {
+        "anthropic": "ANTHROPIC_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "gemini": "GOOGLE_API_KEY",
+        "deepseek": "DEEPSEEK_API_KEY",
+    }
+    current_provider = llm_data.get("provider", "")
+    required_key_env = _PROVIDER_KEY_MAP.get(current_provider, "")
+    provider_key_set = bool(required_key_env and os.environ.get(required_key_env))
+
     return {
         "llm": {
             "provider": llm_data.get("provider", ""),
@@ -93,6 +104,19 @@ async def get_config(request: Request):
             "fallback_base_url": llm_data.get("fallback_base_url", ""),
         },
         "api_key_status": api_key_status,
+        "provider_readiness": {
+            "provider": current_provider,
+            "required_key_env": required_key_env,
+            "key_set": provider_key_set,
+            "ready": provider_key_set or current_provider in ("ollama", "vllm", "lmstudio"),
+            "message": (
+                f"Ready — {current_provider} API key is set"
+                if provider_key_set
+                else f"{current_provider} requires {required_key_env} — inject via API Key panel below"
+                if required_key_env
+                else f"Ready — {current_provider} does not require an API key"
+            ),
+        },
         "active_problem": {
             "id": active_id,
             "confidence_threshold": cfg.confidence.threshold,
