@@ -132,16 +132,18 @@ async def monitor_node(state: dict[str, Any]) -> dict[str, Any]:
                                 opt = alt
                                 break
                         else:
-                            # Fallback: construct 100/20 manually
+                            # Last-resort fallback: derive from cost_params if available
+                            road_cost = constraints.get("road_cost_per_trip", 150)
+                            handling = constraints.get("sea_terminal_handling", 35)
                             opt = {
                                 "road_containers": 100,
                                 "road_breakdown": "40x 40ft (40 trips) + 60x 20ft (30 trips)",
                                 "road_trips": 70,
-                                "road_cost": 10500,
+                                "road_cost": 70 * road_cost,
                                 "sea_containers": 20,
                                 "sea_marginal_charter_cost": 0,
-                                "sea_terminal_handling_cost": 700,
-                                "total_transport_cost": 11200,
+                                "sea_terminal_handling_cost": 20 * handling,
+                                "total_transport_cost": 70 * road_cost + 20 * handling,
                             }
                     ctx["split_result"] = opt
                     ctx["split_alternatives"] = new_out.get("alternatives", [])

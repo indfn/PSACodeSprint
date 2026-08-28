@@ -53,16 +53,17 @@ def schedule_timeout(
         try:
             await asyncio.sleep(timeout_seconds)
 
-            # Check if state still has this gate pending (guards against race)
-            if state.get("hitl_pending") is None:
+            # TOCTOU guard: verify this gate is still pending and hasn't been
+            # replaced by a different gate or cleared by a manual decision.
+            current_pending = state.get("hitl_pending")
+            if current_pending is None:
                 return
-            current_gate = state.get("hitl_pending")
             current_gid = ""
-            if isinstance(current_gate, dict):
-                current_gid = current_gate.get("gate_id", "")
-            elif hasattr(current_gate, "gate_id"):
-                current_gid = current_gate.gate_id
-            if current_gid and current_gid != gate_id:
+            if isinstance(current_pending, dict):
+                current_gid = current_pending.get("gate_id", "")
+            elif hasattr(current_pending, "gate_id"):
+                current_gid = current_pending.gate_id
+            if current_gid != gate_id:
                 return
 
             logger.warning("HITL timeout fired: run=%s gate=%s after %ds", run_id, gate_id, timeout_seconds)

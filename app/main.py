@@ -536,23 +536,10 @@ async def run_demo(payload: dict | None = None):
 # ---------------------------------------------------------------------------
 # Problem switching — PSA Nexus platform core (4.8)
 # Consumer of app/tools/registry.py owned by Phase 5.1 — imported lazily
-# Single source of truth is app.agent.problem_switcher._active_problem_id;
-# this module re-exports it for backwards compatibility with Phase 6.9's
-# `from app.main import _active_problem_id` import.
+# Single source of truth is app.agent.problem_switcher.get_active_problem_id()
 # ---------------------------------------------------------------------------
 
-# Re-export for compatibility — do NOT maintain a separate copy (fixes drift bug
-# where app/main.py and app/agent/problem_switcher.py held divergent state).
 import app.agent.problem_switcher as _ps  # noqa: E402
-
-_active_problem_id: str = _ps._active_problem_id  # type: ignore[attr-defined]  # re-export, not authoritative
-
-
-def _sync_active_problem_id() -> str:
-    """Sync local alias from authoritative store and return it."""
-    global _active_problem_id
-    _active_problem_id = _ps.get_active_problem_id()
-    return _active_problem_id
 
 
 @app.post("/agent/switch-problem/{problem_id}", tags=["Agent"])
@@ -588,7 +575,7 @@ async def switch_problem_endpoint(problem_id: str):
     except Exception:
         tools_via_registry = [t.name for t in config.tools]
 
-    active = _sync_active_problem_id()
+    active = get_active_problem_id()
 
     return {
         "problem_id": problem_id,

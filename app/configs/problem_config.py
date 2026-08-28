@@ -123,37 +123,31 @@ def _find_yaml(problem_id: str) -> Path:
 
     Tries:
       1. {problem_id}.yaml (exact, lowercased)
-      2. {problem_id} case-insensitive glob
-      3. prefix match: pb-XX*.yaml
+      2. Canonical stem match: pb-XX prefix matches pb-XX-*.yaml
+    Raises FileNotFoundError with list of available configs on miss.
     """
     pid = problem_id.lower().strip()
     # 1. exact
     candidate = CONFIG_DIR / f"{pid}.yaml"
     if candidate.exists():
         return candidate
-    # also try without normalising case of original
     candidate2 = CONFIG_DIR / f"{problem_id}.yaml"
     if candidate2.exists():
         return candidate2
-    # 2. glob prefix — handle pb-12 vs pb-12-itt
-    # If pid is like pb-12, find any file starting with pb-12-
-    # If pid is like pb-12-itt, find exact or fallback to pb-12 prefix
-    for p in CONFIG_DIR.glob("pb-*.yaml"):
-        stem = p.stem.lower()
-        if stem == pid:
-            return p
-        if stem.startswith(pid) or pid.startswith(stem):
-            # handle pb-12 matching pb-12-itt and vice versa
-            # Prefer exact prefix match length
-            if stem.startswith(pid.split("-")[0] + "-" + pid.split("-")[1]):
-                # ensure same pb number
-                # for pb-12 vs pb-12-itt should match
-                parts_pid = pid.split("-")
-                parts_stem = stem.split("-")
-                if len(parts_pid) >= 2 and len(parts_stem) >= 2 and parts_pid[0] == parts_stem[0] and parts_pid[1] == parts_stem[1]:
-                    return p
-    # 3. fallback: list all pb files and try to match number
-    raise FileNotFoundError(f"No YAML config found for problem_id '{problem_id}' in {CONFIG_DIR}")
+    # 2. canonical stem match: pb-12 matches pb-12-itt.yaml
+    parts = pid.split("-")
+    if len(parts) >= 2:
+        prefix = f"{parts[0]}-{parts[1]}"
+        for p in CONFIG_DIR.glob("pb-*.yaml"):
+            stem_parts = p.stem.lower().split("-")
+            if len(stem_parts) >= 2 and f"{stem_parts[0]}-{stem_parts[1]}" == prefix:
+                return p
+    # List available configs for helpful error
+    available = sorted(p.stem for p in CONFIG_DIR.glob("pb-*.yaml"))
+    raise FileNotFoundError(
+        f"No YAML config found for problem_id '{problem_id}' in {CONFIG_DIR}. "
+        f"Available: {available}"
+    )
 
 
 def load_problem_config(problem_id: str) -> ProblemConfig:

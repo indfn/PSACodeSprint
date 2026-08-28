@@ -228,7 +228,7 @@ class TestHallucinatedTool:
         # Need to force agent_node to use this provider — we can monkeypatch create_provider
         with mock.patch("app.shared.provider.create_provider", return_value=HallucinatedProvider()):
             # Also need to patch _provider_needs_key to not replace with mock
-            with mock.patch("app.agent.nodes._mock_provider_for_state", side_effect=lambda s: HallucinatedProvider()):
+            with mock.patch("app.agent.mock_provider.mock_provider_for_state", side_effect=lambda s: HallucinatedProvider()):
                 # Run one step via run_agent which will go through agent_node
                 # But run_agent will still try to use the hallucinated provider via _mock_provider_for_state? Let's patch that too
                 result = await run_agent(event)

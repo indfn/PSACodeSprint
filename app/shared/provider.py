@@ -85,6 +85,10 @@ class LLMProvider(ABC):
 
     name: str = "base"
 
+    def __init__(self):
+        self._health_checked: bool = False
+        self._health_ok: bool = False
+
     @abstractmethod
     def chat(
         self,
@@ -165,9 +169,6 @@ class LLMProvider(ABC):
             self._health_checked = True
         return self._health_ok
 
-    _health_checked: bool = False
-    _health_ok: bool = False
-
 
 # ---------------------------------------------------------------------------
 # Anthropic (Claude)
@@ -179,6 +180,7 @@ class AnthropicProvider(LLMProvider):
     name = "anthropic"
 
     def __init__(self, api_key: str | None = None, model: str = "claude-sonnet-4-20250514", base_url: str | None = None):
+        super().__init__()
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         self.model = model
         self.base_url = base_url
@@ -282,6 +284,7 @@ class OpenAIProvider(LLMProvider):
     name = "openai"
 
     def __init__(self, api_key: str | None = None, model: str = "gpt-4o", base_url: str | None = None):
+        super().__init__()
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self.model = model
         self.base_url = base_url
@@ -355,6 +358,7 @@ class GeminiProvider(LLMProvider):
     name = "gemini"
 
     def __init__(self, api_key: str | None = None, model: str = "gemini-2.0-flash"):
+        super().__init__()
         self.api_key = api_key or os.environ.get("GOOGLE_API_KEY", "")
         self.model = model
         if not self.api_key:
@@ -466,6 +470,7 @@ class DeepSeekProvider(LLMProvider):
     name = "deepseek"
 
     def __init__(self, api_key: str | None = None, model: str = "deepseek-chat", base_url: str | None = None):
+        super().__init__()
         self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
         self.model = model
         self.base_url = base_url or "https://api.deepseek.com"
@@ -558,6 +563,7 @@ class CustomProvider(LLMProvider):
         model: str = "",
         base_url: str = "http://localhost:11434/v1",
     ):
+        super().__init__()
         self.api_key = api_key or os.environ.get("CUSTOM_API_KEY", "dummy")
         self.model = model
         self.base_url = base_url.rstrip("/")

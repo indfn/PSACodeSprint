@@ -157,7 +157,10 @@ async def hitl_node(state: dict[str, Any]) -> Command:
         "timeout_action": timeout_action,
     }
 
-    # Schedule timeout before interrupt — task will fire if not cancelled by manual decision
+    # Schedule timeout — task starts counting immediately; will fire during
+    # the interrupt pause if not cancelled by a manual decision first.
+    # The handler's TOCTOU guard (gate_id + hitl_pending check) ensures it
+    # only fires for the correct, still-pending gate.
     from app.hitl.timeout_scheduler import schedule_timeout
     schedule_timeout(state.get("run_id", ""), gate_id, timeout_seconds, state, gate)
 

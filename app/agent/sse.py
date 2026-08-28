@@ -17,6 +17,13 @@ from typing import Any, AsyncIterator
 
 
 class SSEBroadcaster:
+    """Thread-safe for single-event-loop asyncio (FastAPI default).
+
+    All mutations to self.queues, self.buffers, and self._event_counter happen
+    within the same asyncio event loop — no parallel coroutine mutation. If this
+    class is ever used from multiple threads, add asyncio.Lock per run_id.
+    """
+
     def __init__(self, max_buffer: int = 100):
         self.queues: dict[str, asyncio.Queue] = {}
         self.buffers: dict[str, collections.deque] = {}
