@@ -5,7 +5,7 @@ When a scenario is active, data generators randomize within scenario distributio
 When no scenario is active, returns deterministic hardcoded data (backward compatible).
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import copy
 import random
 
@@ -185,12 +185,12 @@ def get_container_data(vessel_id: str = "MV PACIFIC STAR", run_id: str = "") -> 
             effective_stale = max(effective_stale, sc_stale)
 
     if effective_stale > 0:
-        result["data_timestamp"] = (datetime.now() - timedelta(minutes=effective_stale)).isoformat()
+        result["data_timestamp"] = (datetime.now(timezone.utc) - timedelta(minutes=effective_stale)).isoformat()
         result["data_age_minutes"] = float(effective_stale)
         result["edge_case"] = "data_staleness"
         result["edge_case_note"] = f"PPT CITOS data is {effective_stale} min old — containers may not be ready."
     else:
-        result["data_timestamp"] = datetime.now().isoformat()
+        result["data_timestamp"] = datetime.now(timezone.utc).isoformat()
         result["data_age_minutes"] = 0.5
 
     return result

@@ -29,6 +29,18 @@ router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
 
 # ---------------------------------------------------------------------------
+# Logout
+# ---------------------------------------------------------------------------
+
+@router.post("/logout")
+async def admin_logout():
+    """Invalidate session by clearing the cookie."""
+    response = JSONResponse({"status": "ok"})
+    response.delete_cookie("psa_admin_session")
+    return response
+
+
+# ---------------------------------------------------------------------------
 # Login
 # ---------------------------------------------------------------------------
 

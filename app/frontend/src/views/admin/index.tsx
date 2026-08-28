@@ -68,7 +68,10 @@ export default function AdminPage() {
     }
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+    try {
+      await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
+    } catch { /* ignore */ }
     document.cookie = 'psa_admin_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
     setLoggedIn(false);
     setConfig(null);

@@ -25,25 +25,28 @@ from app.mocks.routers.optetruck import router as optetruck_router
 from app.mocks.routers.feeder import router as feeder_router
 from app.mocks.routers.portnet import router as portnet_router
 from app.mocks.routers.notify import router as notify_router
+logger = logging.getLogger("psa-nexus.startup")
+
 try:
     from app.mocks.routers.vtis import router as vtis_router
-except ImportError:
+except ImportError as exc:
     vtis_router = None  # type: ignore
+    logger.warning("VTIS router unavailable: %s", exc)
 try:
     from app.mocks.routers.optevoyage import router as optevoyage_router
-except ImportError:
+except ImportError as exc:
     optevoyage_router = None  # type: ignore
+    logger.warning("OptEvoyage router unavailable: %s", exc)
 try:
     from app.mocks.routers.berth import router as berth_router
-except ImportError:
+except ImportError as exc:
     berth_router = None  # type: ignore
+    logger.warning("Berth router unavailable: %s", exc)
 from app.agent.problem_switcher import get_active_problem_id, switch_problem
 from app.shared.models import ITTCoordinationEvent, WebhookResponse
 
 # Admin router (config management + API key injection)
 from app.admin import admin_router
-
-logger = logging.getLogger("psa-nexus.startup")
 
 # Local provider → API key env var mapping (for startup validation)
 _PROVIDER_KEY_MAP: dict[str, str] = {

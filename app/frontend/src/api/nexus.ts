@@ -150,8 +150,9 @@ export async function getTruckData() {
   return apiFetch<TruckData>('/api/optetruck/capacity');
 }
 
-export async function getFeederData() {
-  return apiFetch<FeederData>('/api/feeder/FEEDER%20ATLANTIC-03');
+export async function getFeederData(feederId?: string) {
+  const id = feederId || 'FEEDER%20ATLANTIC-03';
+  return apiFetch<FeederData>(`/api/feeder/${id}`);
 }
 
 export async function getQcData(berthId: string = 'B-03') {

@@ -81,7 +81,7 @@ def build_approval_card(gate: dict[str, Any] | Any, state: dict[str, Any]) -> di
     return card
 
 
-async def hitl_node(state: dict[str, Any]) -> Command:
+async def hitl_node(state: dict[str, Any]) -> dict[str, Any] | Command:
     """Single HITL node — publishes card via SSE, then interrupt().
 
     The graph's checkpointer (MemorySaver + thread_id) ensures this pauses until
