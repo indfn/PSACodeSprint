@@ -86,12 +86,12 @@ def get_qc_data(berth_id: str = "B-03") -> dict:
     if rng is not None and sc is not None:
         qc_available = sc.qc_available.sample_int(rng)
     else:
-        qc_available = 2
+        qc_available = 32
 
-    total = 3
+    total = 40
     qc_status = []
     for i in range(1, total + 1):
-        qc_id = f"QC-0{i + 6}"  # QC-07, QC-08, QC-09
+        qc_id = f"QC-{i:02d}"
         if i <= qc_available:
             qc_status.append({"qc_id": qc_id, "status": "available"})
         else:
