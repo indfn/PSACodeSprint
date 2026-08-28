@@ -16,7 +16,8 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.mocks.routers.citos_ppt import router as citos_ppt_router
 from app.mocks.routers.citos_tuas import router as citos_tuas_router
@@ -602,19 +603,17 @@ async def get_active_problem():
 
 
 # ---------------------------------------------------------------------------
-# UI placeholder (Phase 7) and Mocks alias (for success criteria /mocks/*)
+# UI static mount (Phase 7) — serves app/ui/index.html, style.css, app.js, admin.html
 # ---------------------------------------------------------------------------
 
-@app.get("/ui/", tags=["UI"])
-@app.get("/ui/{path:path}", tags=["UI"])
-async def ui_placeholder(path: str = ""):
-    """UI placeholder — Phase 7 will replace with full dashboard."""
-    return {
-        "service": "PSA Nexus UI",
-        "path": f"/ui/{path}" if path else "/ui/",
-        "status": "placeholder - Phase 7",
-        "note": "Dashboard will be implemented in Phase 7 (Nexus Dashboard).",
-    }
+@app.get("/admin", tags=["UI"], include_in_schema=False)
+async def admin_page():
+    """Serve admin config page (auth handled by /api/admin/* endpoints)."""
+    import pathlib
+    p = pathlib.Path(__file__).resolve().parent / "ui" / "admin.html"
+    if p.exists():
+        return FileResponse(str(p), media_type="text/html")
+    raise HTTPException(status_code=404, detail="admin.html not found")
 
 
 @app.get("/mocks/", tags=["Mocks"])
@@ -644,11 +643,9 @@ async def health():
     return {"status": "ok", "service": "psa-nexus"}
 
 
-@app.get("/")
+app.mount("/ui", StaticFiles(directory="app/ui", html=True), name="ui")
+
+
+@app.get("/", include_in_schema=False)
 async def root():
-    return {
-        "service": "PSA Nexus — Agentic Multi-Party Coordination Platform",
-        "version": "0.1.0",
-        "health": "/health",
-        "docs": "/docs",
-    }
+    return RedirectResponse(url="/ui/", status_code=307)

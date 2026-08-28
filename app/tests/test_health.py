@@ -11,9 +11,12 @@ def test_health(client):
 
 
 def test_root(client):
-    r = client.get("/")
-    assert r.status_code == 200
-    assert "PSA Nexus" in r.json()["service"]
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code in (200, 307)
+    if r.status_code == 307:
+        assert "/ui" in r.headers.get("location", "")
+    else:
+        assert "PSA Nexus" in r.text
 
 
 def test_mock_citos_ppt(client):

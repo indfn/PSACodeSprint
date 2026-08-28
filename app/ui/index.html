@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PSA Nexus — Multi-Party Coordination Platform</title>
+  <link rel="stylesheet" href="/ui/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:"Geist",system-ui,sans-serif}
+    .mono{font-family:"JetBrains Mono",monospace}
+  </style>
+</head>
+<body style="min-height:100dvh;background:#020617;color:#F8FAFC;antialiased:true">
+  <div style="position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:0.04;background:radial-gradient(600px 600px at 20% 10%, #22C55E 0%, transparent 60%),radial-gradient(800px 800px at 90% 30%, #0EA5E9 0%, transparent 60%)" aria-hidden="true"></div>
+
+  <header style="position:sticky;top:16px;z-index:30;max-width:1400px;margin:0 auto;padding:0 16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;border-radius:1.5rem;border:1px solid rgba(255,255,255,0.1);background:rgba(2,6,23,0.7);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);padding:12px 20px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.08)">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="height:10px;width:10px;border-radius:50%;background:#22C55E;animation:pulse-dot 1.8s infinite;display:inline-block" aria-hidden="true"></span>
+        <h1 style="font-size:15px;font-weight:600;letter-spacing:-0.03em">PSA Nexus</h1>
+        <span style="display:none;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:#94A3B8" class="sm-inline">Agentic Multi-Party Coordination Platform</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span id="notif-bell-wrap" style="position:relative;display:flex;align-items:center">
+          <i class="ph ph-bell" style="font-size:18px;color:#94A3B8"></i>
+          <span id="notif-badge" style="display:none;position:absolute;top:-6px;right:-8px;min-width:18px;height:18px;border-radius:9999px;background:#22C55E;color:#020617;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px" class="mono hidden">0</span>
+        </span>
+        <label for="problem-select" style="font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:#94A3B8">Problem</label>
+        <select id="problem-select" style="border-radius:9999px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);padding:6px 12px;font-size:13px;color:#F8FAFC;cursor:pointer;outline:none">
+        </select>
+        <button id="switch-problem" style="border-radius:9999px;background:#22C55E;padding:6px 16px;font-size:13px;font-weight:500;color:#020617;cursor:pointer;border:none;transition:background 0.2s">Switch</button>
+      </div>
+    </div>
+  </header>
+
+  <div id="problem-banner" style="display:none;max-width:1400px;margin:16px auto 0;padding:0 16px">
+    <div id="problem-banner-inner" style="border-radius:9999px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.2);color:#86EFAC;padding:8px 16px;font-size:13px;text-align:center;animation:slideDown 300ms both"></div>
+  </div>
+
+  <div style="max-width:1400px;margin:0 auto;padding:24px 16px;display:flex;flex-direction:column;gap:20px">
+
+    <section style="display:grid;grid-template-columns:repeat(12,1fr);gap:20px" id="stagger-root">
+      <div style="grid-column:span 12 / span 12;border-radius:1.5rem;background:#0F172A;border:1px solid rgba(255,255,255,0.1);padding:20px;box-shadow:0 20px 40px -15px rgba(0,0,0,0.4)" class="lg8">
+        <h2 style="font-size:11px;font-weight:500;letter-spacing:0.15em;text-transform:uppercase;color:#94A3B8">Agent Status</h2>
+        <div id="agent-status" style="margin-top:8px;display:flex;align-items:center;gap:8px;font-size:13px;color:#CBD5E1" aria-live="polite">Idle — click Run Demo to start</div>
+        <div id="progress-rail" style="margin-top:12px;display:flex;gap:4px;flex-wrap:wrap"></div>
+        <div id="agent-output" style="margin-top:16px;min-height:88px;font-size:15px;line-height:1.7;color:#CBD5E1;white-space:pre-wrap;word-break:break-word" aria-live="polite"></div>
+      </div>
+      <div style="grid-column:span 12 / span 12;border-radius:1.5rem;background:#0F172A;border:1px solid rgba(255,255,255,0.1);padding:20px" class="lg4">
+        <h2 style="font-size:11px;font-weight:500;letter-spacing:0.15em;text-transform:uppercase;color:#94A3B8">Confidence</h2>
+        <div id="confidence-score" class="mono" style="margin-top:8px;font-size:28px;font-weight:600;letter-spacing:-0.02em">—</div>
+        <div style="margin-top:8px;height:6px;overflow:hidden;border-radius:9999px;background:rgba(255,255,255,0.05)"><div id="confidence-bar" style="height:100%;width:0;background:#22C55E;transition:width 0.5s ease;border-radius:9999px"></div></div>
+        <div id="confidence-detail" style="margin-top:8px;font-size:11px;color:#64748B" class="mono"></div>
+      </div>
+    </section>
+
+    <section id="tool-chips" style="display:flex;flex-wrap:wrap;gap:8px" aria-label="Active tools for current problem"></section>
+
+    <section style="display:grid;grid-template-columns:repeat(12,1fr);gap:20px">
+      <div style="grid-column:span 12 / span 12;border-radius:1.5rem;background:#0F172A;border:1px solid rgba(255,255,255,0.1);padding:20px" class="lg7">
+        <h2 style="font-size:11px;font-weight:500;letter-spacing:0.15em;text-transform:uppercase;color:#94A3B8">Tool Calls</h2>
+        <div id="tool-log" style="margin-top:12px;display:flex;flex-direction:column;gap:0" aria-live="polite">
+          <div style="font-size:13px;color:#475569;padding:12px 0">No tool calls yet — run the demo to see orchestration</div>
+        </div>
+      </div>
+      <aside style="grid-column:span 12 / span 12;border-radius:1.5rem;background:#0F172A;border:1px solid rgba(255,255,255,0.1);padding:20px" class="lg5">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <h2 style="font-size:11px;font-weight:500;letter-spacing:0.15em;text-transform:uppercase;color:#94A3B8">Execution Trace</h2>
+          <span style="font-size:10px;color:#475569" class="mono" id="trace-count">0 entries</span>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;font-size:10px;color:#64748B" class="mono">
+          <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#22C55E;vertical-align:middle;margin-right:4px"></span>agent</span>
+          <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#0EA5E9;vertical-align:middle;margin-right:4px"></span>tool</span>
+          <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#F59E0B;vertical-align:middle;margin-right:4px"></span>hitl</span>
+          <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#EF4444;vertical-align:middle;margin-right:4px"></span>escalation</span>
+          <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#8B5CF6;vertical-align:middle;margin-right:4px"></span>monitor</span>
+          <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#E879F9;vertical-align:middle;margin-right:4px"></span>notification</span>
+        </div>
+        <div id="trace-sidebar" style="margin-top:12px;max-height:420px;overflow:auto;display:flex;flex-direction:column;gap:0;padding-right:4px" aria-live="polite"></div>
+      </aside>
+    </section>
+
+    <section id="hitl-cards" style="border-radius:1.5rem;border:1px solid rgba(255,255,255,0.1);background:#0F172A;padding:20px;min-height:120px" aria-live="polite">
+      <h2 style="font-size:11px;font-weight:500;letter-spacing:0.15em;text-transform:uppercase;color:#94A3B8">Approval Required</h2>
+      <div id="hitl-empty" style="margin-top:12px;font-size:13px;color:#475569;display:flex;align-items:center;gap:8px"><i class="ph ph-shield-check" style="font-size:16px"></i> Awaiting agent — approvals appear here</div>
+      <div id="hitl-list" style="margin-top:12px;display:flex;flex-direction:column;gap:12px"></div>
+    </section>
+
+    <section style="display:flex;flex-wrap:wrap;align-items:center;gap:12px">
+      <button id="run-demo" style="border-radius:9999px;background:#22C55E;padding:10px 24px;font-size:13px;font-weight:500;color:#020617;border:none;cursor:pointer;transition:all 0.2s">Run Demo</button>
+      <button id="reset" style="border-radius:9999px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);padding:10px 20px;font-size:13px;color:#E2E8F0;cursor:pointer">Reset</button>
+      <span style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#64748B">Edge injection</span>
+      <button id="inject-conflict" style="border-radius:9999px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);padding:8px 16px;font-size:13px;color:#CBD5E1;cursor:pointer;transition:all 0.2s">Inject Feeder Conflict</button>
+      <button id="inject-stale" style="border-radius:9999px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);padding:8px 16px;font-size:13px;color:#CBD5E1;cursor:pointer;transition:all 0.2s">Inject Stale Data</button>
+      <span id="edge-hint" style="font-size:11px;color:#64748B;display:none">Inject after dispatch, before monitor check</span>
+    </section>
+
+    <section id="notification-panel" style="border-radius:1.5rem;border:1px solid rgba(255,255,255,0.1);background:#0F172A;padding:20px;display:none">
+      <h2 style="font-size:11px;font-weight:500;letter-spacing:0.15em;text-transform:uppercase;color:#94A3B8">Notifications</h2>
+      <ul id="notification-list" style="margin-top:12px;list-style:none;display:flex;flex-direction:column;gap:8px" aria-live="polite"></ul>
+    </section>
+
+    <div id="error-banner" style="display:none;border-radius:12px;border:1px solid rgba(239,68,68,0.2);background:rgba(239,68,68,0.1);padding:12px 16px;font-size:13px;color:#FECACA" role="alert"></div>
+  </div>
+
+  <style>
+    @media(min-width:1024px){ .lg8{grid-column:span 8 / span 8 !important} .lg4{grid-column:span 4 / span 4 !important} .lg7{grid-column:span 7 / span 7 !important} .lg5{grid-column:span 5 / span 5 !important} }
+    @media(min-width:640px){ .sm-inline{display:inline !important} }
+    @keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:0.4}}
+    @keyframes in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:0.01ms !important;animation-iteration-count:1 !important;transition-duration:0.01ms !important}}
+  </style>
+  <script type="module" src="/ui/app.js"></script>
+</body>
+</html>
