@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-08-27)
 ## Current Position
 
 Phase: 7 of 10 (Web UI — next to execute)
-Plans: 10 detailed plans created (Phases 1–3 research + Phases 4–8 build + 6.5 wiring + 07.1 Integrated Verification, 63 sub-phases)
-Status: Phases 1–6.5 complete (Phase 6.5 executed 2026-08-28 — 14 integration gaps fixed: requirements UTF-8, lifespan validation, HITL timeout scheduler, SSE confidence_update, YAML fallback_api_key_env, prototype deleted, tool_adapter relocated, LangSmith wiring, 24 new tests). Phases 7–8 (+07.1 gate) planned.
-Last activity: 2026-08-28 — Phase 6.5 complete: 6 sub-phases executed (6.5.1–6.5.6), 24 new integration tests, 165 pass/3 skip
+Plans: 11 detailed plans created (Phases 1–3 research + Phases 4–8 build + 6.5 wiring + 6.7 admin API + 07.1 Integrated Verification, 68 sub-phases)
+Status: Phases 1–6.7 complete (Phase 6.7 executed 2026-08-28 — global llm.yaml, removed llm: from 7 YAMLs, admin auth + config API + API key injection). Phases 7–8 (+07.1 gate) planned.
+Last activity: 2026-08-28 — Phase 6.7 complete: global LLM config, admin module (auth + config endpoints + API key injection), 172 tests pass
 
-Progress: ███████░░░ 70% (7/10 phases complete, 3 planned)
+Progress: ████████░░ 72% (8/11 phases complete, 3 planned)
 
 ## What's Built
 
@@ -49,6 +49,8 @@ Progress: ███████░░░ 70% (7/10 phases complete, 3 planned)
 | LangGraph agent core | ✅ Done | `app/agent/graph.py` 4 nodes agent/tools/hitl/monitor + MemorySaver(thread_id), `run.py` ainvoke/Command(resume) — Phase 6 |
 | HITL gates | ✅ Done | `app/hitl/models.py` 5 gates 30/15/15/10/30 + timeout_actions escalate/cancel/hold/halt, `gates.py` single hitl_node interrupt + `handler.py` REJECT/MODIFY/TIMEOUT — Phase 6 |
 | HITL timeout scheduler | ✅ Done | `app/hitl/timeout_scheduler.py` background asyncio task, auto-fire timeout_action after timeout_seconds, cancel on manual decision — Phase 6.5 |
+| Global LLM config | ✅ Done | `app/configs/llm.yaml` single source of truth, removed llm: from 7 YAMLs, `load_problem_config()` fallback — Phase 6.7 |
+| Admin API | ✅ Done | `app/admin/` auth (admin/admin123, HMAC cookie) + GET/POST /api/admin/config + POST /api/admin/api-key (write-only) — Phase 6.7 |
 | Escalation triggers | ✅ Done | `app/agent/escalation.py` 7 triggers `<0.85/>1.5h/>$10k/>30m/<60%/>15m/planner_conflict`, confidence 0.92→0.78→0.90 — Phase 6.6 |
 | Monitoring loop | ✅ Done | `app/agent/monitor.py` re-query T3 → detect berth conflict → re-compute 80/40→100/20 + HITL-5 emergency, `e2e` deviation PASSED 37s — Phase 6.10 |
 | Web UI / SSE | ❌ Not started | — Phase 7 (Nexus branding + SSE replay buffer + problem switcher) |
@@ -72,7 +74,8 @@ Progress: ███████░░░ 70% (7/10 phases complete, 3 planned)
 | 5. Tool Integration + Notification + Robustness | ✅ Complete (2026-08-27) | 13 — 127 pass/3 skipped S4, 05-REVIEW 15 issues fixed (C1 YAML, H1 guard, H2 weight) |
 | 6. Agent Core — Nexus Brain | ✅ Complete (2026-08-28) | 12 — e2e 5 green (42s happy/37s deviation), truncation + HITL-5 pending fix |
 | 6.5. Integration Wiring & Cleanup | ✅ Complete (2026-08-28) | 6 — 14 gaps fixed, 24 new tests, 165 pass/3 skip, prototype deleted, tool_adapter relocated |
-| 7. Web UI — Nexus Dashboard | ○ Planned → depends on Phase 6.5 | 8 |
+| 6.7. Global LLM Config + Admin API | ✅ Complete (2026-08-28) | 5 — global llm.yaml, admin auth + config API, 172 tests pass |
+| 7. Web UI — Nexus Dashboard | ○ Planned → depends on Phase 6.7 | 9 |
 | 07.1 Integrated Verification (INSERTED) | ○ Planned → depends on Phase 7 | 8 |
 | 8. Polish & Deploy — Nexus Launch | ○ Planned → depends on 07.1 | 7 (**8.3 DISABLED local-only demo**) |
 
@@ -155,17 +158,18 @@ Deep sweep flagged 5 HIGH + several MEDIUM gaps previously missed (review was ch
 ### Pending Todos
 
 - ~~Execute Phase 6: Agent Core — Nexus Brain (12 sub-phases) — DONE 2026-08-28~~
-- Execute Phase 7: Web UI — Nexus Dashboard (8 sub-phases) — next
+- ~~Execute Phase 6.7: Global LLM Config + Admin API (5 sub-phases) — DONE 2026-08-28~~
+- Execute Phase 7: Web UI — Nexus Dashboard (9 sub-phases) — next
 - Execute Phase 07.1: Integrated Verification — gate before deploy (8 sub-phases)
 - Execute Phase 8: Polish & Deploy — Nexus Launch (7 sub-phases, depends on 07.1)
 
 ### Blockers/Concerns
 
 - **Deadline:** 2026-09-04 — 7 days remaining (2026-08-27)
-- **Ground-up rebuild:** 57 sub-phases — 5/9 phases done, 4 remaining (6→7→07.1→8 critical path)
-- **LLM API key:** Need at least one provider API key for Phase 6 agent testing
+- **Ground-up rebuild:** 68 sub-phases — 8/11 phases done, 3 remaining (7→07.1→8 critical path)
+- **LLM API key:** Need at least one provider API key for Phase 7 admin demo (can now inject via /api/admin/api-key)
 - **Demo recording:** Need screen capture tool for video (Phase 8)
-- **S4 robustness:** 3 skipped until HITL-5 — will pass after Phase 6.5/6.6
+- **Admin UI:** Phase 7.9 needs to be built (admin page at /admin)
 
 ## Deferred Items
 

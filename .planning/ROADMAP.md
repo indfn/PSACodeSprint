@@ -549,9 +549,68 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 
 ---
 
-### Phase 7: Web UI & Integration — PSA Nexus Dashboard
-**Goal:** Build the PSA Nexus dashboard with real-time SSE streaming, problem switcher, approval cards, and demo scenario controls.
+### Phase 6.7: Global LLM Config + Admin API
+**Goal:** Centralise LLM provider config into a single `llm.yaml`, build admin API with auth for runtime config editing and API key injection.
 **Depends on:** Phase 6.5
+**Requirements:** F-03, F-08, A-17
+**Success Criteria** (what must be TRUE):
+  1. All 7 problem YAMLs load without `llm:` — fallback to `app/configs/llm.yaml`
+  2. Admin auth works (admin/admin123, session cookie, 1-hour TTL)
+  3. `GET /api/admin/config` shows provider, model, base_url, api key status, confidence, cost_params
+  4. `POST /api/admin/config` writes to llm.yaml + problem YAML
+  5. `POST /api/admin/api-key` writes to .env + os.environ, never echoes key
+  6. All existing tests pass (172+)
+**Status:** ✅ COMPLETE (2026-08-28) — commit 0d794c3
+
+#### Sub-phases
+
+##### 6.7.1: Global llm.yaml
+**What:** Create `app/configs/llm.yaml` as single source of truth for provider config. Remove duplicate `llm:` from 7 problem YAMLs.
+**Duration:** ~15 min
+**Deliverables:**
+- `app/configs/llm.yaml` — provider, model, api_key_env, base_url, fallback_*
+- All 7 `pb-*.yaml` — `llm:` section removed
+**Depends on:** Phase 6.5
+**Verification:** All 7 YAMLs still load correctly, `cfg.llm` populated from llm.yaml
+
+##### 6.7.2: Config Loader Fallback
+**What:** Update `load_problem_config()` to fall back to `llm.yaml` when problem YAML has no `llm:` block. Per-problem override preserved (opt-in).
+**Duration:** ~15 min
+**Deliverables:**
+- `app/configs/problem_config.py` — `_load_global_llm_config()` + merge logic in `load_problem_config()`
+**Depends on:** 6.7.1
+**Verification:** `load_problem_config('pb-12-itt').llm` returns provider/model from llm.yaml
+
+##### 6.7.3: Admin Auth
+**What:** Simple session-based auth for admin endpoints. Hardcoded demo credentials (admin/admin123), HMAC-signed cookie, 1-hour TTL.
+**Duration:** ~30 min
+**Deliverables:**
+- `app/admin/auth.py` — `verify_credentials()`, `create_session_cookie()`, `check_auth()`, `_sign_session()`, `_verify_session()`
+**Depends on:** Phase 6.5
+**Verification:** `POST /api/admin/login` with valid creds → session cookie; invalid creds → 401
+
+##### 6.7.4: Admin API Endpoints
+**What:** Config management + API key injection endpoints.
+**Duration:** ~1 hour
+**Deliverables:**
+- `app/admin/router.py` — `POST /api/admin/login`, `GET /api/admin/config`, `POST /api/admin/config`, `POST /api/admin/api-key`, `GET /api/admin/config/status`
+- `app/admin/__init__.py` — re-exports `admin_router`
+**Depends on:** 6.7.3
+**Verification:** All endpoints respond; auth required for config read/write; API key never echoed
+
+##### 6.7.5: Router Mount
+**What:** Mount admin router in main FastAPI app.
+**Duration:** ~5 min
+**Deliverables:**
+- `app/main.py` — `from app.admin import admin_router` + `app.include_router(admin_router)`
+**Depends on:** 6.7.4
+**Verification:** `GET /api/admin/config/status` returns key status without auth
+
+---
+
+### Phase 7: Web UI & Integration — PSA Nexus Dashboard
+**Goal:** Build the PSA Nexus dashboard with real-time SSE streaming, problem switcher, approval cards, demo scenario controls, and admin config page.
+**Depends on:** Phase 6.7
 **Requirements:** U-01 through U-12
 **Success Criteria** (what must be TRUE):
   1. Web UI loads in browser with clean, professional design
@@ -559,6 +618,7 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
   3. HITL approval buttons work (approve/reject/modify)
   4. Edge case injection controls work (feeder conflict, stale data)
   5. Demo scenario can be triggered from UI
+  6. Admin page at /admin shows provider config, allows editing, API key injection
 **Status:** ○ NOT STARTED
 
 #### Sub-phases
@@ -654,6 +714,17 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 - `app/ui/app.js` — listens for SSE `notification` events → appends `{parties, message, timestamp}` to panel
 **Depends on:** 7.2, 5.10
 **Verification:** Agent calls `notify_parties` → notification appears in panel + SSE `notification` event
+
+##### 7.9: Admin Config Page (`/admin`)
+**What:** Build the admin UI at `/admin` (not linked from main dashboard, accessible via direct URL). Shows provider/model/base_url/api key status/confidence threshold/cost_params. Allows editing with auth guard (admin/admin123). API keys are write-only (never displayed).
+**Duration:** ~2 hours
+**Deliverables:**
+- `app/ui/admin.html` — admin page (dark OLED style matching main dashboard, Phosphor icons)
+- `app/ui/admin.js` — login form, config display, edit forms, API key injection form
+- `app/main.py` — mount `admin.html` at `/admin` (separate from main `/ui/`)
+- Design: same design system as main dashboard (dark OLED, bento, liquid glass) but simpler layout (single column config form)
+**Depends on:** 6.7 (backend admin API), 7.2 (design system established)
+**Verification:** Open `/admin` → login form → enter admin/admin123 → see config → edit provider → save → API key status shows ✅/❌
 
 ---
 
@@ -837,7 +908,8 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 | 5. Tool Integration + Notification + Robustness | 13 (5.1–5.13) | ~2 days |
 | 6. Agent Core (LangGraph) — Nexus Brain | 12 (6.1–6.12) | ~2–3 days |
 | 6.5. Integration Wiring & Cleanup | 6 (6.5.1–6.5.6) | ~1 day |
-| 7. Web UI — Nexus Dashboard | 8 (7.1–7.8) | ~2 days |
+| 6.7. Global LLM Config + Admin API | 5 (6.7.1–6.7.5) | ~0.5 day |
+| 7. Web UI — Nexus Dashboard | 9 (7.1–7.9) | ~2 days |
 | 07.1 Integrated Verification (INSERTED) | 8 (07.1.1–07.1.8) | ~0.5–1 day |
 | 8. Polish & Deploy — Nexus Launch | 7 (8.1–8.7, **8.3 DISABLED local-only demo**) | ~1–2 days |
 | **Total** | **63** | **~8.5–13 days** |
@@ -845,7 +917,7 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 ## Progress
 
 **Execution Order:**
-Phases execute in order: 1 → 2 → 3 → 4 → 5 → 6 → 6.5 → 7 → 07.1 → 8
+Phases execute in order: 1 → 2 → 3 → 4 → 5 → 6 → 6.5 → 6.7 → 7 → 07.1 → 8
 
 | Phase | Status | Completed |
 |-------|--------|-----------|
@@ -855,7 +927,8 @@ Phases execute in order: 1 → 2 → 3 → 4 → 5 → 6 → 6.5 → 7 → 07.1 
 | 4. Foundation Reformation | ✅ Complete | 2026-08-27 |
 | 5. Tool Integration | ✅ Complete | 2026-08-27 |
 | 6. Agent Core (LangGraph) | ✅ Complete | 2026-08-28 |
-| 6.5. Integration Wiring & Cleanup | ○ Not Started | — |
+| 6.5. Integration Wiring & Cleanup | ✅ Complete | 2026-08-28 |
+| 6.7. Global LLM Config + Admin API | ✅ Complete | 2026-08-28 |
 | 7. Web UI & Integration | ○ Not Started | — |
 | 07.1 Integrated Verification (INSERTED) | ○ Not Started | — |
 | 8. Polish & Deploy | ○ Not Started | — |
