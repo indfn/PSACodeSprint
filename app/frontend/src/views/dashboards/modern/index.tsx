@@ -257,23 +257,17 @@ export default function NexusDashboard() {
   }
 
   const containerStatus =
-    containers && containers.total_containers > 0
+    !containers ? 'amber' :
+    containers.total_containers > 0
       ? containers.data_age_minutes < 10
         ? 'green'
         : 'amber'
-      : 'green';
-  const truckStatus = trucks
-    ? trucks.available_trucks > trucks.total_fleet * 0.3
-      ? 'green'
-      : 'amber'
-    : 'green';
-  const feederStatus = feeder
-    ? feeder.berth_status.includes('berthed')
-      ? 'green'
-      : feeder.berth_status === 'conflict'
-      ? 'red'
-      : 'amber'
-    : 'green';
+      : 'amber';
+  const truckStatus = !trucks ? 'amber' :
+    trucks.available_trucks > trucks.total_fleet * 0.3 ? 'green' : 'amber';
+  const feederStatus = !feeder ? 'amber' :
+    feeder.berth_status.includes('berthed') ? 'green' :
+    feeder.berth_status === 'conflict' ? 'red' : 'amber';
 
   return (
     <div className="space-y-4">
@@ -303,7 +297,7 @@ export default function NexusDashboard() {
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="text-[10px]">
-            Confidence: {confidence !== null ? `${Math.round(confidence * 100)}%` : '—'}
+            Confidence: {confidence !== null ? `${Math.round((confidence > 1 ? confidence : confidence * 100))}%` : '—'}
           </Badge>
           <Badge variant="outline" className="text-[10px]">
             Risk: {riskScore !== null ? (riskScore >= 0.7 ? 'High' : riskScore >= 0.4 ? 'Medium' : 'Low') : '—'}
@@ -407,15 +401,11 @@ export default function NexusDashboard() {
             name="Tuas QC"
             metric={qc ? `${qc.qc_status.filter((q) => q.status === 'available').length}/${qc.qc_count} cranes` : 'Loading...'}
             value={qc ? qc.qc_status.filter((q) => q.status === 'available').length : 0}
-            max={qc?.qc_count ?? 3}
+            max={qc?.qc_count ?? 40}
             status={
-              qc
-                ? qc.qc_status.every((q) => q.status === 'available')
-                  ? 'green'
-                  : qc.qc_status.some((q) => q.status === 'available')
-                  ? 'amber'
-                  : 'red'
-                : 'green'
+              !qc ? 'amber' :
+              qc.qc_status.every((q) => q.status === 'available') ? 'green' :
+              qc.qc_status.some((q) => q.status === 'available') ? 'amber' : 'red'
             }
           />
         </div>

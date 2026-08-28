@@ -6,7 +6,9 @@ from app.mocks.data import get_feeder_data
 from app.tools.base import BaseTool, ToolResult
 
 
-def _parse_dt(s: str) -> datetime:
+def _parse_dt(s: str | None) -> datetime:
+    if not isinstance(s, str) or not s:
+        raise ValueError(f"invalid datetime: {s!r}")
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 

@@ -112,7 +112,12 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
             registry.register_for_problem(get_active_problem_id())
         except Exception:
             from app.tools.registry import load_tools_for_problem
-            for t in load_tools_for_problem("pb-12-itt"):
+            from app.agent.problem_switcher import get_active_problem_id as _gpid
+            try:
+                _fallback_pid = _gpid()
+            except Exception:
+                _fallback_pid = "pb-12-itt"
+            for t in load_tools_for_problem(_fallback_pid):
                 registry.register(t)
 
     raw_schemas = registry.get_schemas()
@@ -322,7 +327,7 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
                 invalid_calls.append(norm)
                 # Log hallucinated
                 state.setdefault("trace", []).append({
-                    "timestamp": time.time(),
+                    "timestamp": _now_iso(),
                     "run_id": state.get("run_id", ""),
                     "node": "agent",
                     "action": "hallucinated_tool",
@@ -364,7 +369,7 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
         state.setdefault("messages", []).append({
             "role": "assistant",
             "content": content or "",
-            "tool_calls": [{"id": c["id"], "name": c["name"], "args": c["args"]} for c in valid_calls],
+            "tool_calls": [{"id": c["id"], "type": "function", "function": {"name": c["name"], "arguments": json.dumps(c["args"])}} for c in valid_calls],
         })
         # SSE publish tool_call events
         for c in valid_calls:

@@ -103,9 +103,15 @@ export interface HitlGate {
 }
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {};
+  const method = (options?.method || 'GET').toUpperCase();
+  if (method !== 'GET' || options?.body) {
+    headers['Content-Type'] = 'application/json';
+  }
+  const mergedHeaders = { ...headers, ...(options?.headers as Record<string, string> | undefined) };
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
     ...options,
+    headers: mergedHeaders,
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -125,7 +131,8 @@ export async function startDemo(scenario?: string, problemId?: string) {
 }
 
 export async function getActiveProblem() {
-  return apiFetch<ProblemInfo>('/agent/active-problem');
+  const res = await apiFetch<{ problem_id: string; active_problem_id: string; problem: ProblemInfo & { systems: string[]; tools: string[]; hitl_gates: string[] } }>('/agent/active-problem');
+  return { problem_id: res.problem_id, name: res.problem?.name ?? res.problem_id, description: res.problem?.description ?? '' };
 }
 
 export async function switchProblem(problemId: string) {
@@ -158,7 +165,8 @@ export async function getLoadingSequence() {
 }
 
 export async function getRunHistory() {
-  return apiFetch<RunRecord[]>('/webhook/runs');
+  const res = await apiFetch<{ runs: RunRecord[]; count: number }>('/webhook/runs');
+  return res.runs;
 }
 
 export async function getAgentTrace(runId: string) {
@@ -197,7 +205,8 @@ export async function resetMocks() {
 }
 
 export async function getScenarios() {
-  return apiFetch<Scenario[]>('/agent/scenarios');
+  const res = await apiFetch<{ problem_id: string; scenarios: Scenario[] }>('/agent/scenarios');
+  return res.scenarios;
 }
 
 export async function initializeSession() {

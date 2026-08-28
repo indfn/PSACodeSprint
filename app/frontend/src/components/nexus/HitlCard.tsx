@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { hitlRespond } from '@/api/nexus';
 import { Badge } from '@/components/ui/badge';
 
@@ -45,6 +45,7 @@ export default function HitlCard({ gate, runId, onResponded }: HitlCardProps) {
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
   const [responded, setResponded] = useState(false);
+  useEffect(() => { setResponded(false); }, [gate?.gate_id]);
 
   async function handleDecision(decision: string) {
     setLoading(true);

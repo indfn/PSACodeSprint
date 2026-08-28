@@ -701,7 +701,14 @@ async def health():
     return {"status": "ok", "service": "psa-nexus"}
 
 
-app.mount("/ui", StaticFiles(directory="app/frontend/dist", html=True), name="ui")
+import pathlib as _pathlib
+_ui_dist = _pathlib.Path("app/frontend/dist")
+if _ui_dist.exists():
+    app.mount("/ui", StaticFiles(directory=str(_ui_dist), html=True), name="ui")
+else:
+    @app.get("/ui/{_:path}", include_in_schema=False)
+    async def _ui_not_built():
+        return {"error": "Frontend not built — run: cd app/frontend && npm run build"}
 
 
 @app.get("/", include_in_schema=False)
