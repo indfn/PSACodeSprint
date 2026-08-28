@@ -1,781 +1,647 @@
-# Phase 7: Web UI & Integration — PSA Nexus Dashboard
+# Phase 7: Web UI — PSA Nexus Tactical Console
 
 ## Goal
-Build the PSA Nexus dashboard — a command-center grade, dark-mode OLED operations console with real-time SSE streaming, problem switcher, approval cards, demo scenarios, and notification display — proving the platform generalises while scoring high on visual polish and demo impact.
+Build the PSA Nexus dashboard — a tactical telemetry operations console with real-time SSE streaming, step-by-step agent trace, run history, HITL approval cards, edge injection controls, and problem switching. Industrial brutalist dark theme. Vanilla HTML/CSS/JS. All old UI bugs eliminated.
 
 ## Depends on
-Phase 6, Phase 6.7 (admin API)
+Phase 6, Phase 6.7 (admin API), Phase 6.5 (SSE broadcaster, HITL timeout scheduler)
 
 ## Requirements
-U-01 through U-12
+U-01 through U-12 (requirements.md)
 
 ## Success Criteria
-1. Web UI loads in browser with command-center polish (dark OLED, bento hierarchy, staggered reveal — not generic card stack)
-2. SSE endpoint streams agent thoughts, tool calls, and HITL cards in real time with replay buffer
-3. HITL approval buttons work (approve/reject/modify) with loading / empty / error / tactile states
-4. Edge case injection controls work (feeder conflict, stale data) with timing hint + per-run isolation
-5. Demo scenario can be triggered from UI with buffer-replay race fix + progress indicator
-6. Trace sidebar + notification panel live-update with color + icon cues (not color-only)
-7. Problem switcher (all 7 problems) updates tool/gate list live
-8. Admin page at `/admin` shows provider config, allows editing, API key injection (auth-guarded)
+1. Dashboard loads with tactical telemetry aesthetic — dark CRT, monospace data, visible grid borders, red accent
+2. SSE streams agent events in real time with replay buffer and `Last-Event-ID` support
+3. HITL cards appear one at a time, approve/reject/modify all work inline (no popups, no hanging cards, no multiple cards)
+4. Rejection reason uses inline text field (no browser `prompt()`)
+5. Modify expands card with editable fields, submit completes the action
+6. Stale HITL returns 422 shown as inline error (not crash)
+7. Edge injection sidebar works on both Dashboard and Agent Trace tabs
+8. Data visualizer shows live mock API data (containers, trucks, feeder, QC)
+9. Agent trace shows human-readable step list with expandable detail
+10. History tab shows past runs with expandable traces
+11. Problem switcher dropdown in header changes active problem
+12. Admin page accessible via `/admin` link (not a tab)
+13. Notifications appear as bell icon with dropdown
+14. No `prompt()`, no `alert()`, no `confirm()` anywhere
+15. 183+ tests still pass (no backend regressions)
 
-## Design System — PSA Nexus Command Center
+---
 
-**Source:** `ui-ux-pro-max` (`logistics operations dashboard dark mode` + `port logistics command center`) + `design-taste-frontend` overrides (variance 8 / motion 6 / density 4). Persisted token set for `html-tailwind` (vanilla JS, no framework lock-in).
+## Design System — Tactical Telemetry
+
+### Archetype
+**Tactical Telemetry & CRT Terminal** — dark mode, high-density tabular data, monospace typography, ASCII framing devices, simulated analog degradation.
+
+### Color Palette
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| **Mode** | Dark OLED | Capped to OLED power + eye comfort; no light-mode default |
-| **Background** | `#020617` (slate-950) | Page bg — never pure black `#000000` |
-| **Surface 1** | `#0F172A` (slate-900) | Card / panel bg |
-| **Surface 2** | `#1E293B` (slate-800) | Hover / secondary surface |
-| **Border** | `border-white/10` + `shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]` | Liquid-glass refraction edge — not flat `border-gray-200` |
-| **Text primary** | `#F8FAFC` (slate-50) | Headlines — `7:1` contrast on `#020617` |
-| **Text muted** | `#94A3B8` (slate-400) | Secondary — minimum `#94A3B8`, never below |
-| **Accent (single)** | `#22C55E` emerald (sat <80%) | Sole accent: CTA, success, confidence high — no AI purple/blue glow, no second accent |
-| **Semantic** | emerald (success) / amber (warning) / red (escalation) + icon + label | Never color-only — icon + text accompanies every status |
-| **Typography display** | `Geist` / `Satoshi` `tracking-tighter leading-none` | `text-4xl md:text-5xl` — Inter banned, serif banned for dashboards. Load via Google Fonts CDN `@import url(...)` in CSS (not `next/font`). |
-| **Typography mono** | `JetBrains Mono` / `Geist Mono` | All numbers: cost `$10.4K`, confidence `0.85`, timestamps, `duration_ms` — cock-pit precision |
-| **Radius** | `rounded-[1.5rem]` cards / `rounded-full` pills | Diffusion shadow `shadow-[0_20px_40px_-15px_rgba(0,0,0,0.4)]` — tinted to bg |
-| **Motion** | `spring stiffness:100 damping:20` + `will-change: transform` | Hardware-accelerated `transform`/`opacity` only; respect `prefers-reduced-motion` |
-| **Layout** | `max-w-[1400px] mx-auto` / `min-h-[100dvh]` / CSS Grid `grid-cols-12` | Grid over flex-calc; asymmetric `2fr 1fr` bento; single column `w-full px-4` <768px; `top-4 left-4 right-4` floating header; no `h-screen` |
+| **Background** | `#0A0A0A` | Page bg — deactivated CRT |
+| **Surface 1** | `#141414` | Panel/card bg |
+| **Surface 2** | `#1C1C1C` | Hover/secondary surface |
+| **Border** | `#2A2A2A` | Grid dividers, compartmentalization |
+| **Border strong** | `#3A3A3A` | Active/selected states |
+| **Text primary** | `#EAEAEA` | White phosphor — primary text |
+| **Text secondary** | `#888888` | Metadata, labels |
+| **Text muted** | `#555555` | Disabled, hints |
+| **Accent red** | `#E61919` | Alerts, escalation, vital highlights, HITL-5 |
+| **Status green** | `#4AF626` | Single use: agent online / success status |
+| **Warning amber** | `#C89B3C` | Confidence warning, timeout approaching |
+| **Mono font** | JetBrains Mono | All data, numbers, codes |
+| **Body font** | IBM Plex Mono | Labels, descriptions, secondary text |
 
-**Effects stack:** liquid-glass refraction (inner border + inset shadow), spotlight border on hover (cursor-tracked radial), skeletal shimmer loaders, staggered `staggerChildren 80ms` waterfall, perpetual breathing dot on `agent_status`, typewriter for `agent_thinking`, float for HITL cards, mesh gradient ambient bg via fixed pseudo-element `pointer-events-none`. `prefers-reduced-motion` CSS: `@media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important}}` disables all loops and transitions.
+### Typography Rules
+- **ALL micro-type is UPPERCASE** — labels, nav, metadata, status codes
+- **Macro headers** — massive, tight tracking (`-0.04em`), compressed leading (`0.9`)
+- **Data numbers** — JetBrains Mono, tabular figures, generous tracking (`0.06em`)
+- **No serif anywhere. No Inter anywhere.**
 
-**Anti-patterns enforced:** no emoji icons (Phosphor `@phosphor-icons/web` or SVG primitives, `stroke 1.5` uniform), no scale hover that shifts layout, no center-hero, no 3-equal-cards row, no `h-screen`, no `z-50` spam, no custom cursor, no Inter, no generic names, cursor-pointer on every clickable.
+### Layout Principles
+- Strict CSS Grid with visible `1px` borders (`#2A2A2A`) between cells
+- `border-radius: 0` on everything — mechanical rigidity
+- Bimodal density: extreme data clusters vs calculated negative space
+- ASCII framing: `[ STATUS ]`, `>>>`, `///`, `+`
+- No gradients, no drop shadows, no translucency, no blur
 
-**Accessibility:** `aria-live="polite"` on streaming regions, `role="alert"` on escalation/error, `focus-visible:ring` on all interactive, keyboard nav for cards, 4.5:1 text contrast, icon+color for every status.
+### CRT Effects (Subtle)
+- Scanlines: `repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.015) 2px, rgba(255,255,255,0.015) 4px)` on `body::after`
+- Grain: SVG noise filter at low opacity (`0.03`) on `body::before`
+- Both `pointer-events: none`, fixed position, full viewport
+- `@media (prefers-reduced-motion: reduce)` disables all effects
+
+### Accessibility
+- `aria-live="polite"` on SSE streaming regions
+- `role="alert"` on escalation/error notifications
+- `focus-visible` ring on all interactive elements
+- 4.5:1+ contrast on all text
+- Icon + color for every status (never color-only)
+
+---
 
 ## Architecture
 
+### File Structure
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Browser (UI) — Bento 2.0                │
-│  max-w-[1400px] mx-auto  │  mesh gradient + glass refraction  │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
-│  │  Agent    │  │   Tool   │  │   HITL   │  │  Trace   │  │
-│  │  Status   │  │   Log    │  │   Cards  │  │ Sidebar  │  │
-│  │+live dot │  │ shimmer  │  │ spotlight│  │ divide-y │  │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  │
-│       │  aria-live  │  stagger    │  spring     │         │
-│       └──────────────┴──────────────┴──────────────┘         │
-│                          │ SSE (EventSource)                 │
-└──────────────────────────┼──────────────────────────────────┘
-                           │
-┌──────────────────────────┼──────────────────────────────────┐
-│                    FastAPI Server                             │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
-│  │  SSE     │  │  Agent   │  │   HITL   │  │  Edge    │  │
-│  │ Endpoint │  │  Run     │  │ Response │  │  Case    │  │
-│  │+replay  │  │+stream  │  │+Command │  │+mutate  │  │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
-└─────────────────────────────────────────────────────────────┘
+app/ui/
+  index.html      — single-page app (dashboard + trace + history tabs)
+  style.css        — all styles (design system tokens as CSS custom properties)
+  app.js           — all interactivity (SSE, tabs, HITL, edge controls, history)
+  admin.html       — admin page (separate, auth-guarded via API)
+  admin.js         — admin interactivity
 ```
 
-## Plan
+### Why Vanilla HTML/CSS/JS
+- No build tools, no npm, no React — instant load, zero dependencies
+- FastAPI serves files directly via `StaticFiles`
+- Judges see the UI immediately on `localhost:8000`
+- Fits the brutalist ethos: raw, functional, no abstraction layers
 
-### 7.1: SSE Endpoint (with Replay Buffer + Typed Events)
-**Duration:** ~0 hours (already built in Phase 6.5)
-**What:** SSE endpoint with replay buffer, typed events, Last-Event-ID support. Built in Phase 6.5 — `app/agent/sse.py` + `GET /agent/stream/{run_id}` in `app/main.py`.
-**Status:** ✅ DONE — no implementation needed.
+### Backend Consumption Map
 
-**Frontend注意事项 (for Phase 7.2 JS):**
-- Heartbeats arrive as SSE comments (`: heartbeat\n\n`), NOT as `event: heartbeat` — use `es.onmessage` as fallback catch-all for keep-alive, or ignore (comments don't trigger `onmessage` either; they're protocol-level). Simplest: do nothing — heartbeats keep the connection alive without triggering JS handlers.
-- Events include `id` field (monotonic counter) — `EventSource` auto-sends `Last-Event-ID` on reconnect, replay picks up from there.
-- 10 event types: `agent_thinking`, `tool_call`, `tool_result`, `hitl_card`, `escalation`, `trace_entry`, `confidence_update`, `deviation`, `notification`, `heartbeat`(comment).
-- SSE endpoint: `GET /agent/stream/{run_id}?lastEventId=N` or `Last-Event-ID` header.
+| UI Feature | Backend Endpoint | Method |
+|------------|-----------------|--------|
+| Start demo | `POST /agent/run-demo` | Fetch |
+| SSE stream | `GET /agent/stream/{run_id}` | EventSource |
+| HITL respond | `POST /agent/hitl/respond` | Fetch |
+| Agent trace | `GET /agent/trace/{run_id}` | Fetch |
+| Active problem | `GET /agent/active-problem` | Fetch |
+| Switch problem | `POST /agent/switch-problem/{id}` | Fetch |
+| Inject edge | `POST /agent/inject-edge-case` | Fetch |
+| Reset mocks | `POST /agent/reset-mocks` | Fetch |
+| Run history | `GET /webhook/runs` | Fetch |
+| Container data | `GET /api/citos/ppt/containers` | Fetch |
+| Truck data | `GET /api/optetruck/capacity` | Fetch |
+| Feeder data | `GET /api/feeder/FEEDER%20ATLANTIC-03` | Fetch |
+| Loading seq | `GET /api/citos/tuas/loading-sequence` | Fetch |
+| Notifications | SSE `notification` events | EventSource |
 
-### 7.2: HTML/CSS/JS Frontend — Command Console (Bento 2.0 + Liquid Glass)
-**Duration:** ~5 hours (was 4h — add polish time)
-**What:** Build the vanilla HTML/Tailwind console as a visually striking, non-generic operations dashboard. Functional spec unchanged; visual execution upgraded from flat card stack to asymmetric bento with perpetual motion.
+---
 
-**Design directives (taste 8/6/4):**
-- **Structure:** Single `max-w-[1400px] mx-auto px-4 md:px-6` container. Asymmetric grid: `grid grid-cols-12 gap-5` — row 1: status `col-span-12 lg:col-span-8` + confidence `col-span-12 lg:col-span-4` (2:1 offset, not 3 equal cards); row 2: agent reasoning `lg:col-span-7` + tool log `lg:col-span-5` (split screen); row 3: HITL stage full-width spotlight; sidebar trace `lg:col-span-4` glued via `divide-y divide-white/10` (no boxed card when density high).
-- **Shell:** Floating header `top-4 left-4 right-4 z-30` with `backdrop-blur-xl bg-slate-950/70 border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]` refraction. Body `min-h-[100dvh] bg-[#020617] text-slate-50` with mesh gradient via `before:fixed before:inset-0 before:-z-10 before:opacity-[0.04]` radial blobs (lava-lamp, `pointer-events-none`).
-- **Typography:** Load `Geist` + `JetBrains Mono` via `next/font` CDN import. `h1 text-3xl tracking-tighter font-semibold`, `h2 text-sm font-medium tracking-widest uppercase text-slate-400`, body `text-[15px] leading-relaxed text-slate-300 max-w-[65ch]`, numbers `font-mono tabular-nums` for `$10,400`, `0.85`, `90 min`.
-- **Cards:** Not generic — `rounded-[1.5rem] bg-[#0F172A] border border-white/10 shadow-[0_20px_40px_-15px_rgba(0,0,0,0.4)]` diffusion. Spotlight: on `mousemove` track cursor → `radial-gradient` border glow via JS (no outer neon glow).
-- **Motion (hardware-accelerated):** Parent wrapper `staggerChildren 80ms` waterfall (Framer or CSS `animation-delay: calc(var(--i)*80ms)`), each card `initial: {opacity:0, y:12} animate: {opacity:1, y:0} transition: spring 100/20`, `transform`/`opacity` only, `will-change: transform` sparingly, `prefers-reduced-motion` disables loops.
-- **Perpetual micro:** status dot `animate-pulse` breathing, agent thinking shimmer `bg-gradient-to-r from-transparent via-white/10 to-transparent` sweep, empty tool log shows skeleton `h-16 rounded-xl animate-pulse bg-white/5` (not spinner).
-- **Interaction:** every clickable `cursor-pointer transition-colors duration-200`, `:hover border-white/15`, `:active scale-[0.98] -translate-y-[1px]`.
+## Tab Structure
 
-**Steps:**
-1. Create `app/ui/index.html` — surgical upgrade of skeleton (keep IDs for Phase 6 wiring, upgrade markup):
-   ```html
-   <!doctype html>
-   <html lang="en" class="dark">
-   <head>
-     <meta charset="utf-8" />
-     <meta name="viewport" content="width=device-width, initial-scale=1" />
-     <title>PSA Nexus — Multi-Party Coordination Platform</title>
-     <link rel="stylesheet" href="/ui/style.css" />
-     <link rel="preconnect" href="https://fonts.googleapis.com" />
-     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-     <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-   </head>
-   <body class="min-h-[100dvh] bg-[#020617] text-slate-50 antialiased selection:bg-emerald-500/20">
-     <div class="fixed inset-0 -z-10 pointer-events-none opacity-[0.04]" aria-hidden="true"
-          style="background: radial-gradient(600px 600px at 20% 10%, #22C55E 0%, transparent 60%), radial-gradient(800px 800px at 90% 30%, #0EA5E9 0%, transparent 60%)"></div>
+### Header (persistent across all tabs)
+```
++--[PSA NEXTO]-----[PB-12 v]---[confidence: 0.92]---[risk: 0.15]---[bell]---[admin]---+
+```
+- Left: Logo/title (`PSA NEXTO` in massive type)
+- Center: Problem switcher dropdown (`PB-12 ITT` / `PB-01 Berth`)
+- Center-right: Live confidence + risk scores (monospace, green/amber/red)
+- Right: Bell icon (notification count badge) + Admin link
+- Tab bar below: `[DASHBOARD]` `[AGENT TRACE]` `[HISTORY]`
+- Active tab: red underline, uppercase
 
-     <header class="sticky top-4 z-30 max-w-[1400px] mx-auto px-4">
-       <div class="flex items-center justify-between gap-4 rounded-[1.5rem] border border-white/10 bg-slate-950/70 backdrop-blur-xl px-5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-         <div class="flex items-center gap-3">
-           <span class="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true"></span>
-           <h1 class="text-[15px] font-semibold tracking-tighter">PSA Nexus</h1>
-           <span class="hidden sm:inline text-xs tracking-widest uppercase text-slate-400">Agentic Multi-Party Coordination Platform</span>
-         </div>
-         <div class="flex items-center gap-2">
-           <label for="problem-select" class="text-xs tracking-widest uppercase text-slate-400">Problem</label>
-           <select id="problem-select" class="rounded-full bg-white/5 border border-white/10 px-3 py-1.5 text-sm cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500">
-             <!-- Populated dynamically from GET /agent/problems or hardcoded fallback -->
-           </select>
-           <button id="switch-problem" class="rounded-full bg-emerald-500 px-4 py-1.5 text-sm font-medium text-slate-950 hover:bg-emerald-400 active:scale-[0.98] transition cursor-pointer">Switch</button>
-         </div>
-       </div>
-     </header>
+### Tab 1: Dashboard
 
-     <div class="max-w-[1400px] mx-auto px-4 md:px-6 py-6 space-y-5">
-       <section class="grid grid-cols-12 gap-5" id="stagger-root" style="--stagger: 80ms">
-         <div class="col-span-12 lg:col-span-8 rounded-[1.5rem] bg-[#0F172A] border border-white/10 p-5 shadow-[0_20px_40px_-15px_rgba(0,0,0,0.4)]">
-           <h2 class="text-xs font-medium tracking-widest uppercase text-slate-400">Agent Status</h2>
-           <div id="agent-status" class="mt-2 flex items-center gap-2 text-sm" aria-live="polite">Idle</div>
-           <div id="agent-output" class="mt-4 min-h-[88px] text-[15px] leading-relaxed text-slate-300" aria-live="polite"></div>
-         </div>
-         <div class="col-span-12 lg:col-span-4 rounded-[1.5rem] bg-[#0F172A] border border-white/10 p-5">
-           <h2 class="text-xs font-medium tracking-widest uppercase text-slate-400">Confidence</h2>
-           <div id="confidence-score" class="mt-2 font-mono text-3xl tabular-nums">—</div>
-           <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-white/5"><div id="confidence-bar" class="h-full w-0 bg-emerald-500 transition-all duration-500"></div></div>
-         </div>
-       </section>
+**Layout: 2-column with top strip**
 
-       <!-- Tool chips: populated by problem switcher — separate from live tool log -->
-       <section id="tool-chips" class="flex flex-wrap gap-2" aria-label="Active tools for current problem"></section>
-
-       <section class="grid grid-cols-12 gap-5">
-         <div class="col-span-12 lg:col-span-7 rounded-[1.5rem] bg-[#0F172A] border border-white/10 p-5">
-           <h2 class="text-xs font-medium tracking-widest uppercase text-slate-400">Tool Calls</h2>
-           <div id="tool-log" class="mt-3 space-y-2 divide-y divide-white/5" aria-live="polite"></div>
-         </div>
-         <aside class="col-span-12 lg:col-span-5 rounded-[1.5rem] bg-[#0F172A] border border-white/10 p-5">
-           <h2 class="text-xs font-medium tracking-widest uppercase text-slate-400">Execution Trace</h2>
-           <div id="trace-sidebar" class="mt-3 max-h-[420px] overflow-auto space-y-1 pr-1" aria-live="polite"></div>
-         </aside>
-       </section>
-
-       <section id="hitl-cards" class="rounded-[1.5rem] border border-white/10 bg-[#0F172A] p-5 min-h-[120px]" aria-live="polite">
-         <h2 class="text-xs font-medium tracking-widest uppercase text-slate-400">Approval Required</h2>
-         <div class="mt-3 text-sm text-slate-400 empty-state">Awaiting agent — approvals appear here</div>
-       </section>
-
-       <section class="flex flex-wrap items-center gap-3">
-         <button id="run-demo" class="rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-medium text-slate-950 hover:bg-emerald-400 active:scale-[0.98] transition cursor-pointer">Run Demo</button>
-         <button id="reset" class="rounded-full border border-white/10 bg-white/5 px-5 py-2.5 text-sm text-slate-200 hover:bg-white/10 cursor-pointer">Reset</button>
-         <span class="text-xs tracking-widest uppercase text-slate-500">Edge injection</span>
-         <button id="inject-conflict" class="rounded-full border border-amber-500/20 bg-amber-500/10 px-4 py-2 text-sm text-amber-200 hover:bg-amber-500/20 cursor-pointer">Inject Feeder Conflict</button>
-         <button id="inject-stale" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 hover:bg-white/10 cursor-pointer">Inject Stale Data</button>
-         <span id="edge-hint" class="text-xs text-slate-500">Inject after dispatch, before monitor check (steps 9–12)</span>
-       </section>
-
-       <section id="notification-panel" class="rounded-[1.5rem] border border-white/10 bg-[#0F172A] p-5 hidden">
-         <h2 class="text-xs font-medium tracking-widest uppercase text-slate-400">Notifications</h2>
-         <ul id="notification-list" class="mt-3 space-y-2 text-sm" aria-live="polite"></ul>
-       </section>
-     </div>
-     <script type="module" src="/ui/app.js"></script>
-   </body>
-   </html>
-   ```
-2. Create `app/ui/style.css` — Tailwind v3/v4 via CDN build (check `package.json` first; if no Tailwind, use standalone `@import "tailwindcss"` + utilities). Include: `@import` Geist + JetBrains Mono from Google Fonts (not `next/font`), CSS vars for tokens, `stagger` keyframes (`@keyframes in {from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}` + `animation-delay: calc(var(--i)*80ms)`), shimmer gradient, focus rings, `prefers-reduced-motion` guard:
-   ```css
-   @media (prefers-reduced-motion: reduce) {
-     *, *::before, *::after {
-       animation-duration: 0.01ms !important;
-       animation-iteration-count: 1 !important;
-       transition-duration: 0.01ms !important;
-     }
-   }
-   ```
-3. Create `app/ui/app.js` — SSE client + DOM with staggered orchestration (all motion `transform`/`opacity` only, spring `100/20` if Framer avoided inline. Handle skeletal loaders: on `run-demo` click show 3 shimmer skeletons in `#tool-log` until first `tool_call` arrives; empty HITL shows composed empty state with CTA icon (Phosphor `ph-check-circle`), not blank div.
-4. **Mount in `app/main.py`:**
-   - **FIRST:** Remove the placeholder routes (lines 608–617): delete `@app.get("/ui/")`, `@app.get("/ui/{path:path}")`, and the `ui_placeholder` function.
-   - **THEN:** Add `from fastapi.staticfiles import StaticFiles` and mount: `app.mount("/ui", StaticFiles(directory="app/ui", html=True), name="ui")`
-   - Add redirect: `@app.get("/")` → `RedirectResponse("/ui/")`
-   - **IMPORTANT:** The placeholder MUST be removed — FastAPI matches routes top-down, and the catch-all `/{path:path}` would intercept before StaticFiles.
-
-**Verification:**
-```bash
-open http://localhost:8000/ui/  # dark OLED, bento asymmetry, staggered reveal, no layout shift, 375/768/1024/1440 all clean
-# Lighthouse: no 4.5:1 failures, focus rings visible via Tab, prefers-reduced-motion respected
+```
++--[TOP STRIP: Problem: PB-12 ITT Coordination | Systems: PPT, Tuas, OptETruck, Feeder, PortNet]--+
+|                                                                                                 |
++--[LEFT COLUMN]------------------------+--[RIGHT COLUMN]---------------------------------------+
+| [DATA VISUALIZER]                     | [HITL APPROVAL]                                       |
+| [CITOS PPT]                           |                                                                           |
+| Containers: ████████████░░ 120/120    |  [Card: Approve ITT Split]                            |
+| Ready: 120  DG: 3  Blocks: B-07..14  |  Road: 80 | Sea: 40                                  |
+|                                       |  Cost: $10,400 vs $12,000 baseline                   |
+| [OPTETRUCK]                           |  [APPROVE] [REJECT] [MODIFY]                         |
+| Trucks: ██████████████░░ 50/55        |                                                       |
+| Available: 50  Transit: 90min         |  (when reject clicked → inline text field appears)    |
+|                                       |  (when modify clicked → card expands with fields)     |
+| [FEEDER - ATLANTIC-03]                |                                                       |
+| Status: BERTHED @ PPT B12            |  (when no HITL pending → "No pending approvals" msg)  |
+| Capacity: ████████░░ 620/800 TEU      |                                                       |
+| Depart: 14:00-16:00                   |                                                       |
+|                                       |                                                       |
+| [TUAS QC]                             |                                                       |
+| QC-07: Bay14, Bay12 (road@14:30)     |                                                       |
+| QC-08: Bay10, Bay08 (sea@16:30)      |                                                       |
++---------------------------------------+-------------------------------------------------------+
 ```
 
-### 7.3: HITL Approval Cards — Spotlight + Tactile States
-**Duration:** ~3 hours
-**What:** Build approval cards as the demo's climax moment. Must use `run_id` + `Command(resume=)` while looking premium — spotlight border, tactile push, and full state coverage (loading/empty/error).
+**Data Visualizer details:**
+- Each API = one block with monospace header (`[CITOS PPT]`, `[OPTETRUCK]`, etc.)
+- Status bars: `█` filled, `░` empty — pure CSS `div` with background color
+- Numbers: JetBrains Mono, tabular figures
+- Green (`#4AF626`) for healthy, amber (`#C89B3C`) for warning, red (`#E61919`) for critical
+- Data refreshes: on demo start, after each HITL approval, on manual refresh button
+- Fetches from mock API endpoints directly (not from agent state)
 
-**Design upgrade:** Cards sit outside the grid in a full-width stage (variance 8), spotlight follows cursor, not flat yellow/blue card; status expressed via icon+text+color, never color alone.
+**HITL Card details:**
+- ONE card visible at a time (the current `hitl_pending` from SSE `hitl_card` events)
+- Card structure:
+  ```
+  +--[HITL-1: APPROVE ITT SPLIT]------------------+
+  | Gate: HITL-1 | Timeout: 30min | Action: escalate|
+  |                                                   |
+  | Road: 80 containers (60 trips, $9,000)           |
+  | Sea:  40 containers ($1,400 handling)            |
+  | Total: $10,400 vs baseline $12,000               |
+  | Savings: $1,600 (13.3%)                          |
+  |                                                   |
+  | [APPROVE]  [REJECT]  [MODIFY]                    |
+  +---------------------------------------------------+
+  ```
+- **APPROVE**: POST `/agent/hitl/respond` with `decision: "approve"`, card disappears, wait for next
+- **REJECT**: Inline text field slides open below buttons: `Reason: [________________] [CONFIRM REJECT] [CANCEL]`
+- **MODIFY**: Card expands to show editable fields (e.g., road_containers input, sea_containers input). `[SUBMIT MODIFICATION] [CANCEL]`
+- **422 stale**: Error message appears inside card: `HITL TIMED OUT — status: halted` in red
+- **Timeout countdown**: Monospace countdown in card header showing remaining time
 
-**SSE hitl_card payload shape** (from `app/hitl/gates.py`):
-```json
-{
-  "gate_id": "HITL-1",
-  "gate_name": "Approve ITT Split",
-  "approval_card": { "gate_id": "...", "cost_breakdown": {...}, "optimal_split": {...}, "alternatives": [...] },
-  "confidence": 0.92,
-  "risk_score": 0.08,
-  "timeout_seconds": 1800,
-  "timeout_action": "escalate"
-}
+### Tab 2: Agent Trace
+
+**Layout: Single column, scrollable**
+
 ```
-Note: `confidence`, `timeout_seconds`, `timeout_action` are at **top level** (not inside `approval_card`).
++--[AGENT TRACE: run-abc123]---[status: waiting_hitl]---[duration: 12.3s]-----+
+|                                                                              |
+| [01] INGEST EVENT                                           14:30:01.234    |
+|      Received ITT coordination request from CITOS PPT                       |
+|      Vessel: MV PACIFIC STAR | Containers: 120 | Priority: high             |
+|                                                                              |
+| [02] QUERY CONTAINERS                                      14:30:02.156    |
+|      Tool: get_itt_candidates (CITOS PPT)                                   |
+|      Result: 120 containers ready, 3 DG, 4 blocks affected                  |
+|      >>> click to expand full response                                       |
+|                                                                              |
+| [03] QUERY TRUCKS                                          14:30:03.089    |
+|      Tool: check_road_itt_capacity (OptETruck)                              |
+|      Result: 50 trucks available, 90min transit, $150/trip                  |
+|                                                                              |
+| [04] COMPUTE SPLIT                                         14:30:04.201    |
+|      Tool: compute_itt_split                                                 |
+|      Result: 80 road / 40 sea = $10,400 (saves $1,600)                     |
+|                                                                              |
+| [05] HITL-1: WAITING APPROVAL                             14:30:04.456    |
+|      >>> Approve ITT split (road:80 / sea:40)                               |
+|                                                                              |
+| [06] DISPATCH ROAD ITT (after approval)                   14:32:15.789    |
+|      Tool: dispatch_road_itt                                                 |
+|      Result: 60 truck trips dispatched                                      |
+|                                                                              |
+| ... (more steps)                                                             |
++------------------------------------------------------------------------------+
+```
 
-**Steps:**
-1. In `app/ui/app.js`:
-   ```javascript
-   let currentRunId = null;
-   const _hitlTimers = {};  // gate_id → interval_id for countdown cleanup
+**Trace step structure:**
+- Step number: `[01]`, `[02]`, etc. — monospace, red for HITL steps
+- Description: UPPERCASE action name (e.g., `QUERY CONTAINERS`)
+- Timestamp: right-aligned, monospace
+- Tool name + system in parentheses (if tool call)
+- Result summary: one-line human readable
+- **Click to expand**: full JSON response in `<pre>` block with monospace styling
+- **SSE-driven**: steps appear in real time as `trace_entry` events arrive
+- **No raw orchestrator logs** — only human-readable summaries
 
-   function renderHITLCard(card) {
-     const labels = { "HITL-1":"Approve ITT Split", "HITL-2":"Approve Truck Dispatch", "HITL-3":"Approve Feeder Hold", "HITL-4":"Approve Loading Sequence", "HITL-5":"Escalate to Duty Manager" };
-     const isEsc = card.gate_id === "HITL-5";
-     const wrap = document.createElement('div');
-     wrap.className = "group relative overflow-hidden rounded-[1.5rem] border border-white/10 bg-white/[0.02] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition hover:border-white/15";
-     wrap.addEventListener('mousemove', e => {
-       const r = wrap.getBoundingClientRect();
-       wrap.style.setProperty('--mx', `${e.clientX - r.left}px`);
-       wrap.style.setProperty('--my', `${e.clientY - r.top}px`);
-     });
-     // Use top-level timeout_seconds (not card.approval_card.timeout_seconds)
-     const timeoutSec = card.timeout_seconds || 1800;
-     const timeoutAction = card.timeout_action || 'escalate';
-     wrap.innerHTML = `
-       <div class="pointer-events-none absolute -inset-px opacity-0 group-hover:opacity-100 transition duration-300" style="background: radial-gradient(400px 200px at var(--mx) var(--my), rgba(34,197,94,0.12), transparent 60%)"></div>
-       <div class="flex items-start justify-between gap-4">
-         <h3 class="text-sm font-semibold tracking-tight">${labels[card.gate_id] || card.gate_name} ${isEsc ? '<span class="ml-2 inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-xs text-red-300 border border-red-500/20"><i data-ph="warning"></i> Escalation</span>' : ''}</h3>
-         <span class="font-mono text-xs tabular-nums text-slate-400">${card.gate_id}</span>
-       </div>
-       <div class="mt-3 grid grid-cols-12 gap-4 text-sm">
-         <div class="col-span-12 md:col-span-8 space-y-2">
-           <div class="font-mono tabular-nums">${renderCostSummary(card)}</div>
-           <div class="flex items-center gap-2 text-xs ${card.confidence < 0.85 ? 'text-amber-300' : 'text-slate-400'}">
-             <i data-ph="${card.confidence < 0.85 ? 'warning-circle' : 'check-circle'}" class="h-4 w-4"></i>
-             Confidence ${(card.confidence * 100).toFixed(0)}% ${card.confidence < 0.85 ? '(below threshold — triggers escalation)' : ''}
-           </div>
-           <div class="font-mono text-xs text-slate-500">Timeout ${Math.round(timeoutSec / 60)} min → ${timeoutAction} • <span class="countdown" data-timeout="${timeoutSec}"></span></div>
-         </div>
-         <div class="col-span-12 md:col-span-4 flex flex-col gap-2">
-           <button class="approve inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400 active:scale-[0.98] -translate-y-px transition cursor-pointer">Approve</button>
-           <button class="reject rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm hover:bg-white/10 cursor-pointer">Reject</button>
-           <button class="modify rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm hover:bg-white/10 cursor-pointer">Modify</button>
-         </div>
-       </div>
-       <div id="modify-${card.gate_id}" class="hidden mt-4 rounded-xl border border-white/10 bg-black/20 p-3">
-         <label class="text-xs tracking-widest uppercase text-slate-400">Adjust split (road / sea)</label>
-         <div class="mt-2 grid grid-cols-2 gap-2">
-           <input id="modify-road-${card.gate_id}" type="number" placeholder="Road" class="rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-emerald-500 outline-none" />
-           <input id="modify-sea-${card.gate_id}" type="number" placeholder="Sea" class="rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-emerald-500 outline-none" />
-         </div>
-         <button onclick="respondHITL('${card.gate_id}','modify',null,getModifications('${card.gate_id}'))" class="mt-2 rounded-full bg-emerald-500 px-4 py-1.5 text-sm font-medium text-slate-950 cursor-pointer">Submit Modification</button>
-       </div>`;
-     document.getElementById('hitl-cards').appendChild(wrap);
-     attachHITLHandlers(wrap, card);
-     startCountdown(wrap, timeoutSec);
-   }
+**Step mapping (what each agent action becomes):**
 
-   async function respondHITL(gateId, decision, reason = null, mods = null) {
-     const btn = event.currentTarget;
-     const orig = btn.textContent;
-     btn.disabled = true;
-     btn.innerHTML = '<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span> Sending…';
-     try {
-       const r = await fetch('/agent/hitl/respond', {
-         method: 'POST',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ run_id: currentRunId, gate_id: gateId, decision, reason, modifications: mods })
-       });
-       const j = await r.json();
-       if (r.ok && j.status === 'waiting_hitl') renderHITLCard(j.hitl_card);
-       else if (r.ok && j.status === 'completed') renderCompletion(j.result);
-       else if (!r.ok && r.status === 422) showError(j.detail || 'HITL already timed out (stale)', 'alert');
-       else if (!r.ok) showError(j.detail || 'HITL request failed', 'alert');
-       wrapCountDownCleanup(gateId);
-     } catch (e) {
-       btn.disabled = false;
-       btn.textContent = orig;
-       showError(e.message, 'alert');
-     }
-   }
+| Agent Action | Trace Label | Details |
+|-------------|-------------|---------|
+| Webhook received | `INGEST EVENT` | Event type, source, priority, container count |
+| Tool call (T1) | `QUERY CONTAINERS` | Tool name, system, result summary |
+| Tool call (T2) | `QUERY TRUCKS` | Capacity, transit time |
+| Tool call (T3) | `QUERY FEEDER` | Berth status, capacity, departure window |
+| Tool call (T4) | `COMPUTE SPLIT` | Road/sea ratio, cost, savings |
+| Tool call (T5) | `UPDATE LOADING SEQ` | QC assignments, ETA |
+| HITL interrupt | `HITL-N: WAITING` | Gate name, what needs approval |
+| HITL decision | `HITL-N: APPROVED/REJECTED` | Decision, reason (if reject) |
+| Monitor re-query | `MONITOR: CHECK STATUS` | What changed, deviation detected |
+| Re-compute | `RECOMPUTE SPLIT` | New ratio after deviation |
+| HITL-5 escalation | `ESCALATION` | Trigger, who it's escalated to |
+| Dispatch (post-approval) | `DISPATCH ROAD/FEEDER` | What was dispatched |
+| Completion | `COMPLETED` | Final status, total cost, duration |
 
-   // --- Helper stubs (implementer fills in) ---
-   function renderCostSummary(card) {
-     // card.optimal_split = {road: N, sea: N}, card.approval_card.cost_breakdown = {...}
-     const split = card.optimal_split || card.approval_card?.optimal_split || {};
-     const road = split.road ?? '—';
-     const sea = split.sea ?? '—';
-     return `<span class="text-slate-300">Road ${road} / Sea ${sea}</span>`;
-   }
-   function attachHITLHandlers(wrap, card) {
-     wrap.querySelector('.approve').onclick = () => respondHITL(card.gate_id, 'approve');
-     wrap.querySelector('.reject').onclick = () => respondHITL(card.gate_id, 'reject', prompt('Rejection reason:'));
-     wrap.querySelector('.modify').onclick = () => {
-       document.getElementById(`modify-${card.gate_id}`).classList.toggle('hidden');
-     };
-   }
-   function startCountdown(wrap, timeoutSec) {
-     const el = wrap.querySelector('.countdown');
-     if (!el) return;
-     let remaining = timeoutSec;
-     const iid = setInterval(() => {
-       remaining--;
-       if (remaining <= 0) { clearInterval(iid); el.textContent = '0:00 (timed out)'; return; }
-       const m = Math.floor(remaining / 60);
-       const s = remaining % 60;
-       el.textContent = `${m}:${String(s).padStart(2, '0')}`;
-     }, 1000);
-     _hitlTimers[card.gate_id] = iid;
-   }
-   function wrapCountDownCleanup(gateId) {
-     if (_hitlTimers[gateId]) { clearInterval(_hitlTimers[gateId]); delete _hitlTimers[gateId]; }
-   }
-   function getModifications(gateId) {
-     const road = parseInt(document.getElementById(`modify-road-${gateId}`)?.value) || 0;
-     const sea = parseInt(document.getElementById(`modify-sea-${gateId}`)?.value) || 0;
-     return { road, sea };
-   }
-   function showError(msg, type) {
-     const banner = document.createElement('div');
-     banner.className = 'rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200';
-     banner.setAttribute('role', 'alert');
-     banner.innerHTML = `<i data-ph="warning" class="mr-2"></i>${msg}`;
-     document.getElementById('hitl-cards').prepend(banner);
-     setTimeout(() => banner.remove(), 8000);
-   }
-   function showBanner(msg, type) {
-     const cls = type === 'warning' ? 'border-amber-500/20 bg-amber-500/10 text-amber-200' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200';
-     const banner = document.createElement('div');
-     banner.className = `rounded-xl border ${cls} px-4 py-3 text-sm`;
-     banner.innerHTML = `<i data-ph="${type === 'warning' ? 'warning' : 'check-circle'}" class="mr-2"></i>${msg}`;
-     document.getElementById('hitl-cards').prepend(banner);
-     setTimeout(() => banner.remove(), 6000);
-   }
-   function renderCompletion(result) {
-     document.getElementById('agent-status').textContent = 'Completed';
-     document.getElementById('agent-output').innerHTML = `<div class="text-emerald-400 font-medium">Agent completed successfully</div><pre class="mt-2 text-xs text-slate-400 overflow-auto">${JSON.stringify(result, null, 2).slice(0, 500)}</pre>`;
-   }
-   function pulseDeviation() {
-     const el = document.getElementById('agent-status');
-     el.classList.add('text-amber-400');
-     setTimeout(() => el.classList.remove('text-amber-400'), 2000);
-   }
-   ```
-   - Load Phosphor icons: `<script src="https://unpkg.com/@phosphor-icons/web"></script>` — uniform `1.5` stroke, never emoji.
-2. HITL endpoint wiring unchanged (`POST /agent/hitl/respond` → `resume_agent` → `Command(resume=)` with `thread_id: run_id`).
-3. State coverage: **Loading** = shimmer skeleton `animate-pulse` matching card height inside `#hitl-cards` before first card; **Empty** = composed illustration + "Awaiting agent — approvals appear here" + subtle pulse dot; **Error** = `role="alert"` banner with icon+text; **Tactile** = buttons `:active scale-[0.98] -translate-y-[1px]`.
+### Tab 3: History
 
-**Verification:**
-- HITL card appears with spotlight hover, tactile push, countdown ticks down, tab-focus ring visible, screen reader announces via `aria-live`.
-- Approve/Reject/Modify all route correctly; stale after timeout shows `role="alert"`.
+**Layout: Card grid, scrollable**
 
-### 7.4: Edge Case Injection Controls — Per-Run, Visible, Guarded
-**Duration:** ~2 hours
-**What:** Build injection as a deliberate operator action, not a hidden dev button — muted-to-active, timing-hinted, and per-run isolated.
-**Design:** Inactive = `bg-white/5 border-white/10`; on arm after dispatch = `bg-amber-500/10 border-amber-500/20 text-amber-200` with subtle pulse; disabled after inject.
+```
++--[RUN HISTORY]----------------------------------------------------------------+
+|                                                                              |
+| +--[run-abc123]---[PB-12 ITT]---[COMPLETED]---[14:30 - 14:35]---[5m 12s]-+ |
+| | 120 containers PPT→Tuas | 80/40 split | $10,400 | 5 HITL gates passed   | |
+| | >>> click to expand trace                                                | |
+| +---------------------------------------------------------------------------+ |
+|                                                                              |
+| +--[run-def456]---[PB-12 ITT]---[HALTED]---[14:40 - 14:45]---[HITL-5]----+ |
+| | Deviation detected: feeder berth conflict | escalated to duty manager    | |
+| | >>> click to expand trace                                                | |
+| +---------------------------------------------------------------------------+ |
+|                                                                              |
+| +--[run-ghi789]---[PB-01 BERTH]---[COMPLETED]---[15:00 - 15:02]---[2m]-+   |
+| | Berth reassignment completed | 3 vessels affected                      |   |
+| | >>> click to expand trace                                              |   |
+| +-----------------------------------------------------------------------+   |
++------------------------------------------------------------------------------+
+```
 
-**Steps:**
-1. In `app/ui/app.js`:
-   ```javascript
-   function armEdgeControls(){ document.getElementById('inject-conflict').classList.add('!bg-amber-500/10','!border-amber-500/20','!text-amber-200','animate-pulse'); document.getElementById('edge-hint').classList.remove('hidden'); }
-   // call armEdgeControls() on SSE `tool_result` where tool is dispatch_road_itt
-   document.getElementById('inject-conflict').onclick = async ()=>{
-     const r=await fetch('/agent/inject-edge-case',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({run_id:currentRunId,type:'feeder_conflict',feeder_id:'FEEDER ATLANTIC-03',new_departure:'2026-08-19T16:00:00+08:00'})});
-     showBanner('Feeder berth conflict injected — monitor will detect on next check','warning');
-     document.getElementById('inject-conflict').disabled=true;
-   };
-   ```
-2. Backend: `POST /agent/inject-edge-case` mutates `app/mocks/data.py` (not `AgentState`) so `monitor_node` T3 re-query sees `berth_status: conflict` → escalation #2 + deviation.
-3. Reset: `POST /agent/reset-mocks` clears isolation between runs (07.1 harness does this per test).
+**History card structure:**
+- Header: run_id, problem ID, status badge (color-coded), timestamp range, duration
+- Summary: one-line key outcome
+- **Click to expand**: full agent trace (same format as Agent Trace tab)
+- **SSE replay**: can replay SSE events from buffer for completed runs
+- Data source: `GET /webhook/runs` + `GET /agent/trace/{run_id}`
+- Auto-refreshes when new run completes
 
-**Verification:** inject → next monitor cycle shows `deviation` SSE + amber banner; second run without inject stays `berth_status: available`.
+---
 
-### 7.5: Demo Scenario Runner — Buffer-Replay + Cinematic Progress
-**Duration:** ~2 hours
-**What:** Build the demo trigger with race-free event delivery via replay buffer and a progress rail that feels like a mission timeline.
-**Design:** Progress is a sticky horizontal rail (`divide-y` not card) with step dots that fill via spring; `Run Demo` has magnetic micro pull (JS `useMotionValue`-free: CSS `transform` lerp), perpetual shimmer when idle.
+## Edge Injection Sidebar
 
-**Race fix explained:** The `POST /agent/run-demo` endpoint runs the agent synchronously (awaiting to first HITL interrupt or completion). SSE events are published during execution and buffered by `SSEBroadcaster`. After the fetch returns, `connectSSE(runId)` connects and replays all buffered events. No events are lost — the replay buffer handles late-connecting subscribers.
+**Slide-out panel, visible on Dashboard and Agent Trace tabs.**
 
-**Steps:**
-1. In `app/ui/app.js`:
-   ```javascript
-   const STEPS = ["Ingest","Query PPT","Query Road","Query Sea","Optimize","HITL-1","HITL-2","HITL-3","Dispatch","Tuas Update","HITL-4","Monitor","Re-plan","HITL-5","Delta Dispatch","Final Tuas","Complete"];
+**Trigger:** Gear icon (`⚙`) in tab bar area, fixed position
+**Behavior:** Slides in from right, 320px wide, dark surface (`#141414`)
 
-   function updateProgress(stepIdx, label) {
-     document.getElementById('agent-status').textContent = `Step ${stepIdx + 1}/17: ${label}`;
-     document.querySelectorAll('[data-step]').forEach((el, i) => {
-       el.classList.toggle('bg-emerald-500', i <= stepIdx);
-       el.classList.toggle('bg-white/10', i > stepIdx);
-     });
-   }
+```
++--[EDGE CONTROLS]--[X]--+
+|                          |
+| INJECT EDGE CASE         |
+|                          |
+| [FEEDER BERTH CONFLICT] |
+| Mutates feeder data to   |
+| conflict state. Affects  |
+| next monitor check.      |
+| >>> INJECT               |
+|                          |
+| [STALE DATA]             |
+| Sets data age to 25min.  |
+| Triggers staleness       |
+| guard on next query.     |
+| Minutes: [25]            |
+| >>> INJECT               |
+|                          |
+| --- STATUS ---            |
+| Last inject: none        |
+| Mock state: clean        |
+|                          |
+| [RESET ALL MOCKS]        |
++--------------------------+
+```
 
-   document.getElementById('run-demo').onclick = async () => {
-     document.getElementById('run-demo').disabled = true;
-     document.getElementById('run-demo').innerHTML = '<span class="animate-pulse">Launching…</span>';
-     // Show skeletons while waiting for fetch
-     showToolSkeletons();
-     const res = await fetch('/agent/run-demo', { method: 'POST' });
-     const { run_id, status, hitl_card } = await res.json();
-     currentRunId = run_id;
-     connectSSE(run_id);
-     if (status === 'waiting_hitl' && hitl_card) renderHITLCard(hitl_card);
-     updateProgress(0, 'Agent started — querying CITOS, OptETruck, PORTNET…');
-   };
+**Inject buttons:**
+- `POST /agent/inject-edge-case` with `case: "feeder_berth_conflict"` or `case: "stale_data"`
+- After inject: status updates to show what was injected
+- `POST /agent/reset-mocks` resets everything
 
-   function connectSSE(runId) {
-     const es = new EventSource(`/agent/stream/${runId}`);
-     es.addEventListener('agent_thinking', e => { appendAgentOutput(JSON.parse(e.data), true); });
-     es.addEventListener('tool_call', e => appendToolCall(JSON.parse(e.data)));
-     es.addEventListener('tool_result', e => {
-       appendToolResult(JSON.parse(e.data));
-       if (JSON.parse(e.data).tool === 'dispatch_road_itt') armEdgeControls();
-     });
-     es.addEventListener('hitl_card', e => renderHITLCard(JSON.parse(e.data)));
-     es.addEventListener('escalation', e => renderEscalation(JSON.parse(e.data)));
-     es.addEventListener('trace_entry', e => renderTraceEntry(JSON.parse(e.data)));
-     es.addEventListener('deviation', e => { renderDeviation(JSON.parse(e.data)); pulseDeviation(); });
-     es.addEventListener('confidence_update', e => updateConfidence(JSON.parse(e.data)));
-     es.addEventListener('notification', e => onNotification(JSON.parse(e.data)));
-     // Heartbeats are SSE comments (: heartbeat\n\n) — they keep the connection alive
-     // but don't trigger addEventListener. No handler needed.
-     // EventSource auto-retries on error — do NOT call es.close().
-     es.onerror = () => { showError('Stream interrupted — reconnecting…', 'polite'); };
-   }
+**Key fix from old UI:** Edge buttons must actually call the API and show feedback. Old UI buttons were disconnected.
 
-   function showToolSkeletons() {
-     const log = document.getElementById('tool-log');
-     log.innerHTML = '';
-     for (let i = 0; i < 3; i++) {
-       const sk = document.createElement('div');
-       sk.className = 'h-16 rounded-xl animate-pulse bg-white/5';
-       log.appendChild(sk);
-     }
-   }
-   ```
-2. Endpoints: `POST /agent/run-demo` (charter event 120 containers) → `{run_id, status, hitl_card?}`, `POST /agent/reset/{run_id}` + `POST /agent/reset-mocks`.
-3. Skeleton while waiting: show 2 shimmer bars in `#agent-output` and 3 tool skeletons until first `tool_call` — no blank screen.
+---
 
-**Verification:** click Run Demo → skeletons → fetch returns → SSE connects → buffered events replay → typewriter text streams → tool calls fill rail → HITL cards appear without missing early events.
+## Notification System
 
-### 7.6: Execution Trace Display — Dense, Scannable, Not Boxed
-**Duration:** ~1 hour
-**What:** Build trace as cockpit-density data — not a boxed list. Uses `divide-y` and mono typography.
+**Bell icon in header with dropdown.**
 
-**Design (density 4 → 7 when trace many):** No card per entry. `divide-y divide-white/5`, `font-mono text-xs tabular-nums`, color dot + label, timestamp `HH:MM:SS.mmm`, layout via `grid grid-cols-[auto_1fr_auto]`.
+- Bell icon: SVG, no emoji
+- Badge: red circle with count number (monospace)
+- Dropdown: list of recent notifications (max 20)
+- Each notification: message text, parties list, timestamp
+- Source: SSE `notification` events + `notification_log` from `app/mocks/data.py`
+- Auto-clears badge on open
 
-**Steps:**
-1. In `app/ui/app.js`:
-   ```javascript
-   function renderTraceEntry(entry){
-     const dot={agent:'bg-emerald-500', tool:'bg-sky-500', hitl:'bg-amber-400', escalation:'bg-red-500', monitor:'bg-violet-500', deviation:'bg-orange-500', notification:'bg-fuchsia-500'}[entry.node]||'bg-white/20';
-     const row=document.createElement('div');
-     row.className="grid grid-cols-[auto_1fr_auto] items-center gap-3 py-2 text-xs";
-     row.innerHTML=`<span class="h-1.5 w-1.5 rounded-full ${dot} ${entry.node==='agent'?'animate-pulse':''}"></span>
-       <span class="font-mono tabular-nums text-slate-300">${entry.node} · ${entry.action}</span>
-       <span class="font-mono tabular-nums text-slate-500">${entry.timestamp?.slice(11,19)??''} · ${entry.duration_ms??0}ms · risk ${Number(entry.risk_score??entry.result?.risk_score??0).toFixed(2)}</span>`;
-     row.title = JSON.stringify(entry.result??entry, null, 2);
-     document.getElementById('trace-sidebar').appendChild(row);
-     row.scrollIntoView({behavior:'smooth', block:'nearest'});
-   }
-   ```
-2. Legend bar above sidebar: green=agent, sky=tool, amber=HITL, red=escalation, violet=monitor, fuchsia=notification — text+dot, never color-only.
+---
 
-**Verification:** trace rows render with mono numbers, breathing green dot on agent, smooth auto-scroll, tooltip shows full JSON.
+## Sub-Phase Breakdown
 
-### 7.7: Problem Switcher — Platform Proof, Not a Dropdown
-**Duration:** ~2 hours
-**What:** Build the switcher as a visible platform mutation — tool/gate list morphs via layout transition, not just a select value change.
-**Design:** Switch triggers `layout` spring; exiting tool chips fade out, entering chips stagger in 60ms; banner `Now running: PB-01 Berth Delay` slides down with `AnimatePresence` style.
+### 7.1 — CSS Design System + HTML Shell
+**Goal:** Establish the complete design system as CSS custom properties, build the HTML skeleton with all three tabs, header, and navigation.
 
-**Steps:**
-1. In `app/ui/app.js`:
-   ```javascript
-   // Populate problem dropdown dynamically on page load
-   const PROBLEM_LABELS = {
-     'pb-12-itt': 'PB-12 — ITT Coordination (Flagship)',
-     'pb-01-berth': 'PB-01 — Berth Delay Cascade',
-     'pb-02-dtqc': 'PB-02 — DTQC Contamination',
-     'pb-04-feeder': 'PB-04 — Feeder Schedule Cascade',
-     'pb-09-expressway': 'PB-09 — Expressway Gridlock',
-     'pb-10-sea-air': 'PB-10 — Sea-Air Bifurcation',
-     'pb-11-customs': 'PB-11 — Customs Clearance Block',
-   };
+**Files:** `style.css`, `index.html`
 
-   function populateProblemSelect() {
-     const sel = document.getElementById('problem-select');
-     sel.innerHTML = '';
-     for (const [id, label] of Object.entries(PROBLEM_LABELS)) {
-       const opt = document.createElement('option');
-       opt.value = id;
-       opt.textContent = label;
-       sel.appendChild(opt);
-     }
-   }
+**Tasks:**
+1. Create `app/ui/style.css` with CSS custom properties for all design tokens
+2. Implement CRT effects (scanlines, grain) as `body::before`/`body::after` pseudo-elements
+3. Build `app/ui/index.html` with semantic HTML structure:
+   - `<header>` with logo, problem switcher, confidence/risk, bell, admin link
+   - `<nav>` with three tab buttons
+   - `<main>` with three tab panels (dashboard, trace, history)
+   - Edge injection sidebar (hidden by default)
+   - Notification dropdown (hidden by default)
+4. CSS Grid layout for dashboard (2-column + top strip)
+5. CSS Grid layout for trace (single column)
+6. CSS Grid layout for history (card grid)
+7. All typography: JetBrains Mono + IBM Plex Mono via Google Fonts CDN
+8. ASCII decorative elements (`[ STATUS ]`, `>>>`, borders)
+9. Focus-visible rings on all interactive elements
+10. `prefers-reduced-motion` media query disabling effects
 
-   async function loadActiveProblem() {
-     try {
-       const res = await fetch('/agent/active-problem');
-       const data = await res.json();
-       const sel = document.getElementById('problem-select');
-       if (data.active_problem_id) sel.value = data.active_problem_id;
-       renderToolChips(data.tools || []);
-       renderGateChips(data.hitl_gates || []);
-     } catch (e) { /* ignore — default selection stays */ }
-   }
+**Verification:** Page loads in browser, all three tabs switch correctly, design tokens apply, CRT effects visible but subtle, fonts load.
 
-   async function switchProblem(id) {
-     const btn = document.getElementById('switch-problem');
-     btn.disabled = true; btn.textContent = 'Switching…';
-     try {
-       const res = await fetch(`/agent/switch-problem/${id}`, { method: 'POST' });
-       const j = await res.json();
-       renderProblemBanner(j.problem_id, j.systems, j.tools, j.hitl_gates);
-       renderToolChips(j.tools);
-       renderGateChips(j.hitl_gates);
-     } finally {
-       btn.disabled = false; btn.textContent = 'Switch';
-     }
-   }
+### 7.2 — Header + Navigation + Tab Switching
+**Goal:** Functional header with problem switcher, live confidence/risk, notification bell, admin link, and tab switching.
 
-   function renderToolChips(tools) {
-     const el = document.getElementById('tool-chips'); // separate from #tool-log (live tool calls)
-     el.innerHTML = tools.map((t, i) =>
-       `<span style="--i:${i}" class="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-mono tabular-nums animate-[in_300ms_both]">${t}</span>`
-     ).join(' ');
-   }
+**Files:** `app.js` (new), `index.html`, `style.css`
 
-   function renderGateChips(gates) {
-     // Render HITL gate labels as chips below tool chips
-     const el = document.getElementById('tool-chips');
-     const chips = gates.map((g, i) =>
-       `<span style="--i:${i + 10}" class="inline-flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs font-mono text-amber-200 animate-[in_300ms_both]">${g}</span>`
-     ).join(' ');
-     el.innerHTML += chips;
-   }
+**Tasks:**
+1. `app.js` — tab switching logic (click tab → show panel, hide others, update active state)
+2. Problem switcher dropdown:
+   - Fetch `GET /agent/active-problem` on load
+   - Populate dropdown with available problems
+   - On change: `POST /agent/switch-problem/{id}`, update header info
+3. Confidence + risk display:
+   - Default values from active problem
+   - Updates via SSE `confidence_update` events
+   - Color coding: green (>0.85), amber (0.7-0.85), red (<0.7)
+4. Admin link: `<a href="/admin">ADMIN</a>` — separate page
+5. Notification bell:
+   - Badge count from SSE `notification` events
+   - Click to toggle dropdown
+   - Dropdown lists recent notifications
+   - Clear badge on open
 
-   function renderProblemBanner(problemId, systems, tools, gates) {
-     let banner = document.getElementById('problem-banner');
-     if (!banner) {
-       banner = document.createElement('div');
-       banner.id = 'problem-banner';
-       banner.className = 'rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-200 px-4 py-2 text-sm text-center animate-[slideDown_300ms_both]';
-       document.querySelector('.max-w-\\[1400px\\]').prepend(banner);
-     }
-     banner.textContent = `Now running: ${PROBLEM_LABELS[problemId] || problemId} — ${(systems || []).length} systems, ${(tools || []).length} tools, ${(gates || []).length} gates`;
-   }
+**Verification:** Tab switching works, problem switcher calls API and updates display, confidence updates from SSE, notification bell shows count and dropdown.
 
-   // Wire up
-   document.getElementById('switch-problem').onclick = () => switchProblem(document.getElementById('problem-select').value);
-   populateProblemSelect();
-   loadActiveProblem();
-   ```
-2. Visual: banner `rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-200` with spring slide; tool list 5↔8 chips morph; gate chips use amber styling.
+### 7.3 — SSE Connection + Event Handling
+**Goal:** Robust SSE connection with replay, heartbeats, and event routing to UI components.
 
-**Verification:** PB-12 (5 gates, 8 tools, CITOS/OptETruck/PORTNET/Feeder/PORTNET) ↔ PB-01 (2 gates, 5 tools, VTIS/OptEVoyage) — chips + banner + dropdown update without reload.
+**Files:** `app.js`
 
-### 7.8: Notification Display — Bell + Live Feed
-**Duration:** ~1 hour
-**What:** Show `notify_parties` dispatches live — bell with count badge that overshoots (spring 100/20), feed with parties + message + timestamp.
-**Design:** Bell `ph-bell` Phosphor, badge `bg-emerald-500 text-slate-950` popping via `scale 0→1.2→1` spring; feed rows `divide-y`, each with party pills `rounded-full bg-white/5 border-white/10`.
+**Tasks:**
+1. `connectSSE(run_id)` function:
+   - Creates `EventSource` for `/agent/stream/{run_id}`
+   - Handles `Last-Event-ID` header for replay
+   - Reconnects on error with exponential backoff
+   - Handles heartbeat comments (ignore, keep alive)
+2. Event router: dispatches each SSE event type to handler:
+   - `agent_thinking` → trace step (human-readable summary)
+   - `tool_call` → trace step (tool name + params)
+   - `tool_result` → trace step (result summary)
+   - `hitl_card` → show HITL card in dashboard
+   - `escalation` → notification + trace step
+   - `trace_entry` → trace step
+   - `confidence_update` → update header confidence
+   - `deviation` → notification + trace step
+   - `notification` → bell notification
+3. Event buffer: store events in memory for history replay
+4. Connection status indicator in header (green dot = connected, red = disconnected)
 
-**Steps:**
-1. In `app/ui/app.js`:
-   ```javascript
-   let notifCount=0;
-   function onNotification(data){
-     notifCount++; document.getElementById('notification-panel').classList.remove('hidden');
-     const badge=document.getElementById('notif-badge');
-     badge.textContent=notifCount; badge.classList.remove('hidden');
-     badge.animate([{transform:'scale(0)'},{transform:'scale(1.2)'},{transform:'scale(1)'}],{duration:300, easing:'cubic-bezier(0.16,1,0.3,1)'});
-     const li=document.createElement('li');
-     li.className="flex items-center justify-between gap-3 py-2";
-     li.innerHTML=`<span class="flex flex-wrap gap-1">${data.parties.map(p=>`<span class="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs">${p}</span>`).join('')}</span>
-       <span class="text-xs text-slate-400 font-mono tabular-nums">${data.timestamp?.slice(11,19)??''}</span>
-       <span class="text-sm text-slate-200">${data.message}</span>`;
-     document.getElementById('notification-list').prepend(li);
-   }
-   // wire: es.addEventListener('notification', e=> onNotification(JSON.parse(e.data)));
-   ```
+**Verification:** Start demo → SSE connects → events appear in trace in real time → confidence updates → notifications appear in bell.
 
-**Verification:** `notify_parties` → bell badge pops + feed row appears + SSE `notification` event.
+### 7.4 — HITL Card System (Critical Bug Fix)
+**Goal:** Single sequential HITL card with working approve/reject/modify. No popups, no stacking, no hanging cards.
 
-### 7.9: Admin Config Page (`/admin`)
-**Duration:** ~2 hours
-**What:** Build the admin UI at `/admin` (not linked from main dashboard, accessible via direct URL). Shows provider/model/base_url/api key status/confidence threshold/cost_params. Allows editing with auth guard (admin/admin123). API keys are write-only (never displayed).
-**Depends on:** 6.7 (admin API — ✅ done), 7.2 (design system established)
-**Backend endpoints (already built):**
-- `POST /api/admin/login` → session cookie
-- `GET /api/admin/config` → global LLM config + active problem summary
-- `POST /api/admin/config` → write provider/model/base_url to llm.yaml + confidence to problem YAML
-- `GET /api/admin/config/problem` → per-problem cost_params, constraints, escalation_triggers, confidence
-- `POST /api/admin/config/problem` → write per-problem config fields
-- `POST /api/admin/api-key` → inject API key into .env + os.environ (never echoes key)
-- `GET /api/admin/config/status` → API key status (no auth)
+**Files:** `app.js`, `style.css`, `index.html`
 
-**Steps:**
-1. Create `app/ui/admin.html` — standalone admin page (same dark OLED design system):
-   ```html
-   <!doctype html>
-   <html lang="en" class="dark">
-   <head>
-     <meta charset="utf-8" />
-     <meta name="viewport" content="width=device-width, initial-scale=1" />
-     <title>PSA Nexus — Admin Config</title>
-     <link rel="stylesheet" href="/ui/style.css" />
-     <link rel="preconnect" href="https://fonts.googleapis.com" />
-     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-     <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-   </head>
-   <body class="min-h-[100dvh] bg-[#020617] text-slate-50 antialiased">
-     <!-- Login form (shown when not authenticated) -->
-     <div id="login-screen" class="max-w-sm mx-auto mt-20 p-6 rounded-[1.5rem] bg-[#0F172A] border border-white/10">
-       <h2 class="text-lg font-semibold tracking-tight mb-4">Admin Login</h2>
-       <input id="login-user" type="text" placeholder="Username" class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm mb-3 focus-visible:ring-2 focus-visible:ring-emerald-500 outline-none" />
-       <input id="login-pass" type="password" placeholder="Password" class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm mb-4 focus-visible:ring-2 focus-visible:ring-emerald-500 outline-none" />
-       <button id="login-btn" class="w-full rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400 cursor-pointer">Login</button>
-       <div id="login-error" class="mt-2 text-sm text-red-400 hidden"></div>
-     </div>
+**Backend contract:**
+- SSE `hitl_card` event data: `{gate_id, gate_name, approval_card, confidence, risk_score, timeout_seconds, timeout_action}`
+- `POST /agent/hitl/respond` payload: `{run_id, decision: "approve"|"reject"|"modify", gate_id, reason?, modifications?}`
+- Returns: `{status: "waiting_hitl"|"completed", hitl_card?}` or 422 if stale
 
-     <!-- Config panels (shown after login) -->
-     <div id="config-screen" class="hidden max-w-[800px] mx-auto mt-10 px-4 space-y-6">
-       <h1 class="text-xl font-semibold tracking-tight">PSA Nexus — Admin Config</h1>
+**Tasks:**
+1. HITL card renderer:
+   - Only ONE card visible at any time
+   - Card shows gate name, description, approval_card data (formatted per gate type)
+   - Countdown timer showing remaining time before timeout
+   - Three buttons: APPROVE, REJECT, MODIFY
+2. Approve flow:
+   - Click APPROVE → POST `/agent/hitl/respond` with `decision: "approve"`
+   - Card shows "APPROVED" state briefly, then disappears
+   - If response has new `hitl_card`, show next card
+   - If response status is "completed", show completion state
+3. Reject flow:
+   - Click REJECT → inline text field appears below buttons
+   - Type reason → click CONFIRM REJECT → POST with `decision: "reject", reason: "..."`
+   - Or click CANCEL → text field disappears, back to normal card
+   - **No browser `prompt()` — everything inline**
+4. Modify flow:
+   - Click MODIFY → card expands to show editable fields
+   - Fields derived from `approval_card` content (e.g., road_containers, sea_containers)
+   - Edit values → click SUBMIT MODIFICATION → POST with `decision: "modify", modifications: {...}`
+   - Or click CANCEL → collapse back to normal card
+   - **Card does NOT hang — submission always closes card**
+5. Stale handling:
+   - If POST returns 422 → show error message inside card: `[HITL TIMED OUT — status: {status}]`
+   - Card stays visible for 5 seconds then disappears
+   - No alert, no popup
+6. Loading state:
+   - While waiting for POST response, buttons show loading state (disabled, spinner text)
+   - Prevent double-clicks
 
-       <!-- Global LLM Config -->
-       <section class="rounded-[1.5rem] bg-[#0F172A] border border-white/10 p-5 space-y-4">
-         <h2 class="text-xs font-medium tracking-widest uppercase text-slate-400">Global LLM Provider</h2>
-         <div class="grid grid-cols-2 gap-4">
-           <div>
-             <label class="text-xs text-slate-400">Provider</label>
-             <select id="cfg-provider" class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm mt-1 focus-visible:ring-2 focus-visible:ring-emerald-500 outline-none">
-               <option value="anthropic">Anthropic</option><option value="openai">OpenAI</option>
-               <option value="gemini">Gemini</option><option value="deepseek">DeepSeek</option>
-               <option value="ollama">Ollama (local)</option><option value="vllm">vLLM (local)</option>
-               <option value="lmstudio">LM Studio (local)</option><option value="custom">Custom (OpenAI-compat)</option>
-             </select>
-           </div>
-           <div><label class="text-xs text-slate-400">Model</label><input id="cfg-model" class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm mt-1 focus-visible:ring-2 focus-visible:ring-emerald-500 outline-none" /></div>
-           <div><label class="text-xs text-slate-400">Base URL</label><input id="cfg-base-url" class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm mt-1 focus-visible:ring-2 focus-visible:ring-emerald-500 outline-none" placeholder="(optional)" /></div>
-           <div><label class="text-xs text-slate-400">Confidence Threshold</label><input id="cfg-threshold" type="number" step="0.01" min="0" max="1" class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm mt-1 focus-visible:ring-2 focus-visible:ring-emerald-500 outline-none" /></div>
-         </div>
-         <div class="flex items-center gap-3">
-           <button id="cfg-save" class="rounded-full bg-emerald-500 px-4 py-1.5 text-sm font-medium text-slate-950 hover:bg-emerald-400 cursor-pointer">Save</button>
-           <span id="cfg-status" class="text-xs text-slate-400"></span>
-         </div>
-       </section>
+**Verification:** Start demo → HITL-1 card appears → approve → card disappears → HITL-2 appears → reject with reason → card disappears → modify with field edit → submit → card disappears → all 5 gates pass or some reject/timeout. No popups. No stacking. No hanging.
 
-       <!-- API Key Injection -->
-       <section class="rounded-[1.5rem] bg-[#0F172A] border border-white/10 p-5 space-y-4">
-         <h2 class="text-xs font-medium tracking-widest uppercase text-slate-400">API Key</h2>
-         <div id="api-key-status" class="text-xs text-slate-400 font-mono"></div>
-         <div class="grid grid-cols-2 gap-4">
-           <div>
-             <label class="text-xs text-slate-400">Provider</label>
-             <select id="key-provider" class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm mt-1 focus-visible:ring-2 focus-visible:ring-emerald-500 outline-none">
-               <option value="anthropic">Anthropic</option><option value="openai">OpenAI</option>
-               <option value="gemini">Gemini</option><option value="deepseek">DeepSeek</option>
-             </select>
-           </div>
-           <div><label class="text-xs text-slate-400">API Key</label><input id="key-value" type="password" class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm mt-1 focus-visible:ring-2 focus-visible:ring-emerald-500 outline-none" placeholder="sk-..." /></div>
-         </div>
-         <button id="key-inject" class="rounded-full bg-emerald-500 px-4 py-1.5 text-sm font-medium text-slate-950 hover:bg-emerald-400 cursor-pointer">Inject Key</button>
-       </section>
+### 7.5 — Data Visualizer
+**Goal:** Live status bars showing mock API data for each PSA system.
 
-       <!-- Per-Problem Config -->
-       <section class="rounded-[1.5rem] bg-[#0F172A] border border-white/10 p-5 space-y-4">
-         <h2 class="text-xs font-medium tracking-widest uppercase text-slate-400">Per-Problem Config</h2>
-         <div id="problem-config-display" class="text-xs text-slate-400 font-mono whitespace-pre-wrap"></div>
-       </section>
-     </div>
-     <script src="/ui/admin.js"></script>
-   </body>
-   </html>
-   ```
-2. Create `app/ui/admin.js` — login flow + config CRUD:
-   ```javascript
-   async function adminLogin() {
-     const user = document.getElementById('login-user').value;
-     const pass = document.getElementById('login-pass').value;
-     try {
-       const r = await fetch('/api/admin/login', {
-         method: 'POST', headers: {'Content-Type':'application/json'},
-         body: JSON.stringify({username: user, password: pass})
-       });
-       if (r.ok) {
-         document.getElementById('login-screen').classList.add('hidden');
-         document.getElementById('config-screen').classList.remove('hidden');
-         loadConfig();
-       } else {
-         document.getElementById('login-error').textContent = 'Invalid credentials';
-         document.getElementById('login-error').classList.remove('hidden');
-       }
-     } catch (e) { /* network error */ }
-   }
-   async function loadConfig() {
-     const r = await fetch('/api/admin/config', {credentials: 'same-origin'});
-     if (r.status === 401 || r.status === 403) { document.getElementById('login-screen').classList.remove('hidden'); document.getElementById('config-screen').classList.add('hidden'); return; }
-     const data = await r.json();
-     document.getElementById('cfg-provider').value = data.llm.provider;
-     document.getElementById('cfg-model').value = data.llm.model;
-     document.getElementById('cfg-base-url').value = data.llm.base_url;
-     document.getElementById('cfg-threshold').value = data.active_problem.confidence_threshold;
-     // API key status
-     const ks = document.getElementById('api-key-status');
-     ks.innerHTML = Object.entries(data.api_key_status).map(([k,v]) => `${k}: <span class="${v==='set'?'text-emerald-400':'text-amber-400'}">${v}</span>`).join(' · ');
-   }
-   async function saveConfig() {
-     await fetch('/api/admin/config', {
-       method: 'POST', credentials: 'same-origin',
-       headers: {'Content-Type':'application/json'},
-       body: JSON.stringify({
-         llm: { provider: document.getElementById('cfg-provider').value, model: document.getElementById('cfg-model').value, base_url: document.getElementById('cfg-base-url').value },
-         confidence_threshold: parseFloat(document.getElementById('cfg-threshold').value)
-       })
-     });
-     document.getElementById('cfg-status').textContent = 'Saved — provider changes take effect on next agent run';
-     setTimeout(() => document.getElementById('cfg-status').textContent = '', 5000);
-   }
-   async function injectKey() {
-     await fetch('/api/admin/api-key', {
-       method: 'POST', credentials: 'same-origin',
-       headers: {'Content-Type':'application/json'},
-       body: JSON.stringify({ provider: document.getElementById('key-provider').value, key: document.getElementById('key-value').value })
-     });
-     document.getElementById('key-value').value = '';
-     loadConfig(); // refresh status
-   }
-   document.getElementById('login-btn').onclick = adminLogin;
-   document.getElementById('cfg-save').onclick = saveConfig;
-   document.getElementById('key-inject').onclick = injectKey;
-   ```
-3. Mount in `app/main.py`: Add route `@app.get("/admin")` that serves `admin.html` from `app/ui/`:
-   ```python
-   from fastapi.responses import FileResponse
-   @app.get("/admin", tags=["Admin"])
-   async def admin_page():
-       return FileResponse("app/ui/admin.html")
-   ```
-   **Note:** This is a separate route from the `admin_router` prefix (`/api/admin/*`). No conflict.
+**Files:** `app.js`, `style.css`, `index.html` (dashboard panel)
 
-**Verification:** Open `/admin` → login form → enter admin/admin123 → see provider config → edit provider → save → status confirms "next agent run" → inject API key → status shows ✅.
+**Data sources (direct fetch, not from agent state):**
+- `GET /api/citos/ppt/containers` → container count, breakdown, DG, blocks
+- `GET /api/optetruck/capacity` → trucks available, transit time
+- `GET /api/feeder/FEEDER%20ATLANTIC-03` → berth status, capacity, departure
+- `GET /api/citos/tuas/loading-sequence` → QC assignments, ETA
 
-## Verification Loop
+**Tasks:**
+1. Data fetcher function: fetches all four endpoints in parallel
+2. Renderer for each system block:
+   - `[CITOS PPT]` — container bar (X/120), DG count, blocks list
+   - `[OPTETRUCK]` — truck bar (X/50), transit time, cost/trip
+   - `[FEEDER]` — capacity bar (X/800 TEU), berth status, departure window
+   - `[TUAS QC]` — QC assignments (QC-07: Bay14, Bay12), ETA
+3. Status bar CSS: pure div with `background` for fill, `background: #1C1C1C` for empty
+4. Color coding: green (healthy), amber (warning), red (critical)
+5. Refresh triggers: demo start, after each HITL approval, manual refresh button
+6. Last-updated timestamp per block
 
-After all sub-phases:
-1. `http://localhost:8000/ui/` — dark OLED, bento, mesh ambient, no layout shift on mobile Safari (`min-h-[100dvh]`), no horizontal scroll.
-2. Run Demo — typewriter streams token-by-token, skeletons → content waterfall 80ms, heartbeat keeps alive, early events replayed via buffer.
-3. HITL — spotlight card + tactile push + countdown + tab-focus ring + `aria-live` announcement; approve/reject/modify/stale (422 caught) all work.
-4. Edge inject — amber pulse arms after dispatch, per-run isolation verified.
-5. Trace — mono numbers, color+icon legend, divide-y density, smooth scroll, tooltip JSON.
-6. Switch — all 7 problems in dropdown, tool/gate chips stagger, banner spring.
-7. Notifications — bell overshoot, feed live.
-8. `http://localhost:8000/admin` — login → config → save → API key inject.
-9. Lighthouse/a11y — 4.5:1 passes, 375/768/1024/1440 clean, `prefers-reduced-motion` disables loops, no emoji icons, no `h-screen`, no pure black.
+**Verification:** Dashboard shows four data blocks with bars and numbers. Data matches mock API responses. Bars update after demo actions.
 
-## Commit
-After verification: `git commit -m "Phase 7: Web UI — Nexus dashboard (OLED bento, liquid glass, spotlight HITL, typewriter SSE)"`
+### 7.6 — Agent Trace (Step-by-Step)
+**Goal:** Human-readable step list with expandable detail, driven by SSE events.
+
+**Files:** `app.js`, `style.css`, `index.html` (trace panel)
+
+**Tasks:**
+1. Trace step renderer:
+   - Each step: number badge, action label (UPPERCASE), timestamp, one-line summary
+   - Red badge for HITL steps, green for completions, white for normal
+   - Click to expand: full JSON in `<pre>` block
+2. SSE event → trace step mapping:
+   - `agent_thinking` → step label: `REASONING`, summary: first 100 chars of thought
+   - `tool_call` → step label: `TOOL: {tool_name}`, summary: key params
+   - `tool_result` → appends to previous tool_call step, shows result summary
+   - `hitl_card` → step label: `HITL-N: WAITING`, summary: gate name
+   - `trace_entry` → uses `step` and `event_type` from data
+   - `escalation` → step label: `ESCALATION`, summary: trigger + who
+   - `deviation` → step label: `DEVIATION`, summary: what changed
+3. Auto-scroll: new steps appear at bottom, auto-scroll if user is at bottom
+4. Step counter in tab header: `[AGENT TRACE: run-abc123] [12 steps] [STATUS]`
+5. Empty state: `[ NO TRACE DATA — START A DEMO ]`
+
+**Verification:** Start demo → steps appear in real time → click step → expands to show full detail → scroll back up → auto-scroll resumes when at bottom.
+
+### 7.7 — History Tab
+**Goal:** Past run cards with expandable traces, SSE replay capability.
+
+**Files:** `app.js`, `style.css`, `index.html` (history panel)
+
+**Tasks:**
+1. Fetch runs on tab open: `GET /webhook/runs`
+2. Run card renderer:
+   - Header: run_id, problem_id, status badge, timestamp, duration
+   - Summary: key outcome (containers, split, cost)
+   - Click to expand: full trace (same as Agent Trace format)
+3. SSE replay for expanded trace:
+   - Replay buffered events from `broadcaster.get_buffered(run_id)`
+   - Reconstruct trace steps from buffered events
+4. Auto-refresh: poll `/webhook/runs` every 10 seconds when tab is active
+5. Empty state: `[ NO RUN HISTORY — START A DEMO ]`
+6. Status badges: COMPLETED (green), HALTED (red), WAITING (amber), FAILED (red)
+
+**Verification:** Complete a demo run → history tab shows the run card → click to expand → trace appears. Start another run → history updates automatically.
+
+### 7.8 — Edge Injection Sidebar
+**Goal:** Slide-out panel for injecting edge cases, visible on Dashboard and Agent Trace tabs.
+
+**Files:** `app.js`, `style.css`, `index.html`
+
+**Tasks:**
+1. Sidebar toggle: gear icon in tab bar → slide-in from right (320px)
+2. Inject feeder conflict button:
+   - `POST /agent/inject-edge-case` with `case: "feeder_berth_conflict"`
+   - Show status feedback after inject
+3. Inject stale data button:
+   - Minutes input field (default 25)
+   - `POST /agent/inject-edge-case` with `case: "stale_data", minutes: X`
+   - Show status feedback
+4. Reset mocks button:
+   - `POST /agent/reset-mocks`
+   - Clear inject status
+5. Status display: shows current mock state (clean / injected / what case)
+6. Close sidebar: X button or click outside
+
+**Verification:** Open sidebar → inject feeder conflict → status shows "injected" → close sidebar → start demo → agent detects conflict → sidebar shows current state. Reset → clean.
+
+### 7.9 — Notification Bell + Dropdown
+**Goal:** Bell icon with count badge and notification list.
+
+**Files:** `app.js`, `style.css`, `index.html` (header)
+
+**Tasks:**
+1. Bell icon: SVG, no emoji
+2. Badge: red circle with count (monospace number)
+3. Dropdown on click:
+   - List of notifications (max 20)
+   - Each: message, parties, timestamp
+   - Scrollable if more than 5
+4. Source: SSE `notification` events
+5. Clear badge on dropdown open
+6. Empty state: `[ NO NOTIFICATIONS ]`
+
+**Verification:** During demo, notifications appear in bell dropdown. Count badge updates. Click opens dropdown, badge clears.
+
+### 7.10 — Admin Page
+**Goal:** Separate admin page at `/admin` with provider config, API key injection.
+
+**Files:** `app/ui/admin.html`, `app/ui/admin.js`
+
+**Tasks:**
+1. `admin.html`: standalone page with same CRT theme
+2. Login form: username + password → `POST /api/admin/login`
+3. After login: show provider config (provider, model, base_url, api_type)
+4. API key injection: masked input + save button → `POST /api/admin/api-key`
+5. Provider readiness indicator (green/red)
+6. Config editing: inject/confidence.threshold/cost_params
+7. No link from dashboard to admin (secret URL `/admin`)
+
+**Verification:** Navigate to `/admin` → login form → enter credentials → see config → inject API key → see readiness update.
+
+### 7.11 — Bug Fixes + Polish
+**Goal:** Fix all identified old-UI bugs, add final polish.
+
+**Bugs to fix:**
+1. ~~Multiple HITL cards popping up~~ → single card system (7.4)
+2. ~~HITL cards don't work~~ → full approve/reject/modify flow (7.4)
+3. ~~Modify hangs the card~~ → inline expand + submit (7.4)
+4. ~~Rejection uses browser prompt()~~ → inline text field (7.4)
+5. ~~Edge injection buttons don't do anything~~ → actual API calls + feedback (7.8)
+6. ~~Orchestrator log unreadable~~ → human-readable trace steps (7.6)
+7. ~~No data visualization~~ → status bars for mock APIs (7.5)
+8. ~~Notifications not integrated~~ → bell dropdown (7.9)
+
+**Polish:**
+1. Loading states on all async operations (skeleton loaders)
+2. Empty states for all panels (helpful messages)
+3. Error states for failed API calls (inline, not alert)
+4. Responsive: single column on mobile (<768px)
+5. Keyboard navigation: tab through cards, enter to activate
+6. Connection status indicator (SSE alive/dead)
+7. ASCII decorative borders on all panels
+8. `prefers-reduced-motion` respect
+
+---
+
+## Verification Strategy
+
+### Manual Testing Checklist
+1. Start demo → dashboard loads, data visualizer shows mock data
+2. HITL-1 card appears → approve → card disappears → HITL-2 appears
+3. HITL-2 → reject with reason → card disappears
+4. Modify → edit field → submit → card disappears
+5. All 5 HITL gates pass → run completes
+6. Agent trace tab → steps appear in real time → click to expand
+7. History tab → completed run appears → click to expand trace
+8. Edge sidebar → inject feeder conflict → reset → clean
+9. Problem switcher → switch to PB-01 → different tools/gates shown
+10. Notification bell → notifications appear during demo
+11. Admin page → login → see config → inject API key
+12. SSE reconnect → events resume from Last-Event-ID
+13. No `prompt()`, `alert()`, `confirm()` anywhere
+14. No browser console errors
+15. CRT effects visible but readable on projector
+
+### Automated Testing
+- All 183 existing tests pass (no backend regressions)
+- No new backend changes needed — this is pure frontend
+
+---
+
+## Anti-Patterns (What We're NOT Doing)
+- No React, no Next.js, no build tools
+- No purple/blue AI gradients
+- No emojis in code or UI
+- No Inter font
+- No `border-radius` (mechanical rigidity)
+- No gradients, no drop shadows, no blur/translucency
+- No `prompt()`, `alert()`, `confirm()`
+- No centered hero sections
+- No card stacking
+- No generic card patterns (border + shadow + white bg)
+- No color-only status indicators (always icon + text + color)

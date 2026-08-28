@@ -608,123 +608,138 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 
 ---
 
-### Phase 7: Web UI & Integration — PSA Nexus Dashboard
-**Goal:** Build the PSA Nexus dashboard with real-time SSE streaming, problem switcher, approval cards, demo scenario controls, and admin config page.
+### Phase 7: Web UI — PSA Nexus Tactical Console
+**Goal:** Build the PSA Nexus dashboard — tactical telemetry operations console with real-time SSE streaming, step-by-step agent trace, run history, HITL approval cards, edge injection controls, and problem switching. Industrial brutalist dark theme. Vanilla HTML/CSS/JS. All old UI bugs eliminated.
 **Depends on:** Phase 6.7
 **Requirements:** U-01 through U-12
 **Success Criteria** (what must be TRUE):
-  1. Web UI loads in browser with clean, professional design
-  2. SSE endpoint streams agent thoughts, tool calls, and HITL cards in real time
-  3. HITL approval buttons work (approve/reject/modify)
-  4. Edge case injection controls work (feeder conflict, stale data)
-  5. Demo scenario can be triggered from UI
-  6. Admin page at /admin shows provider config, allows editing, API key injection
+  1. Dashboard loads with tactical telemetry aesthetic — dark CRT, monospace data, visible grid borders, red accent
+  2. SSE streams agent events in real time with replay buffer and `Last-Event-ID` support
+  3. HITL cards appear one at a time, approve/reject/modify all work inline (no popups, no stacking, no hanging)
+  4. Rejection uses inline text field (no browser `prompt()`), modify expands with editable fields
+  5. Data visualizer shows live mock API data (containers, trucks, feeder, QC)
+  6. Agent trace shows human-readable step list with expandable detail
+  7. History tab shows past runs with expandable traces
+  8. Edge injection sidebar works on both Dashboard and Agent Trace tabs
+  9. Problem switcher dropdown in header changes active problem
+  10. Notifications appear as bell icon with dropdown
+  11. Admin page accessible via `/admin` link (not a tab)
+  12. No `prompt()`, `alert()`, `confirm()` anywhere in the UI
+  13. 183+ tests still pass (no backend regressions)
 **Status:** ○ NOT STARTED
+
+#### Design System — Tactical Telemetry
+- **Archetype:** Tactical Telemetry & CRT Terminal (dark mode, monospace, ASCII framing)
+- **Background:** `#0A0A0A` | **Surface:** `#141414` | **Border:** `#2A2A2A`
+- **Text primary:** `#EAEAEA` | **Text secondary:** `#888888` | **Text muted:** `#555555`
+- **Accent:** `#E61919` (aviation red — only accent) | **Status green:** `#4AF626` (single use)
+- **Font:** JetBrains Mono (data) + IBM Plex Mono (labels/meta) — all micro-type UPPERCASE
+- **Effects:** Subtle CRT scanlines + SVG noise grain (both `pointer-events: none`)
+- **Layout:** CSS Grid, visible 1px borders, `border-radius: 0`, no gradients/shadows/blur
 
 #### Sub-phases
 
-##### 7.1: SSE Endpoint (with Replay Buffer for Race Condition)
-**What:** Build SSE endpoint that buffers events before subscriber connects.
+##### 7.1: CSS Design System + HTML Shell
+**What:** Establish complete design system as CSS custom properties, build HTML skeleton with three tabs, header, and navigation.
 **Duration:** ~2 hours
 **Deliverables:**
-- `app/agent/sse.py` — `SSEBroadcaster` with `queues + buffers(deque maxlen=100) + cleanup`; `publish()` buffers even before `stream()` connects; `stream()` replays buffered events then live streams
-- `app/main.py` — `GET /agent/stream/{run_id}`; broadcaster singleton passed to `run_agent(broadcaster=)` via `AgentState["_broadcaster"]`
-- 8 event types: `agent_thinking, tool_call, tool_result, hitl_card, escalation, trace_entry, confidence_update, deviation, heartbeat`
-**Depends on:** Phase 6
-**Verification:** `curl -N localhost:8000/agent/stream/{run_id}` shows buffered + live events
+- `app/ui/style.css` — CSS custom properties for all tokens, CRT effects (scanlines + grain), grid layouts, typography, ASCII decorative elements, focus-visible rings, `prefers-reduced-motion` support
+- `app/ui/index.html` — semantic HTML: `<header>` (logo, switcher, confidence, bell, admin), `<nav>` (3 tab buttons), `<main>` (3 tab panels), edge sidebar, notification dropdown
+- Google Fonts CDN: JetBrains Mono + IBM Plex Mono
+**Depends on:** Phase 6.7
+**Verification:** Page loads in browser, all three tabs switch, design tokens apply, CRT effects visible but subtle, fonts load
 
-##### 7.2: HTML/CSS/JS Frontend
-**What:** Build the web UI with professional design.
-**Duration:** ~4 hours
+##### 7.2: Header + Navigation + Tab Switching
+**What:** Functional header with problem switcher, live confidence/risk, notification bell, admin link, tab switching.
+**Duration:** ~2 hours
 **Deliverables:**
-- `app/ui/index.html` — main page with:
-  - Agent status panel (current step, confidence score)
-  - Agent reasoning display (streaming text)
-  - Tool call log (collapsible per tool)
-  - HITL approval card area
-  - Execution trace sidebar
-  - Edge case injection controls
-  - Demo scenario trigger button
-- `app/ui/style.css` — professional CSS (dark theme, clean typography, responsive)
-- `app/ui/app.js` — SSE client, DOM manipulation, event handling
+- `app/ui/app.js` — tab switching logic, problem switcher dropdown (fetch `GET /agent/active-problem`, `POST /agent/switch-problem/{id}`), confidence/risk display (SSE `confidence_update`), notification bell (SSE `notification` events + badge), admin link
 **Depends on:** 7.1
-**Verification:** Open `http://localhost:8000/ui/` in browser, UI loads
+**Verification:** Tab switching works, problem switcher calls API, confidence updates from SSE, bell shows count
 
-##### 7.3: HITL Approval Cards
-**What:** Build the HITL approval card component with approve/reject/modify buttons.
+##### 7.3: SSE Connection + Event Handling
+**What:** Robust SSE connection with replay, heartbeats, and event routing to UI components.
+**Duration:** ~2 hours
+**Deliverables:**
+- `app/ui/app.js` — `connectSSE(run_id)` with `EventSource`, `Last-Event-ID` support, reconnect with backoff, heartbeat handling, event router dispatching to handlers (agent_thinking, tool_call, tool_result, hitl_card, escalation, trace_entry, confidence_update, deviation, notification), event buffer for history replay, connection status indicator
+**Depends on:** 7.2
+**Verification:** Start demo → SSE connects → events appear in trace → confidence updates → notifications appear
+
+##### 7.4: HITL Card System (Critical Bug Fix)
+**What:** Single sequential HITL card with working approve/reject/modify. No popups, no stacking, no hanging cards. Inline reject text field, inline modify expand. Stale 422 shown inline.
 **Duration:** ~3 hours
 **Deliverables:**
-- `app/ui/app.js` — HITL card rendering:
-  - Card shows: gate name, cost summary, recommendation, confidence score
-  - Approve button → POST `/agent/hitl/respond` with decision
-  - Reject button → opens text input for rejection reason
-  - Modify button → opens text input for modifications
-  - Visual feedback (loading, success, error)
-- `app/main.py` — HITL response endpoint: `POST /agent/hitl/respond`
-**Depends on:** 7.2, Phase 6
-**Verification:** HITL card appears when gate fires, buttons send correct responses
+- `app/ui/app.js` — HITL card renderer (ONE card visible, countdown timer), approve flow (POST + card disappear + next card), reject flow (inline text field + confirm/cancel), modify flow (inline expand + editable fields + submit/cancel), stale 422 handling (inline error, no alert), loading states (disabled buttons during POST)
+- `app/ui/style.css` — HITL card styling, reject field, modify expand, countdown
+**Depends on:** 7.3
+**Verification:** Start demo → HITL-1 appears → approve → disappears → HITL-2 → reject with reason → disappears → modify with edit → submit → disappears → all 5 gates pass. No popups. No stacking. No hanging.
 
-##### 7.4: Edge Case Injection Controls (Mutates Mock Data Layer)
-**What:** Build UI controls that mutate mock data so monitor re-query sees conflict.
+##### 7.5: Data Visualizer
+**What:** Live status bars showing mock API data for each PSA system. Direct fetch from mock endpoints.
 **Duration:** ~2 hours
 **Deliverables:**
-- `app/ui/app.js` — buttons pass `run_id`; hint "Inject AFTER dispatch, BEFORE monitor check"
-- `app/main.py` — `POST /agent/inject-edge-case` mutates `app/mocks/data.py` (not just AgentState); next `monitor_node` T3 re-query sees conflict → escalation #2 + deviation
-- Reset: `POST /agent/reset-mocks` restores clean mock data
-**Depends on:** 7.2, 6.10 (monitor must exist)
-**Verification:** inject → monitor re-query → berth_status="conflict" → deviation detected → HITL-5 fires
+- `app/ui/app.js` — data fetcher (parallel fetch of 4 mock endpoints), renderer for `[CITOS PPT]` (container bar X/120, DG, blocks), `[OPTETRUCK]` (truck bar X/50, transit), `[FEEDER]` (capacity bar X/800, berth, departure), `[TUAS QC]` (QC assignments, ETA), color coding (green/amber/red), refresh triggers, timestamps
+- `app/ui/style.css` — status bar CSS (div-based fill/empty), monospace numbers
+**Depends on:** 7.1
+**Verification:** Dashboard shows 4 data blocks with bars and numbers matching mock API responses
 
-##### 7.5: Demo Scenario Runner (SSE-First, with Reset)
-**What:** Build demo trigger that connects SSE before starting agent (race fix).
+##### 7.6: Agent Trace (Step-by-Step)
+**What:** Human-readable step list with expandable detail, driven by SSE events. No raw orchestrator logs.
 **Duration:** ~2 hours
 **Deliverables:**
-- `app/ui/app.js` — `run-demo` connects SSE immediately after receiving run_id; `connectSSE()` handles 8 event types; `reset` calls `POST /agent/reset/{run_id}` + `POST /agent/reset-mocks`
-- `app/main.py` — `POST /agent/run-demo` returns `{run_id, status, hitl_card?}`; `POST /agent/reset/{run_id}` + `POST /agent/reset-mocks`
-- Progress indicator: "Step 6/17: Computing optimal split..."
-**Depends on:** 7.2, 7.3
-**Verification:** Click "Run Demo" → SSE streams immediately → HITL cards appear → full 17-step scenario plays out
+- `app/ui/app.js` — trace step renderer (number badge, UPPERCASE action label, timestamp, one-line summary, click-to-expand full JSON), SSE event → step mapping (agent_thinking→REASONING, tool_call→TOOL: name, hitl_card→HITL-N: WAITING, escalation→ESCALATION, deviation→DEVIATION), auto-scroll, step counter, empty state
+- `app/ui/style.css` — trace step styling, expand/collapse, red badges for HITL
+**Depends on:** 7.3
+**Verification:** Start demo → steps appear real-time → click step → expands → scroll back → auto-scroll resumes
 
-##### 7.6: Execution Trace Display
-**What:** Build the execution trace sidebar showing full graph execution.
+##### 7.7: History Tab
+**What:** Past run cards with expandable traces, SSE replay capability.
+**Duration:** ~2 hours
+**Deliverables:**
+- `app/ui/app.js` — fetch runs (`GET /webhook/runs`), run card renderer (run_id, problem, status badge, duration, summary), click-to-expand trace, SSE replay from buffer, auto-refresh (10s poll), empty state, status badges (COMPLETED=green, HALTED=red, WAITING=amber)
+- `app/ui/style.css` — history card grid, expand/collapse, status badges
+**Depends on:** 7.6
+**Verification:** Complete run → history shows card → click expand → trace appears. New run → history updates.
+
+##### 7.8: Edge Injection Sidebar
+**What:** Slide-out panel for injecting edge cases, visible on Dashboard and Agent Trace tabs.
+**Duration:** ~1.5 hours
+**Deliverables:**
+- `app/ui/app.js` — sidebar toggle (gear icon, slides from right, 320px), inject feeder conflict (`POST /agent/inject-edge-case`), inject stale data (minutes input + POST), reset mocks (`POST /agent/reset-mocks`), status display (clean/injected), close on X or outside click
+- `app/ui/style.css` — sidebar slide animation, inject buttons, status display
+**Depends on:** 7.1
+**Verification:** Open sidebar → inject conflict → status shows "injected" → close → start demo → agent detects conflict
+
+##### 7.9: Notification Bell + Dropdown
+**What:** Bell icon with count badge and notification list.
 **Duration:** ~1 hour
 **Deliverables:**
-- `app/ui/app.js` — trace panel:
-  - Collapsible sidebar showing trace entries
-  - Each entry: timestamp, node name, action, result
-  - Color-coded by type (tool=blue, HITL=yellow, escalation=red, notification=purple, deviation=orange)
+- `app/ui/app.js` — bell icon (SVG), badge (red circle + count), dropdown (max 20 notifications, message + parties + timestamp), clear badge on open, empty state
+- `app/ui/style.css` — bell styling, badge, dropdown, notification items
 **Depends on:** 7.2
-**Verification:** Trace entries appear in sidebar as agent runs
+**Verification:** During demo → notifications appear in dropdown → badge updates → click opens → badge clears
 
-##### 7.7: Problem Switcher
-**What:** Build the PSA Nexus platform switcher — the proof of generalisability.
+##### 7.10: Admin Page
+**What:** Separate admin page at `/admin` with provider config, API key injection. Same CRT theme.
 **Duration:** ~2 hours
 **Deliverables:**
-- `app/ui/index.html` — dropdown with 7 problems (PB-01..PB-12), "Switch" button
-- `app/ui/app.js` — `switchProblem(id)`: `POST /agent/switch-problem/{id}` → update displayed systems/tools/gates, show "Now running: PB-01 Berth Delay" banner
-- `app/main.py` — endpoint already in Phase 4.8; UI just calls it
-- Visual: tool list + HITL gate list update when problem switches (e.g. PB-12 shows 5 gates, PB-01 shows 2 gates)
-**Depends on:** 7.2, 4.8
-**Verification:** Select PB-01 → switch → tool list changes to VTIS/OptEVoyage/CITOS berth; select PB-12 → back to CITOS/OptETruck/PORTNET
+- `app/ui/admin.html` — standalone page, same design system, login form → config display → API key injection → provider readiness
+- `app/ui/admin.js` — login (`POST /api/admin/login`), config fetch/edit (`GET/POST /api/admin/config`), API key injection (`POST /api/admin/api-key`), provider readiness indicator
+**Depends on:** 6.7 (backend admin API), 7.1 (design system)
+**Verification:** Navigate to `/admin` → login → see config → inject key → readiness updates
 
-##### 7.8: Notification Display
-**What:** Show multi-party notifications live.
-**Duration:** ~1 hour
-**Deliverables:**
-- `app/ui/index.html` — notification panel (bell icon + list)
-- `app/ui/app.js` — listens for SSE `notification` events → appends `{parties, message, timestamp}` to panel
-**Depends on:** 7.2, 5.10
-**Verification:** Agent calls `notify_parties` → notification appears in panel + SSE `notification` event
-
-##### 7.9: Admin Config Page (`/admin`)
-**What:** Build the admin UI at `/admin` (not linked from main dashboard, accessible via direct URL). Shows provider/model/base_url/api key status/confidence threshold/cost_params. Allows editing with auth guard (admin/admin123). API keys are write-only (never displayed).
+##### 7.11: Bug Fixes + Polish
+**What:** Fix all old-UI bugs, add loading/empty/error states, responsive design, keyboard nav.
 **Duration:** ~2 hours
 **Deliverables:**
-- `app/ui/admin.html` — admin page (dark OLED style matching main dashboard, Phosphor icons)
-- `app/ui/admin.js` — login form, config display, edit forms, API key injection form
-- `app/main.py` — mount `admin.html` at `/admin` (separate from main `/ui/`)
-- Design: same design system as main dashboard (dark OLED, bento, liquid glass) but simpler layout (single column config form)
-**Depends on:** 6.7 (backend admin API), 7.2 (design system established)
-**Verification:** Open `/admin` → login form → enter admin/admin123 → see config → edit provider → save → API key status shows ✅/❌
+- All identified bugs eliminated (multiple cards, hanging cards, prompt(), disconnected buttons, unreadable logs)
+- Loading states (skeleton loaders), empty states (helpful messages), error states (inline, not alert)
+- Responsive: single column <768px
+- Keyboard navigation through cards
+- SSE connection status indicator
+- ASCII decorative borders on all panels
+**Depends on:** 7.1–7.10
+**Verification:** No `prompt()`/`alert()`/`confirm()`, no console errors, responsive on mobile, keyboard nav works
 
 ---
 

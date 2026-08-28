@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-08-27)
 
 **Core Value:** Build PSA Nexus — a generalizable agentic platform (Cluster C2, 7 problems) demonstrated via PB-12 (ITT Coordination, $8K/incident) and proven switchable to a sibling problem (e.g. PB-01 Berth Delay) on the same LangGraph core.
-**Current focus:** Phase 7 — Web UI — Nexus Dashboard (next to execute)
+**Current focus:** Phase 7 — PSA Nexus Tactical Console (next to execute, rewritten)
 
 ## Current Position
 
-Phase: 7 of 10 (Web UI — next to execute)
+Phase: 7 of 10 (PSA Nexus Tactical Console — next to execute, rewritten)
 Plans: 11 detailed plans created (Phases 1–3 research + Phases 4–8 build + 6.5 wiring + 6.7 admin API + 07.1 Integrated Verification, 68 sub-phases)
-Status: Phases 1–6.7 complete (Phase 6.7 executed 2026-08-28 — global llm.yaml, removed llm: from 7 YAMLs, admin auth + config API + API key injection). Phases 7–8 (+07.1 gate) planned.
-Last activity: 2026-08-28 — Phase 6.7 complete: global LLM config, admin module (auth + config endpoints + API key injection), 172 tests pass
+Status: Phases 1–6.7 complete (Phase 6.7 executed 2026-08-28 — global llm.yaml, removed llm: from 7 YAMLs, admin auth + config API + API key injection). Phases 7–8 (+07.1 gate) planned. Phase 7 REWRITTEN — old OLED bento UI deleted, new tactical telemetry console planned.
+Last activity: 2026-08-28 — Phase 7 old UI deleted, new Phase 7 plan written (industrial brutalist tactical telemetry, 11 sub-phases, vanilla HTML/CSS/JS)
 
 Progress: ████████░░ 72% (8/11 phases complete, 3 planned)
 
@@ -53,7 +53,7 @@ Progress: ████████░░ 72% (8/11 phases complete, 3 planned)
 | Admin API | ✅ Done | `app/admin/` auth (admin/admin123, HMAC cookie) + GET/POST /api/admin/config + POST /api/admin/api-key (write-only) — Phase 6.7 |
 | Escalation triggers | ✅ Done | `app/agent/escalation.py` 7 triggers `<0.85/>1.5h/>$10k/>30m/<60%/>15m/planner_conflict`, confidence 0.92→0.78→0.90 — Phase 6.6 |
 | Monitoring loop | ✅ Done | `app/agent/monitor.py` re-query T3 → detect berth conflict → re-compute 80/40→100/20 + HITL-5 emergency, `e2e` deviation PASSED 37s — Phase 6.10 |
-| Web UI / SSE | ❌ Not started | — Phase 7 (Nexus branding + SSE replay buffer + problem switcher) |
+| Web UI / SSE | ❌ Rework planned | `app/ui/` — old UI deleted. New tactical telemetry console (Phase 7 rewritten, 11 sub-phases, industrial brutalist dark theme, vanilla HTML/CSS/JS) |
 | Docker / deploy | ❌ Not started | — Phase 8 (pinned deps + local docker-compose only, 8.3 Railway/Render DISABLED) |
 | Demo video / deck | ❌ Not started | — Phase 8 (Nexus deck per rubric, sibling switch demo) |
 
