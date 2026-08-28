@@ -19,6 +19,7 @@ import {
   getContainerData,
   getTruckData,
   getFeederData,
+  getQcData,
   resetMocks,
   getActiveProblem,
   injectEdgeCase,
@@ -26,6 +27,7 @@ import {
   type ContainerData,
   type TruckData,
   type FeederData,
+  type QcData,
 } from '@/api/nexus';
 
 const PROBLEMS = [
@@ -50,6 +52,7 @@ export default function NexusDashboard() {
   const [containers, setContainers] = useState<ContainerData | null>(null);
   const [trucks, setTrucks] = useState<TruckData | null>(null);
   const [feeder, setFeeder] = useState<FeederData | null>(null);
+  const [qc, setQc] = useState<QcData | null>(null);
 
   const [costData, setCostData] = useState({
     roadCost: 0,
@@ -135,6 +138,7 @@ export default function NexusDashboard() {
           getContainerData().then(setContainers).catch(() => {});
           getTruckData().then(setTrucks).catch(() => {});
           getFeederData().then(setFeeder).catch(() => {});
+          getQcData().then(setQc).catch(() => {});
           break;
 
         default:
@@ -182,9 +186,12 @@ export default function NexusDashboard() {
     setRunId(null);
     setEvents([]);
     setHitlGate(null);
+    setConfidence(null);
+    setRiskScore(null);
     getContainerData().then(setContainers).catch(() => {});
     getTruckData().then(setTrucks).catch(() => {});
     getFeederData().then(setFeeder).catch(() => {});
+    getQcData().then(setQc).catch(() => {});
   }
 
   async function handleEdgeCase(caseType: string) {
@@ -198,6 +205,7 @@ export default function NexusDashboard() {
       getContainerData().then(setContainers).catch(() => {});
       getTruckData().then(setTrucks).catch(() => {});
       getFeederData().then(setFeeder).catch(() => {});
+      getQcData().then(setQc).catch(() => {});
     } catch (err) {
       console.error('Edge case injection failed:', err);
     } finally {
@@ -256,14 +264,6 @@ export default function NexusDashboard() {
           </Badge>
           <Badge variant="outline" className="text-[10px]">
             Risk: {riskScore !== null ? (riskScore >= 0.7 ? 'High' : riskScore >= 0.4 ? 'Medium' : 'Low') : '—'}
-          </Badge>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="secondary" className="text-[10px]">
-            Confidence: 92%
-          </Badge>
-          <Badge variant="outline" className="text-[10px]">
-            Risk: Low
           </Badge>
         </div>
       </div>
@@ -362,10 +362,18 @@ export default function NexusDashboard() {
           />
           <SystemStatusCard
             name="Tuas QC"
-            metric="Operational"
-            value={100}
-            max={100}
-            status="green"
+            metric={qc ? `${qc.qc_status.filter((q) => q.status === 'available').length}/${qc.qc_count} cranes` : 'Loading...'}
+            value={qc ? qc.qc_status.filter((q) => q.status === 'available').length : 0}
+            max={qc?.qc_count ?? 3}
+            status={
+              qc
+                ? qc.qc_status.every((q) => q.status === 'available')
+                  ? 'green'
+                  : qc.qc_status.some((q) => q.status === 'available')
+                  ? 'amber'
+                  : 'red'
+                : 'green'
+            }
           />
         </div>
       </div>

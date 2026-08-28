@@ -49,6 +49,14 @@ export interface FeederData {
   available_capacity_teu: number;
 }
 
+export interface QcData {
+  berth_id: string;
+  qc_count: number;
+  qc_status: Array<{ qc_id: string; status: string }>;
+  crane_status: Record<string, string>;
+  timestamp: string;
+}
+
 export interface RunRecord {
   run_id: string;
   problem_id: string;
@@ -137,6 +145,10 @@ export async function getTruckData() {
 
 export async function getFeederData() {
   return apiFetch<FeederData>('/api/feeder/FEEDER%20ATLANTIC-03');
+}
+
+export async function getQcData(berthId: string = 'B-03') {
+  return apiFetch<QcData>(`/api/berth/${encodeURIComponent(berthId)}/qc`);
 }
 
 export async function getLoadingSequence() {
