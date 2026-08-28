@@ -649,15 +649,15 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 **Plans:** 1 plan (this file)
 
 ### Phase 8: Polish & Deploy — PSA Nexus Launch
-**Goal:** Dockerise, deploy to free tier, instrument latency, prepare submission assets showcasing PSA Nexus as a generalizable platform.
+**Goal:** Dockerise PSA Nexus locally, instrument latency, prepare submission assets showcasing it as a generalizable platform. **Railway/Render deployment intentionally skipped — local-only demo.**
 **Depends on:** Phase 07.1
 **Requirements:** D-01 through D-08
 **Success Criteria** (what must be TRUE):
-  1. Docker image builds and runs on Railway/Render free tier
+  1. Docker image builds and runs locally via `docker compose up` (localhost:8000) — ~~Railway/Render free tier~~ DISABLED
   2. 10-minute demo video recorded showing PB-12 full flow + sibling switch + edge cases + robustness
   3. 10-slide deck covers problem, disruption gap, solution, autonomy/HITL, architecture, trace/orchestration, guardrails, scalability (PB-12 vs PB-01, $1.26M cluster), ROI, roadmap
   4. All submission assets uploaded before 2026-09-04
-  5. Problem switching works on deployed instance (PB-12 ↔ PB-01)
+  5. Problem switching works locally (PB-12 ↔ PB-01)
   6. Latency metrics captured: SSE p50/p95, wall time
 **Status:** ○ NOT STARTED
 
@@ -683,26 +683,21 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 **Depends on:** 8.1
 **Verification:** `docker compose up` starts app, accessible at localhost:8000
 
-##### 8.3: Deploy to Free Tier
-**What:** Deploy to Railway or Render free tier.
-**Duration:** ~2 hours
-**Deliverables:**
-- Deployed app accessible via public URL
-- Environment variables configured (API keys, provider settings)
-- Health check passing
-**Depends on:** 8.1
-**Verification:** Public URL returns `/health` OK, UI loads
+##### ~~8.3: Deploy to Free Tier~~
+> **DISABLED — LOCAL-ONLY DEMO.** This sub-phase is intentionally skipped. The demo runs on local Docker (`docker compose up` + `localhost:8000`). Railway/Render deployment not required for competition. Do not execute.
+>
+> ~~Deployed app accessible via public URL~~ | ~~Environment variables configured~~ | ~~Health check passing~~
 
 ##### 8.4: End-to-End Smoke Test
-**What:** Test the full demo flow on the deployed instance.
+**What:** Test the full demo flow on the **local docker instance** (localhost:8000).
 **Duration:** ~2 hours
 **Deliverables:**
 - Webhook → agent → tools → HITL → approval → dispatch → monitoring
 - Edge case injection works
 - SSE streaming works
 - All gates fire correctly
-**Depends on:** 8.3
-**Verification:** Full demo scenario completes on public URL
+**Depends on:** 8.2
+**Verification:** Full demo scenario completes on localhost:8000
 
 ##### 8.5: Presentation Deck
 **What:** Create 10-slide presentation deck.
@@ -759,7 +754,7 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 | 6. Agent Core (LangGraph) — Nexus Brain | 12 (6.1–6.12) | ~2–3 days |
 | 7. Web UI — Nexus Dashboard | 8 (7.1–7.8) | ~2 days |
 | 07.1 Integrated Verification (INSERTED) | 8 (07.1.1–07.1.8) | ~0.5–1 day |
-| 8. Polish & Deploy — Nexus Launch | 7 (8.1–8.7) | ~1–2 days |
+| 8. Polish & Deploy — Nexus Launch | 7 (8.1–8.7, **8.3 DISABLED local-only demo**) | ~1–2 days |
 | **Total** | **57** | **~7.5–12 days** |
 
 ## Progress

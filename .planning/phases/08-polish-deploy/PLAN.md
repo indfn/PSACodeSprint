@@ -10,7 +10,7 @@ Phase 7
 D-01 through D-08
 
 ## Success Criteria
-1. Docker image builds and runs on Railway/Render free tier
+1. Docker image builds and runs locally via `docker compose up` (Railway/Render deployment intentionally skipped — demo-only)
 2. 10-minute demo video recorded showing normal + edge-case flows
 3. 10-slide presentation deck covers problem, architecture, decision logic, guardrails, ROI
 4. All submission assets uploaded before 2026-09-04
@@ -105,46 +105,33 @@ docker compose up
 curl localhost:8000/health
 ```
 
-### 8.3: Deploy to Free Tier
-**Duration:** ~2 hours
-**What:** Deploy to Railway or Render.
+### ~~8.3: Deploy to Free Tier~~
+> **DISABLED — LOCAL-ONLY DEMO.** This sub-phase is intentionally skipped. The demo showcase runs on local Docker (`docker compose up` + `localhost:8000`). Railway/Render deployment not required for competition. Do not execute.
 
-**Steps:**
-1. Choose platform (Railway recommended for simplicity):
-   - Railway: `railway login` → `railway init` → `railway up`
-   - Render: connect GitHub repo, auto-deploy
-2. Configure environment variables:
-   - `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `DEEPSEEK_API_KEY` / `OPENROUTER_API_KEY` / `CUSTOM_API_KEY` (any one suffices — provider-agnostic)
-   - `LLM_PROVIDER` (any of: `anthropic`, `openai`, `gemini`, `deepseek`, `ollama`, `vllm`, `lmstudio`, `custom`) + `LLM_MODEL` + `LLM_BASE_URL` (for local/custom)
-   - `LLM_FALLBACK_PROVIDER` + `LLM_FALLBACK_MODEL` (optional fallback)
-   - `LANGSMITH_API_KEY` (optional, for trace visualization)
-   - `LANGSMITH_PROJECT=psa-nexus`
-3. Verify health check passes
-4. Verify UI loads at public URL
-5. Verify `LANGSMITH_API_KEY` wiring: if set, traces appear in LangSmith dashboard
-
-**Verification:**
-```bash
-curl https://your-app.up.railway.app/health  # returns OK
-open https://your-app.up.railway.app/ui/     # UI loads
-```
+<!--
+**Original spec (preserved for reference):**
+- Railway: `railway login` → `railway init` → `railway up`
+- Render: connect GitHub repo, auto-deploy
+- Environment variables: ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY / DEEPSEEK_API_KEY / OPENROUTER_API_KEY / CUSTOM_API_KEY + LLM_PROVIDER + LLM_MODEL + LLM_BASE_URL + LLM_FALLBACK_PROVIDER + LLM_FALLBACK_MODEL + LANGSMITH_API_KEY
+- Health check: `curl https://your-app.up.railway.app/health`
+-->
 
 ### 8.4: End-to-End Smoke Test + Latency (Both Problems + Robustness)
 **Duration:** ~3 hours
-**What:** Test full demo flows on deployed instance — PB-12 + sibling + robustness. Instrument latency for deck slide 7.
+**What:** Test full demo flows on **local docker instance** — PB-12 + sibling + robustness. Instrument latency for deck slide 7.
 
 **Steps:**
 1. **PB-12 happy path:** webhook → T1→T3→T4 ($10,400) → HITL-1→HITL-2→HITL-3→dispatch→T5→HITL-4→done. Verify: 5 gates fire, trace with `risk_score` on every entry, deviation_log empty, SSE streams all 9 event types.
 2. **PB-12 deviation:** inject berth conflict → monitor detects → re-compute 100/20 → HITL-5 emergency → delta dispatch → T5 again. Verify: escalation #1+#2, confidence 0.95→0.78→0.90, deviation_log entry, `risk_score` spike.
-3. **Sibling switch:** `POST /agent/switch-problem/pb-01-berth` → verify PB-01 tools (VTIS/OptEVoyage/CITOS) listed, agent adapts, HITL fires for berth reassignment — proves platform claim on deploy, not just locally.
+3. **Sibling switch:** `POST /agent/switch-problem/pb-01-berth` → verify PB-01 tools (VTIS/OptEVoyage/CITOS) listed, agent adapts, HITL fires for berth reassignment — proves platform claim locally, not on public deploy.
 4. **Robustness spot-check:** trigger API 503 on T2 → agent uses fallback (`FALLBACKS`), logs `tool_error_fallback` + `notification` SSE; trigger incomplete data → guardrail → secondary query.
 5. **HITL rejection:** reject at HITL-1 → alternatives[] presented; modify at HITL-1 → re-validate + re-run T4 → re-present. Stale resume after timeout → 422.
 6. **Latency instrumentation:** measure wall time (happy <30s, deviation <90s — from `LLMResponse.latency_ms` + trace `duration_ms`), SSE p50/p95 (time from `broadcaster.publish` to `onmessage` in browser). Add `app/tests/test_latency.py` that asserts `wall_happy < 30s` and `sse_p95 < 500ms` (thresholds for deck). Export `latency_report.json` for slide 7.
 
 **Verification:**
 ```bash
-# All 6 checks pass on public URL
-# Problem switching works live
+# All 6 checks pass on localhost:8000
+# Problem switching works locally
 # Latency within targets
 ```
 
@@ -239,8 +226,8 @@ ls -la submission/
 After all sub-phases complete:
 1. `docker build -t psa-agent .` — builds successfully
 2. `docker compose up` — starts correctly
-3. Deployed to Railway/Render — accessible via public URL
-4. Full demo flow works on deployed instance
+3. ~~Deployed to Railway/Render — accessible via public URL~~ **DISABLED — local-only demo**
+4. Full demo flow works on `localhost:8000` (PB-12 happy + deviation + PB-01 switch + robustness + HITL)
 5. Presentation deck has 10 slides, covers all topics
 6. Demo video is 10 minutes, shows full flow
 7. All submission assets present

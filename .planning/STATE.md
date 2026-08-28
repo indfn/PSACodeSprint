@@ -29,7 +29,7 @@ Progress: ██████░░░░ 66% (6/9 phases complete, 3 planned + v
 | Planning: Phase 5 PLAN | ✅ Done | `.planning/phases/05-tool-integration/PLAN.md` — 13 sub-phases (incl. notification + PB-01 stubs + ROI + robustness) |
 | Planning: Phase 6 PLAN | ✅ Done | `.planning/phases/06-agent-core/PLAN.md` — 11 sub-phases (correct interrupt+Command, monitor loop, templated prompt) |
 | Planning: Phase 7 PLAN | ✅ Done | `.planning/phases/07-web-ui/PLAN.md` — 8 sub-phases (Nexus branding + problem switcher + notifications) |
-| Planning: Phase 8 PLAN | ✅ Done | `.planning/phases/08-polish-deploy/PLAN.md` — 7 sub-phases (Nexus deck+video per rubric, latency metrics) |
+| Planning: Phase 8 PLAN | ✅ Done | `.planning/phases/08-polish-deploy/PLAN.md` — 7 sub-phases (8.3 DISABLED local-only demo — no Railway/Render, deck+video per rubric, latency metrics) |
 | Planning: Phase 07.1 PLAN | ✅ Done | `.planning/phases/07.1-integrated-verification-system-level-e2e-resilience-and-cros/PLAN.md` — 8 sub-phases (harness, E2E 17-step, HITL matrix, resilience, robustness, switch regression, observability, gate) (INSERTED) |
 | FastAPI scaffold | ✅ Done | `app/main.py` — unified FastAPI (health, webhook, switch-problem, /ui/*, /mocks/* alias) — Phase 4 |
 | LLM provider abstraction | ✅ Done | `app/shared/provider.py` (8 providers) + `app/shared/tool_adapter.py` (4 families) — Phase 4.3 |
@@ -50,7 +50,7 @@ Progress: ██████░░░░ 66% (6/9 phases complete, 3 planned + v
 | Escalation triggers | ✅ Done | `app/agent/escalation.py` 7 triggers `<0.85/>1.5h/>$10k/>30m/<60%/>15m/planner_conflict`, confidence 0.92→0.78→0.90 — Phase 6.6 |
 | Monitoring loop | ✅ Done | `app/agent/monitor.py` re-query T3 → detect berth conflict → re-compute 80/40→100/20 + HITL-5 emergency, `e2e` deviation PASSED 37s — Phase 6.10 |
 | Web UI / SSE | ❌ Not started | — Phase 7 (Nexus branding + SSE replay buffer + problem switcher) |
-| Docker / deploy | ❌ Not started | — Phase 8 (pinned deps + latency metrics) |
+| Docker / deploy | ❌ Not started | — Phase 8 (pinned deps + local docker-compose only, 8.3 Railway/Render DISABLED) |
 | Demo video / deck | ❌ Not started | — Phase 8 (Nexus deck per rubric, sibling switch demo) |
 
 ## Performance Metrics
@@ -71,7 +71,7 @@ Progress: ██████░░░░ 66% (6/9 phases complete, 3 planned + v
 | 6. Agent Core — Nexus Brain | ✅ Complete (2026-08-28) | 12 — e2e 5 green (42s happy/37s deviation), truncation + HITL-5 pending fix |
 | 7. Web UI — Nexus Dashboard | ○ Planned → next (depends on Phase 6 ✅) | 8 |
 | 07.1 Integrated Verification (INSERTED) | ○ Planned → depends on Phase 7 | 8 |
-| 8. Polish & Deploy — Nexus Launch | ○ Planned → depends on 07.1 | 7 |
+| 8. Polish & Deploy — Nexus Launch | ○ Planned → depends on 07.1 | 7 (**8.3 DISABLED local-only demo**) |
 
 ## Accumulated Context
 
