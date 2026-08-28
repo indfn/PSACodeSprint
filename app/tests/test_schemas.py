@@ -53,13 +53,15 @@ def test_container_invalid_size():
 
 
 def test_itt_coordination_event_valid():
+    from datetime import datetime, timedelta, timezone
+    future = (datetime.now(timezone.utc) + timedelta(hours=12)).isoformat()
     evt = ITTCoordinationEvent(
         event_type="ITT_COORDINATION_REQUEST",
         timestamp="2026-08-19T10:30:00+08:00",
         source="CITOS_PPT",
         priority="high",
         vessel_id="MV PACIFIC STAR",
-        tuas_vessel_departure="2026-08-19T20:00:00+08:00",
+        tuas_vessel_departure=future,
         container_count=120,
         containers_ready=120,
         blocks_affected=["B-07", "B-08"],

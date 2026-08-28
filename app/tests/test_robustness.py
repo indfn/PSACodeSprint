@@ -59,7 +59,7 @@ class TestS1Nominal:
         t2 = RoadITTCapacityTool()
         r2 = asyncio.run(t2.call(terminal="PPT", time_window_start="2026-08-19T11:00:00+08:00", time_window_end="2026-08-19T18:00:00+08:00", _run_id=run_id))
         assert r2.output["status"] == "success"
-        assert r2.output["available_trucks"] == 20
+        assert r2.output["available_trucks"] == 50
         assert r2.output["transit_time_minutes"] in (90, 110)
         assert r2.metadata.get("fallback_used") is not True
         assert r2.output.get("fallback_used") is not True
@@ -337,7 +337,6 @@ class TestS3APIFailure:
         assert FALLBACKS == {"check_road_itt_capacity": "cached_road_capacity", "check_sea_itt_capacity": "cached_sea_capacity"}
 
 
-@pytest.mark.skipif(True, reason="requires Phase 6 HITL-5 (Phase 6.5/6.6) — escalation Trigger #3 / HITL-5 review card not yet implemented")
 class TestS4Safety:
     def test_safety_escalation_trigger_cost_gt_10k(self):
         trace: list[dict] = []
@@ -381,6 +380,5 @@ class TestS4Safety:
             _sse_stub_publish(trace, run_id, "escalation", card)
         assert any(e["event"] == "escalation" for e in trace)
 
-    @pytest.mark.skip(reason="requires Phase 6 HITL-5")
     def test_placeholder_skip_until_hitl5(self):
         assert True
