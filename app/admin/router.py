@@ -1,10 +1,12 @@
 """Admin API router — config management + API key injection.
 
-GET  /api/admin/config      — read-only config display (auth required)
-POST /api/admin/config      — write provider/model/base_url/confidence (auth required)
-POST /api/admin/api-key     — inject API key into .env + os.environ (auth required, write-only)
-POST /api/admin/login       — authenticate, get session cookie
-GET  /api/admin/config/status — API key status (no auth — for startup check)
+GET  /api/admin/config          — read-only global LLM + active problem summary (auth required)
+POST /api/admin/config          — write provider/model/base_url to llm.yaml, confidence to problem YAML (auth required)
+GET  /api/admin/config/problem  — read active problem's cost_params, constraints, escalation_triggers, confidence (auth required)
+POST /api/admin/config/problem  — write active problem's cost_params, constraints, escalation_triggers, confidence (auth required)
+POST /api/admin/api-key         — inject API key into .env + os.environ (auth required, write-only)
+POST /api/admin/login           — authenticate, get session cookie
+GET  /api/admin/config/status   — API key status (no auth — for startup check)
 """
 from __future__ import annotations
 
@@ -225,3 +227,88 @@ async def config_status():
         if env_name:
             status[env_name] = "set" if os.environ.get(env_name) else "not set"
     return {"status": "ok", "api_key_status": status}
+
+
+# ---------------------------------------------------------------------------
+# Per-problem config (cost_params, constraints, escalation_triggers, confidence)
+# ---------------------------------------------------------------------------
+
+def _find_problem_yaml(problem_id: str) -> Path | None:
+    """Locate YAML for a problem_id (same logic as problem_config._find_yaml)."""
+    pid = problem_id.lower().strip()
+    candidate = CONFIG_DIR / f"{pid}.yaml"
+    if candidate.exists():
+        return candidate
+    for p in CONFIG_DIR.glob("pb-*.yaml"):
+        stem = p.stem.lower()
+        if stem == pid:
+            return p
+        parts_pid = pid.split("-")
+        parts_stem = stem.split("-")
+        if len(parts_pid) >= 2 and len(parts_stem) >= 2 and parts_pid[0] == parts_stem[0] and parts_pid[1] == parts_stem[1]:
+            return p
+    return None
+
+
+@router.get("/config/problem")
+async def get_problem_config(request: Request):
+    """Read active problem's editable config fields."""
+    check_auth(request)
+
+    from app.agent.problem_switcher import get_active_problem_id
+    from app.configs.problem_config import load_problem_config
+
+    active_id = get_active_problem_id()
+    cfg = load_problem_config(active_id)
+
+    # Read raw YAML for fields that ProblemConfig dataclass may not fully expose
+    yaml_path = _find_problem_yaml(active_id)
+    raw: dict[str, Any] = {}
+    if yaml_path:
+        with open(yaml_path) as f:
+            raw = yaml.safe_load(f) or {}
+
+    return {
+        "problem_id": active_id,
+        "confidence": raw.get("confidence", {}),
+        "cost_params": raw.get("cost_params", {}),
+        "constraints": raw.get("constraints", {}),
+        "escalation_triggers": raw.get("escalation_triggers", []),
+        "edge_cases": raw.get("edge_cases", []),
+    }
+
+
+@router.post("/config/problem")
+async def update_problem_config(payload: dict, request: Request):
+    """Write active problem's config fields back to YAML.
+
+    Accepts any subset of: confidence, cost_params, constraints, escalation_triggers, edge_cases.
+    Only provided fields are updated; omitted fields are preserved.
+    """
+    check_auth(request)
+
+    from app.agent.problem_switcher import get_active_problem_id
+
+    active_id = get_active_problem_id()
+    yaml_path = _find_problem_yaml(active_id)
+    if not yaml_path or not yaml_path.exists():
+        raise HTTPException(status_code=404, detail=f"No YAML config found for problem '{active_id}'")
+
+    with open(yaml_path) as f:
+        prob_data = yaml.safe_load(f) or {}
+
+    # Allowed top-level fields for per-problem editing
+    allowed = {"confidence", "cost_params", "constraints", "escalation_triggers", "edge_cases"}
+    updated_fields = []
+    for key in allowed:
+        if key in payload:
+            prob_data[key] = payload[key]
+            updated_fields.append(key)
+
+    if not updated_fields:
+        raise HTTPException(status_code=422, detail=f"No valid fields provided. Allowed: {sorted(allowed)}")
+
+    with open(yaml_path, "w") as f:
+        yaml.dump(prob_data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+    return {"status": "ok", "problem_id": active_id, "updated": updated_fields}
