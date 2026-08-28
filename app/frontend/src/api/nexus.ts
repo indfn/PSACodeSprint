@@ -172,3 +172,47 @@ export async function resetMocks() {
 export async function getScenarios() {
   return apiFetch<Scenario[]>('/agent/scenarios');
 }
+
+// ---- Admin ----
+
+export interface AdminConfig {
+  llm: {
+    provider: string;
+    model: string;
+    base_url: string;
+    api_type: string;
+    api_key_env: string;
+    fallback_provider?: string;
+    fallback_model?: string;
+    fallback_base_url?: string;
+  };
+  active_problem: {
+    id: string;
+    confidence_threshold: number;
+  };
+  provider_readiness: {
+    ready: boolean;
+    message: string;
+  };
+  api_key_status: Record<string, string>;
+}
+
+export async function adminLogin(username: string, password: string) {
+  return apiFetch<{ status: string }>('/api/admin/login', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+    credentials: 'same-origin',
+  });
+}
+
+export async function adminGetConfig() {
+  return apiFetch<AdminConfig>('/api/admin/config', { credentials: 'same-origin' });
+}
+
+export async function adminInjectApiKey(provider: string, key: string) {
+  return apiFetch<{ status: string; message: string }>('/api/admin/api-key', {
+    method: 'POST',
+    body: JSON.stringify({ provider, key }),
+    credentials: 'same-origin',
+  });
+}

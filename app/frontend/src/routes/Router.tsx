@@ -11,6 +11,7 @@ const FullLayout = Loadable(lazy(() => import('../layouts/full/FullLayout')));
 const NexusDashboard = Loadable(lazy(() => import('../views/dashboards/modern')));
 const AgentTrace = Loadable(lazy(() => import('../views/agent-trace')));
 const History = Loadable(lazy(() => import('../views/history')));
+const Admin = Loadable(lazy(() => import('../views/admin')));
 
 const Router = [
   {
@@ -20,6 +21,7 @@ const Router = [
       { path: '/', element: <NexusDashboard /> },
       { path: '/trace', element: <AgentTrace /> },
       { path: '/history', element: <History /> },
+      { path: '/admin', element: <Admin /> },
       { path: '*', element: <Navigate to="/" /> },
     ],
   },

@@ -16,7 +16,7 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.mocks.routers.citos_ppt import router as citos_ppt_router
@@ -629,17 +629,8 @@ async def get_active_problem():
 
 
 # ---------------------------------------------------------------------------
-# UI static mount (Phase 7) — serves app/ui/index.html, style.css, app.js, admin.html
+# UI static mount — React SPA served from app/frontend/dist
 # ---------------------------------------------------------------------------
-
-@app.get("/admin", tags=["UI"], include_in_schema=False)
-async def admin_page():
-    """Serve admin config page (auth handled by /api/admin/* endpoints)."""
-    import pathlib
-    p = pathlib.Path(__file__).resolve().parent / "ui" / "admin.html"
-    if p.exists():
-        return FileResponse(str(p), media_type="text/html")
-    raise HTTPException(status_code=404, detail="admin.html not found")
 
 
 @app.get("/mocks/", tags=["Mocks"])
@@ -669,7 +660,7 @@ async def health():
     return {"status": "ok", "service": "psa-nexus"}
 
 
-app.mount("/ui", StaticFiles(directory="frontend/dist", html=True), name="ui")
+app.mount("/ui", StaticFiles(directory="app/frontend/dist", html=True), name="ui")
 
 
 @app.get("/", include_in_schema=False)
