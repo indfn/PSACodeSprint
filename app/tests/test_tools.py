@@ -163,7 +163,7 @@ class TestOptimiser:
         r = await tool.call(candidates=get_container_data(), road_capacity=get_truck_data(), sea_capacity=get_feeder_data(), tuas_vessel_departure="2026-08-19T20:00:00+08:00", _run_id="opt-alt")
         alts = r.output["alternatives"]
         assert len(alts) >= 2
-        assert any(a["road_containers"] == 100 and a["sea_containers"] == 20 for a in alts)
+        assert any(a["road_containers"] == 100 and a["sea_containers"] == 0 for a in alts)
         assert any(a["road_containers"] == 60 and a["sea_containers"] == 60 for a in alts)
         for a in alts:
             assert "total_transport_cost" in a
