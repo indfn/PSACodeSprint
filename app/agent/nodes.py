@@ -1,0 +1,1069 @@
+"""Agent and Tool nodes — LLM reasoning + tool execution (Phase 6.3/6.4)."""
+from __future__ import annotations
+
+import asyncio
+import json
+import time
+from typing import Any
+
+from app.agent.confidence import compute_risk_score
+from app.agent.prompts import build_agent_messages
+from app.agent.trace import log_trace
+from app.shared.logging import structured_log
+
+
+async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Core LLM reasoning node.
+
+    1. Builds messages from state (templated system prompt + history)
+    2. Calls LLM with tool schemas (provider-adapted)
+    3. Validates tool_calls against registry (hallucination handling)
+    4. Handles HITL card / escalation / completion routing
+    5. Updates trace + confidence + escalation checks
+
+    Uses rate-limited chat wrapper and deterministic confidence fallback.
+    """
+    t0 = time.monotonic()
+    # Fast path: deterministic HITL gating BEFORE LLM to avoid 30s LLM delays on large histories.
+    # If next HITL gate is due, set it immediately without calling LLM.
+    try:
+        from app.hitl.models import HITL_GATES
+        ctx_fast = state.get("context", {}) or {}
+        hist_fast = state.get("hitl_history", []) or []
+        def _has_fast(gid: str) -> bool:
+            for h in hist_fast:
+                hg = h.get("gate_id") if isinstance(h, dict) else getattr(h, "gate_id", None)
+                if hg and str(hg).lower().replace("-", "_") == gid.lower().replace("-", "_"):
+                    return True
+            return False
+        # Don't fast-path if already pending or escalated
+        if not state.get("hitl_pending") and not state.get("escalation"):
+            if ctx_fast.get("split_result") and not _has_fast("HITL-1"):
+                g = HITL_GATES.get("HITL-1")
+                state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-1", "gate_name": "Approve ITT Split", "trigger": "split computed", "timeout_seconds": 1800, "timeout_action": "escalate"}
+                state["status"] = "waiting_hitl"
+                # Trace & return without LLM
+                try:
+                    log_trace(state, "agent", "reason", {"tool_calls": [], "fast_path": "HITL-1", "risk_score": compute_risk_score(state)}, duration_ms=(time.monotonic() - t0)*1000)
+                except Exception:
+                    pass
+                return state
+            elif _has_fast("HITL-1") and not _has_fast("HITL-2"):
+                g = HITL_GATES.get("HITL-2")
+                state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-2", "gate_name": "Approve Truck Dispatch", "trigger": "truck dispatch ready", "timeout_seconds": 900, "timeout_action": "cancel_dispatch"}
+                state["status"] = "waiting_hitl"
+                try:
+                    log_trace(state, "agent", "reason", {"tool_calls": [], "fast_path": "HITL-2", "risk_score": compute_risk_score(state)}, duration_ms=(time.monotonic() - t0)*1000)
+                except Exception:
+                    pass
+                return state
+            elif _has_fast("HITL-2") and not _has_fast("HITL-3"):
+                g = HITL_GATES.get("HITL-3")
+                state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-3", "gate_name": "Approve Feeder Hold", "trigger": "feeder hold request ready", "timeout_seconds": 900, "timeout_action": "escalate"}
+                state["status"] = "waiting_hitl"
+                try:
+                    log_trace(state, "agent", "reason", {"tool_calls": [], "fast_path": "HITL-3", "risk_score": compute_risk_score(state)}, duration_ms=(time.monotonic() - t0)*1000)
+                except Exception:
+                    pass
+                return state
+            elif _has_fast("HITL-3") and not _has_fast("HITL-4"):
+                if ctx_fast.get("tuas_sequence"):
+                    g = HITL_GATES.get("HITL-4")
+                    state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-4", "gate_name": "Approve Loading Sequence Update", "trigger": "Tuas QC sequence update ready", "timeout_seconds": 600, "timeout_action": "hold_sequence"}
+                    state["status"] = "waiting_hitl"
+                    try:
+                        log_trace(state, "agent", "reason", {"tool_calls": [], "fast_path": "HITL-4", "risk_score": compute_risk_score(state)}, duration_ms=(time.monotonic() - t0)*1000)
+                    except Exception:
+                        pass
+                    return state
+    except Exception:
+        pass
+    # 1. Build messages
+    messages = build_agent_messages(state)
+
+    # Publish SSE agent_thinking
+    try:
+        from app.agent.sse import broadcaster
+
+        # Don't await if no loop? We'll create task
+        try:
+            loop = asyncio.get_running_loop()
+            last_msg = messages[-1] if messages else {}
+            loop.create_task(broadcaster.publish(state.get("run_id", ""), "agent_thinking", {"messages": last_msg, "step": state.get("context", {}).get("current_step", "reason")})) 
+        except RuntimeError:
+            pass
+    except Exception:
+        pass
+
+    # 2. Get schemas + provider
+    from app.tools.registry import registry
+
+    # Ensure registry has tools for active problem
+    if not registry.list():
+        try:
+            from app.agent.problem_switcher import get_active_problem_id
+            registry.register_for_problem(get_active_problem_id())
+        except Exception:
+            from app.tools.registry import load_tools_for_problem
+            for t in load_tools_for_problem("pb-12-itt"):
+                registry.register(t)
+
+    raw_schemas = registry.get_schemas()
+    # Provider selection
+    provider = None
+    provider_name = "anthropic"
+    try:
+        # Try to get provider from problem_config llm field
+        prob_cfg = state.get("problem_config")
+        if isinstance(prob_cfg, dict):
+            llm_cfg = prob_cfg.get("llm", {}) or {}
+            provider_name = llm_cfg.get("provider", "anthropic")
+            from app.shared.provider import create_provider
+            # If dict has enough config, create provider
+            if llm_cfg:
+                try:
+                    provider = create_provider(llm_cfg)
+                except Exception:
+                    provider = None
+        elif prob_cfg is not None and not isinstance(prob_cfg, dict):
+            # ProblemConfig dataclass
+            llm_cfg = getattr(prob_cfg, "llm", {}) or {}
+            if isinstance(llm_cfg, dict):
+                provider_name = llm_cfg.get("provider", "anthropic")
+                from app.shared.provider import create_provider
+                try:
+                    provider = create_provider(llm_cfg)
+                except Exception:
+                    provider = None
+    except Exception:
+        pass
+
+    # Fallback: create from active config
+    if provider is None:
+        try:
+            from app.configs.problem_config import load_problem_config
+            from app.agent.problem_switcher import get_active_problem_id
+            cfg = load_problem_config(get_active_problem_id())
+            if cfg.llm:
+                from app.shared.provider import create_provider
+                provider = create_provider(cfg.llm)
+                provider_name = cfg.llm.get("provider", provider_name)
+        except Exception:
+            provider = None
+
+    # If still no provider, use a mock provider that echoes tool calls deterministically
+    # This allows tests to run without real API keys (deterministic demo logic)
+    # Also, if provider requires API key but none is set (e.g., anthropic without key), fallback to mock immediately
+    def _provider_needs_key(p):
+        try:
+            # Providers that need api_key and have empty key should be considered unconfigured
+            key = getattr(p, "api_key", None)
+            if key == "" or key is None:
+                # Check if provider name is one that requires a key
+                if provider_name in ("anthropic", "openai", "gemini", "deepseek"):
+                    return True
+        except Exception:
+            pass
+        return False
+
+    if provider is None or _provider_needs_key(provider):
+        provider = _mock_provider_for_state(state)
+        # Mock provider uses raw schemas logic internally, no adaptation needed
+        tool_schemas = raw_schemas
+    else:
+        # Adapt schemas for provider (flat -> OpenAI/Anthropic/Gemini)
+        try:
+            from app.shared.tool_adapter import adapt_tools_for_provider
+            # Registry schemas are flat {name, description, parameters}; adapt to provider format
+            # But AnthropicProvider currently expects OpenAI format and does its own conversion,
+            # so we need to provide OpenAI format for those providers; adapt does that.
+            # For mock, raw is fine.
+            tool_schemas = adapt_tools_for_provider(raw_schemas, provider_name)
+            # However, to avoid double conversion, if provider already handles flat, we keep adapted as OpenAI for openai-compatible,
+            # for anthropic/gemini we keep provider-specific.
+            # The provider's chat will handle OpenAI->anthropic conversion only if we give OpenAI format.
+            # Our adapt already did flat->provider specifics, so we must ensure provider doesn't re-adapt incorrectly.
+            # For anthropic, adapt produces [{"name":..,"input_schema":..}] which provider's current code expects OpenAI format and would fail.
+            # Workaround: if provider_name is anthropic/gemini and we already adapted, we will bypass provider's internal conversion by
+            # passing already-adapted schemas and having provider handle it. To fix, we monkey-patch provider to accept flat/adapted.
+            # Easiest: if adapted is provider-specific (anthropic/gemini), keep it; provider will be patched to handle it.
+            pass
+        except Exception:
+            tool_schemas = raw_schemas
+
+    # SSE tool_call pre? Not yet
+
+    # 2b. Call LLM with rate-limit retry
+    response = None
+    try:
+        from app.agent.resilience import chat_with_rate_limit  # Phase 6.12
+        response = await chat_with_rate_limit(provider, messages, tools=tool_schemas)
+    except ImportError:
+        # Fallback to direct chat
+        try:
+            # provider.chat is sync — run in thread pool to avoid blocking
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(None, lambda: provider.chat(messages, tools=tool_schemas))
+        except RuntimeError:
+            response = provider.chat(messages, tools=tool_schemas)
+    except Exception as exc:
+        # Use deterministic fallback response if LLM fails
+        structured_log("llm_error", run_id=state.get("run_id", ""), step="agent", error=str(exc))
+        response = _fallback_llm_response(state, raw_schemas)
+
+    if response is None:
+        response = _fallback_llm_response(state, raw_schemas)
+
+    # Extract tool_calls and content
+    tool_calls_raw: list[dict[str, Any]] = []
+    content: str | None = None
+    confidence_val: float | None = None
+    finish_reason: str = "stop"
+
+    # response may be LLMResponse dataclass or dict
+    if isinstance(response, dict):
+        content = response.get("content")
+        tool_calls_raw = response.get("tool_calls", []) or []
+        confidence_val = response.get("confidence")
+        finish_reason = response.get("finish_reason", "stop")
+    else:
+        content = getattr(response, "content", None)
+        tool_calls_raw = getattr(response, "tool_calls", []) or []
+        finish_reason = getattr(response, "finish_reason", "stop")
+        # Try to parse confidence from content
+        from app.agent.confidence import extract_confidence, deterministic_score
+        conf = extract_confidence(content)
+        if conf is not None:
+            confidence_val = conf
+        # Also check raw if present
+        raw = getattr(response, "raw", {}) or {}
+        if isinstance(raw, dict) and "confidence" in raw:
+            try:
+                confidence_val = float(raw["confidence"])
+            except Exception:
+                pass
+
+    # Determine confidence fallback
+    if confidence_val is None:
+        from app.agent.confidence import deterministic_score
+        try:
+            confidence_val = deterministic_score(state)
+        except Exception:
+            confidence_val = float(state.get("confidence", 0.85))
+
+    # Clamp confidence
+    try:
+        confidence_val = max(0.0, min(1.0, float(confidence_val)))
+    except Exception:
+        confidence_val = 0.85
+
+    state["confidence"] = confidence_val
+
+    # Handle tool_calls: normalize to list of {id, name, args}
+    normalised_calls: list[dict[str, Any]] = []
+    invalid_calls: list[dict[str, Any]] = []
+    valid_calls: list[dict[str, Any]] = []
+
+    for tc in tool_calls_raw:
+        # tc may be OpenAI style {id, type, function: {name, arguments}} or flat {name, arguments}
+        name = None
+        args: dict[str, Any] = {}
+        tc_id = None
+        if isinstance(tc, dict):
+            if "function" in tc:
+                fn = tc.get("function", {}) or {}
+                name = fn.get("name")
+                args_raw = fn.get("arguments", "{}")
+                tc_id = tc.get("id", f"call_{len(normalised_calls)}")
+                # arguments may be JSON string
+                if isinstance(args_raw, str):
+                    try:
+                        args = json.loads(args_raw) if args_raw else {}
+                    except Exception:
+                        try:
+                            args = json.loads(args_raw.replace("'", '"'))  # lenient
+                        except Exception:
+                            args = {}
+                elif isinstance(args_raw, dict):
+                    args = args_raw
+            else:
+                # flat
+                name = tc.get("name")
+                args = tc.get("arguments", tc.get("args", {}))
+                tc_id = tc.get("id", f"call_{len(normalised_calls)}")
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except Exception:
+                        args = {}
+        if name:
+            norm = {"id": tc_id or f"call_{len(normalised_calls)}", "name": name, "args": args if isinstance(args, dict) else {}}
+            normalised_calls.append(norm)
+            # Validate against registry
+            if registry.get_tool(name) is None:
+                invalid_calls.append(norm)
+                # Log hallucinated
+                state.setdefault("trace", []).append({
+                    "timestamp": time.time(),
+                    "run_id": state.get("run_id", ""),
+                    "node": "agent",
+                    "action": "hallucinated_tool",
+                    "result": {"tool_name": name, "available": registry.list()},
+                    "duration_ms": 0,
+                    "confidence": confidence_val,
+                    "risk_score": compute_risk_score(state),
+                })
+                structured_log("hallucinated_tool", run_id=state.get("run_id", ""), step="agent", tool_name=name, available=registry.list())
+                # Also SSE
+                try:
+                    from app.agent.sse import broadcaster
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(broadcaster.publish(state.get("run_id", ""), "tool_call", {"tool": name, "error": "hallucinated", "available": registry.list()}))
+                    except RuntimeError:
+                        pass
+                except Exception:
+                    pass
+            else:
+                valid_calls.append(norm)
+
+    # If all calls hallucinated, ask LLM to retry with correct list
+    if invalid_calls and not valid_calls and normalised_calls:
+        state.setdefault("messages", []).append({
+            "role": "user",
+            "content": f"Unknown tools: {[c['name'] for c in invalid_calls]}. Available tools: {registry.list()}. Retry with a valid tool.",
+        })
+        state["status"] = "running"
+        # Purge invalid calls
+        state["pending_tool_calls"] = []
+        duration_ms = (time.monotonic() - t0) * 1000
+        log_trace(state, "agent", "reason", {"tool_calls": [], "hallucinated": [c["name"] for c in invalid_calls], "risk_score": compute_risk_score(state)}, duration_ms=duration_ms)
+        return state
+    elif valid_calls:
+        state["pending_tool_calls"] = valid_calls
+        state["status"] = "calling_tools"
+        # Append assistant message with tool_calls for LangGraph message history
+        state.setdefault("messages", []).append({
+            "role": "assistant",
+            "content": content or "",
+            "tool_calls": [{"id": c["id"], "name": c["name"], "args": c["args"]} for c in valid_calls],
+        })
+        # SSE publish tool_call events
+        for c in valid_calls:
+            try:
+                from app.agent.sse import broadcaster
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(broadcaster.publish(state.get("run_id", ""), "tool_call", {"tool": c["name"], "args": c["args"], "id": c["id"]}))
+                except RuntimeError:
+                    pass
+            except Exception:
+                pass
+        structured_log("agent_tool_calls", run_id=state.get("run_id", ""), step="agent", tools=[c["name"] for c in valid_calls], confidence=confidence_val)
+    else:
+        # No tool calls — check if HITL or completion needed
+        # Determine if we should fire HITL gates based on context progress
+        # For deterministic demo flow (without LLM), we may need to synthesize HITL
+        # But if LLM returns content without tools, treat as potential HITL or completion.
+        # We check escalation first
+        state["pending_tool_calls"] = []
+        # Try to interpret content as HITL card or final answer
+        # For now, if no tools and status not terminal, keep running and let graph router decide
+        # But we append assistant content to messages for continuity
+        if content:
+            state.setdefault("messages", []).append({"role": "assistant", "content": content})
+        # Do not set hitl_pending here — router will check if hitl_pending already set or if monitor/escalation needed
+        # If no progress and no tools, we may be at completion
+        if not state.get("hitl_pending") and not state.get("escalation"):
+            # If workflow has dispatched and not monitored, let router go to monitor; otherwise complete
+            ctx = state.get("context", {}) or {}
+            if ctx.get("dispatched") and not ctx.get("monitored"):
+                state["status"] = "running"
+            else:
+                # Check if we have done minimal steps — for demo, if context has split_result, we may need to drive HITL
+                # The graph's route_after_agent will inspect pending/hitl/escalation/monitor; if none, returns END
+                state["status"] = "running"
+
+    # Update trace — include risk_score
+    duration_ms = (time.monotonic() - t0) * 1000
+    risk = compute_risk_score(state)
+    log_trace(state, "agent", "reason", {"tool_calls": [{"name": c["name"], "args": c["args"]} for c in valid_calls], "content": (content or "")[:500], "risk_score": risk, "confidence": confidence_val}, duration_ms=duration_ms)
+
+    # Confidence already set
+    # Check escalation triggers immediately after reasoning — but only if not already in HITL sequence
+    # For nominal flow, we have already fixed road_capacity and data_stale to not fire spuriously,
+    # so escalation should only be for true deviations (confidence low, feeder hold, etc.)
+    try:
+        from app.agent.escalation import check_escalations
+        from app.hitl.models import HITL_GATES
+        # Don't double-escalate if already escalated and HITL-5 pending
+        if not state.get("hitl_pending") or state.get("hitl_pending", {}).get("gate_id") not in ("HITL-5", "hitl_5"):
+            triggered = check_escalations(state)
+            if triggered:
+                state["escalation"] = triggered[0]
+                if len(triggered) > 1:
+                    state["escalation_list"] = triggered  # type: ignore
+                hitl5 = HITL_GATES.get("HITL-5") or HITL_GATES.get("hitl_5")
+                if hitl5 and hasattr(hitl5, "to_dict"):
+                    state["hitl_pending"] = hitl5.to_dict()  # type: ignore
+                elif isinstance(hitl5, dict):
+                    state["hitl_pending"] = dict(hitl5)
+                else:
+                    state["hitl_pending"] = {"gate_id": "HITL-5", "gate_name": "Escalate to Duty Manager", "trigger": "escalation fired", "timeout_seconds": 1800, "timeout_action": "halt"}
+                state["status"] = "escalated"
+                try:
+                    from app.agent.sse import broadcaster
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(broadcaster.publish(state.get("run_id", ""), "escalation", {"trigger": triggered[0]["trigger"], "risk_score": risk}))
+                    except RuntimeError:
+                        pass
+                except Exception:
+                    pass
+                structured_log("escalation", run_id=state.get("run_id", ""), step="agent", trigger=triggered[0]["trigger"], risk_score=risk)
+                log_trace(state, "escalation", "triggered", {"trigger": triggered[0]["trigger"], "risk_score": risk}, duration_ms=0)
+                # If escalation fired, don't also set normal HITL-1..4 — return now so router goes to HITL-5
+                return state
+    except Exception:
+        pass
+
+    # Deterministic HITL gating for charter workflow — if no pending tools and no escalation,
+    # set the next HITL gate in sequence (HITL-1..4). This ensures router is pure and checkpoint persists hitl_pending.
+    # Router will then route to hitl node; previously this was done inside router which caused checkpoint not to persist.
+    if not state.get("pending_tool_calls") and not state.get("hitl_pending") and not state.get("escalation"):
+        try:
+            from app.hitl.models import HITL_GATES
+            ctx = state.get("context", {}) or {}
+            hist = state.get("hitl_history", []) or []
+
+            def _has(gid: str) -> bool:
+                for h in hist:
+                    hg = h.get("gate_id") if isinstance(h, dict) else getattr(h, "gate_id", None)
+                    if hg and str(hg).lower().replace("-", "_") == gid.lower().replace("-", "_"):
+                        return True
+                return False
+
+            # Sequence: after split -> HITL-1, after HITL-1 -> HITL-2, after HITL-2 -> HITL-3, after Tuas -> HITL-4
+            if ctx.get("split_result") and not _has("HITL-1"):
+                g = HITL_GATES.get("HITL-1") or HITL_GATES.get("hitl_1")
+                state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-1", "gate_name": "Approve ITT Split", "trigger": "split computed", "timeout_seconds": 1800, "timeout_action": "escalate"}
+                state["status"] = "waiting_hitl"
+            elif _has("HITL-1") and not _has("HITL-2"):
+                g = HITL_GATES.get("HITL-2") or HITL_GATES.get("hitl_2")
+                state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-2", "gate_name": "Approve Truck Dispatch", "trigger": "truck dispatch ready", "timeout_seconds": 900, "timeout_action": "cancel_dispatch"}
+                state["status"] = "waiting_hitl"
+            elif _has("HITL-2") and not _has("HITL-3"):
+                g = HITL_GATES.get("HITL-3") or HITL_GATES.get("hitl_3")
+                state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-3", "gate_name": "Approve Feeder Hold", "trigger": "feeder hold request ready", "timeout_seconds": 900, "timeout_action": "escalate"}
+                state["status"] = "waiting_hitl"
+            elif _has("HITL-3") and not _has("HITL-4"):
+                # Need Tuas sequence computed before HITL-4, but if not yet, let agent call T5 first
+                # Only set HITL-4 if tuas_sequence exists or we have dispatched
+                if ctx.get("tuas_sequence") or ctx.get("dispatched"):
+                    g = HITL_GATES.get("HITL-4") or HITL_GATES.get("hitl_4")
+                    state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-4", "gate_name": "Approve Loading Sequence Update", "trigger": "Tuas QC sequence update ready", "timeout_seconds": 600, "timeout_action": "hold_sequence"}
+                    state["status"] = "waiting_hitl"
+        except Exception:
+            pass
+
+    return state
+
+
+async def tool_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Tool execution node — dispatches pending tool calls to registry."""
+    t0 = time.monotonic()
+    tool_calls = state.get("pending_tool_calls", []) or []
+    if not tool_calls:
+        return state
+
+    from app.tools.registry import registry, FALLBACKS
+    from app.agent.confidence import compute_risk_score
+    from app.shared.logging import structured_log
+
+    # Ensure registry has tools
+    if not registry.list():
+        try:
+            from app.agent.problem_switcher import get_active_problem_id
+            registry.register_for_problem(get_active_problem_id())
+        except Exception:
+            pass
+
+    results: dict[str, Any] = state.setdefault("tool_results", {})
+
+    for call in tool_calls:
+        name = call.get("name") or call.get("tool")
+        args = call.get("args", call.get("arguments", {})) or {}
+        call_id = call.get("id", f"call_{name}")
+
+        # Post-approval guard: dispatch/hold require prior HITL approve
+        tool = registry.get_tool(name or "")
+        if tool and getattr(tool, "post_approval", False):
+            gate_map = {"dispatch_road_itt": "HITL-2", "request_feeder_hold": "HITL-3"}
+            gate_id = gate_map.get(name, "")
+            approved_gates = set()
+            for h in state.get("hitl_history", []) or []:
+                if isinstance(h, dict) and h.get("decision") == "approve":
+                    approved_gates.add(h.get("gate_id"))
+            if gate_id and gate_id not in approved_gates and gate_id.lower() not in {g.lower() for g in approved_gates}:
+                # Also check hitl_history for hitl_2 alias
+                alias = gate_id.lower()
+                alias2 = gate_id.replace("HITL-", "hitl_").lower()
+                if alias not in {g.lower() for g in approved_gates} and alias2 not in {g.lower() for g in approved_gates}:
+                    err_result = {
+                        "output": {"error": f"HITL {gate_id} approval required before {name}"},
+                        "confidence": 0.0,
+                        "metadata": {"tool_name": name, "error": "hitl_required", "timestamp": time.time(), "duration_ms": 0, "fallback_used": False},
+                    }
+                    results[call_id] = err_result
+                    state.setdefault("messages", []).append({"role": "tool", "tool_call_id": call_id, "content": json.dumps(err_result["output"])})
+                    # trace
+                    risk = compute_risk_score(state)
+                    log_trace(state, "tool", "blocked_hitl", {"tool": name, "gate": gate_id, "risk_score": risk, "fallback_used": False}, duration_ms=0)
+                    structured_log("tool_blocked_hitl", run_id=state.get("run_id", ""), step="tool", tool=name, gate=gate_id)
+                    continue
+
+        # Timeout vs 503 distinct handling — use asyncio.wait_for around registry.call
+        # registry.call already has internal timeout handling, but we add outer wait_for to distinguish
+        # timeout (latency) vs 503 (error)
+        result_obj = None
+        fallback_used = False
+        try:
+            # Add run_id to tool call for data isolation and logging
+            args_with_id = dict(args)
+            args_with_id["_run_id"] = state.get("run_id", "")
+            # If this is a post-approval tool and we passed guard, allow it
+            if tool and getattr(tool, "post_approval", False):
+                args_with_id["_hitl_approved"] = True
+            # Use asyncio.wait_for with tool's timeout to catch timeout separately
+            timeout_sec = getattr(tool, "timeout_seconds", 10) if tool else 10
+            try:
+                result_obj = await asyncio.wait_for(registry.call(name, **args_with_id), timeout=timeout_sec + 5)
+            except asyncio.TimeoutError:
+                # Outer timeout — treat as timeout error distinct from 503
+                fb_name = FALLBACKS.get(name) if name else None
+                if fb_name and registry.get_tool(fb_name):
+                    fb_result = await registry.call(fb_name, **args)
+                    # Mark fallback
+                    fb_meta = dict(getattr(fb_result, "metadata", {}) or {})
+                    fb_meta["fallback_used"] = True
+                    fb_meta["original_error"] = "timeout"
+                    fb_meta["tool_name"] = fb_name
+                    if hasattr(fb_result, "metadata"):
+                        fb_result.metadata = fb_meta
+                    result_obj = fb_result
+                    fallback_used = True
+                    log_trace(state, "tool", "timeout_fallback", {"tool": name, "fallback": fb_name, "risk_score": compute_risk_score(state)}, duration_ms=timeout_sec * 1000)
+                    structured_log("tool_timeout_fallback", run_id=state.get("run_id", ""), step="tool", tool=name, fallback=fb_name)
+                else:
+                    # No fallback — create error result
+                    from app.tools.base import ToolResult
+                    result_obj = ToolResult(
+                        output={"error": f"Tool {name} timed out"},
+                        confidence=0.0,
+                        metadata={"tool_name": name, "error": "timeout", "fallback_used": False, "timestamp": _now_iso(), "duration_ms": timeout_sec * 1000},
+                    )
+                    structured_log("tool_timeout", run_id=state.get("run_id", ""), step="tool", tool=name, error="timeout")
+        except Exception as exc:
+            # API error (e.g., 503) — try fallback distinct from timeout
+            fb_name = FALLBACKS.get(name) if name else None
+            is_503 = "503" in str(exc) or "service unavailable" in str(exc).lower() or "timeout" in str(exc).lower()
+            if fb_name and registry.get_tool(fb_name):
+                try:
+                    fb_result = await registry.call(fb_name, **args)
+                    fb_meta = dict(getattr(fb_result, "metadata", {}) or {})
+                    fb_meta["fallback_used"] = True
+                    fb_meta["original_error"] = str(exc)
+                    fb_meta["tool_name"] = fb_name
+                    if hasattr(fb_result, "metadata"):
+                        fb_result.metadata = fb_meta
+                    result_obj = fb_result
+                    fallback_used = True
+                    log_trace(state, "tool", "error_fallback", {"tool": name, "error": str(exc), "fallback": fb_name, "risk_score": compute_risk_score(state)}, duration_ms=0)
+                    structured_log("tool_error_fallback", run_id=state.get("run_id", ""), step="tool", tool=name, error=str(exc), fallback=fb_name)
+                except Exception as fb_exc:
+                    from app.tools.base import ToolResult
+                    result_obj = ToolResult(
+                        output={"error": str(exc)},
+                        confidence=0.0,
+                        metadata={"tool_name": name, "error": str(exc), "fallback_used": False, "fallback_error": str(fb_exc), "timestamp": _now_iso()},
+                    )
+                    structured_log("tool_error_no_fallback", run_id=state.get("run_id", ""), step="tool", tool=name, error=str(exc))
+            else:
+                from app.tools.base import ToolResult
+                result_obj = ToolResult(
+                    output={"error": str(exc)},
+                    confidence=0.0,
+                    metadata={"tool_name": name, "error": str(exc), "fallback_used": False, "timestamp": _now_iso()},
+                )
+                structured_log("tool_error", run_id=state.get("run_id", ""), step="tool", tool=name, error=str(exc))
+        # Ensure result_obj is set — if registry.call succeeded without exception
+        if result_obj is None:
+            # Should not happen — create generic error
+            from app.tools.base import ToolResult
+            result_obj = ToolResult(output={"error": f"Unknown tool {name}"}, confidence=0.0, metadata={"tool_name": name, "error": "hallucinated", "fallback_used": False, "timestamp": _now_iso()})
+
+        # Normalise result to dict for state storage (serializable for checkpoint)
+        # Keep full output for logic; truncate only for checkpoint-persisted fields
+        if hasattr(result_obj, "output"):
+            full_out = getattr(result_obj, "output", {}) or {}
+            conf = float(getattr(result_obj, "confidence", 0.0) or 0.0)
+            meta = dict(getattr(result_obj, "metadata", {}) or {})
+            # Ensure metadata has tool_name and fallback_used
+            meta.setdefault("tool_name", name)
+            meta.setdefault("fallback_used", fallback_used)
+            # Preserve fallback_used from tool execution if already set
+            if fallback_used:
+                meta["fallback_used"] = True
+            # Truncate large get_itt_candidates output for checkpoint ONLY
+            if name == "get_itt_candidates" and isinstance(full_out, dict) and "containers" in full_out and isinstance(full_out["containers"], list) and len(full_out["containers"]) > 5:
+                _trunc = {k: v for k, v in full_out.items() if k != "containers"}
+                _trunc["containers"] = full_out["containers"][:5]
+                _trunc["containers_truncated_total"] = len(full_out["containers"])
+                trunc_out = _trunc
+            else:
+                trunc_out = full_out
+            serialised = {"output": trunc_out, "confidence": conf, "metadata": meta}
+            # Keep full for downstream logic (store separately)
+            _full_for_logic = full_out
+        else:
+            # Dict-style result
+            if isinstance(result_obj, dict) and "output" in result_obj:
+                full_out_dict = result_obj.get("output", {}) or {}
+                conf_dict = float(result_obj.get("confidence", 0.0) or 0.0)
+                meta_dict = dict(result_obj.get("metadata", {}) or {"tool_name": name})
+                if name == "get_itt_candidates" and isinstance(full_out_dict, dict) and "containers" in full_out_dict and isinstance(full_out_dict["containers"], list) and len(full_out_dict["containers"]) > 5:
+                    _trunc2 = {k: v for k, v in full_out_dict.items() if k != "containers"}
+                    _trunc2["containers"] = full_out_dict["containers"][:5]
+                    _trunc2["containers_truncated_total"] = len(full_out_dict["containers"])
+                    trunc_out2 = _trunc2
+                else:
+                    trunc_out2 = full_out_dict
+                serialised = {"output": trunc_out2, "confidence": conf_dict, "metadata": meta_dict}
+                _full_for_logic = full_out_dict
+            else:
+                serialised = result_obj if isinstance(result_obj, dict) else {"output": dict(result_obj), "confidence": 0.0, "metadata": {"tool_name": name}}
+                # Also truncate if needed
+                if isinstance(serialised.get("output"), dict) and "containers" in serialised["output"] and isinstance(serialised["output"]["containers"], list) and len(serialised["output"]["containers"]) > 5:
+                    _full2 = serialised["output"]
+                    _trunc2 = {k: v for k, v in _full2.items() if k != "containers"}
+                    _trunc2["containers"] = _full2["containers"][:5]
+                    _trunc2["containers_truncated_total"] = len(_full2["containers"])
+                    serialised["output"] = _trunc2
+                    _full_for_logic = _full2
+                else:
+                    _full_for_logic = serialised.get("output", {}) if isinstance(serialised.get("output"), dict) else {}
+
+        results[call_id] = serialised
+
+        # Update context shortcuts for escalation / guardrails / monitor
+        try:
+            ctx = state.setdefault("context", {})
+            # Store candidates, road_capacity, sea_capacity, split_result etc.
+            if name == "get_itt_candidates":
+                # Store FULL candidates for optimiser/validation; truncated only in tool_results/messages
+                ctx["candidates"] = _full_for_logic if isinstance(_full_for_logic, dict) else serialised["output"]
+                ctx["_candidates_full_len"] = len((_full_for_logic.get("containers", []) if isinstance(_full_for_logic, dict) else []))
+                # also store container_count etc. from full
+                container_src = _full_for_logic if isinstance(_full_for_logic, dict) else serialised["output"]
+                ctx["container_count"] = container_src.get("total_containers", ctx.get("container_count"))
+            elif name == "check_road_itt_capacity":
+                ctx["road_capacity"] = serialised["output"]
+                ctx["available_trucks"] = serialised["output"].get("available_trucks", ctx.get("available_trucks"))
+                ctx["required_trucks"] = serialised["output"].get("baseline_trips_all_120_containers", 80)
+            elif name == "check_sea_itt_capacity":
+                ctx["sea_capacity"] = serialised["output"]
+                ctx["feeder_id"] = serialised["output"].get("feeder_id", ctx.get("feeder_id"))
+                # also store downstream constraints for tidal check
+            elif name == "compute_itt_split":
+                ctx["split_result"] = serialised["output"].get("optimal_split", serialised["output"])
+                ctx["split_alternatives"] = serialised["output"].get("alternatives", [])
+                ctx["cost_vs_baseline"] = serialised["output"].get("cost_vs_baseline", {})
+                ctx["roi"] = serialised["output"].get("roi", {})
+                ctx["timeline"] = serialised["output"].get("timeline", {})
+                # action_cost for escalation Trigger #3 is the incremental recovery cost, NOT total transport.
+                # For nominal, set to transport savings (1600) which is <10000 so no escalation.
+                # Only explicit injected high-cost scenarios set action_cost >10000 via context.
+                try:
+                    savings = serialised["output"].get("cost_vs_baseline", {}).get("direct_transport_savings", 1600)
+                    ctx.setdefault("action_cost", savings)
+                except Exception:
+                    pass
+                # also propagate tool confidence to state confidence if higher
+                if serialised["confidence"] and serialised["confidence"] > 0:
+                    # Keep LLM confidence as primary; but deterministic fallback may be lower
+                    pass
+            elif name == "update_tuas_loading_sequence":
+                ctx["tuas_sequence"] = serialised["output"]
+            elif name == "dispatch_road_itt":
+                ctx["dispatched"] = True
+                ctx["dispatch_result"] = serialised["output"]
+                # delta dispatch detection
+                if "delta" in str(serialised["output"]).lower() or ctx.get("deviation_log"):
+                    ctx["delta_dispatched"] = True
+            elif name == "request_feeder_hold":
+                ctx["feeder_hold_result"] = serialised["output"]
+                ctx["feeder_hold_hours"] = serialised["output"].get("hold_hours", args.get("hold_hours", 0))
+            elif name == "notify_parties":
+                # notification log
+                pass
+        except Exception:
+            pass
+
+        # Messages: add tool result for LLM history — truncate large outputs to avoid 40s checkpoint deepcopy
+        try:
+            msg_output = serialised["output"]
+            # Truncate get_itt_candidates full container list for LLM history
+            if name == "get_itt_candidates" and isinstance(msg_output, dict) and "containers" in msg_output and isinstance(msg_output["containers"], list) and len(msg_output["containers"]) > 5:
+                msg_output = {k: v for k, v in msg_output.items() if k != "containers"}
+                msg_output["containers"] = msg_output.get("containers_sample", [])[:5] if "containers_sample" in serialised["output"] else []
+                msg_output["note"] = f"{len(serialised['output'].get('containers', []))} containers truncated"
+            state.setdefault("messages", []).append({"role": "tool", "tool_call_id": call_id, "content": json.dumps(msg_output, default=str)[:8000]})  # cap 8k
+        except Exception:
+            try:
+                state.setdefault("messages", []).append({"role": "tool", "tool_call_id": call_id, "content": json.dumps({"summary": str(serialised["output"])[:2000]}, default=str)})
+            except Exception:
+                pass
+
+        # Trace per tool result — include risk_score + fallback_used (truncate output for trace to avoid large logs)
+        risk = compute_risk_score(state)
+        # duration from metadata
+        dur = 0
+        try:
+            dur = float(serialised.get("metadata", {}).get("duration_ms", 0) or 0)
+        except Exception:
+            dur = 0
+        fallback_flag = bool(serialised.get("metadata", {}).get("fallback_used", False))
+        # Truncate trace output to avoid huge logs
+        _trace_output = serialised["output"]
+        if isinstance(_trace_output, dict) and "containers" in _trace_output and isinstance(_trace_output["containers"], list) and len(_trace_output["containers"]) > 5:
+            _trace_output = {k: v for k, v in _trace_output.items() if k != "containers"}
+            _trace_output["containers_truncated"] = len(serialised["output"]["containers"])
+        log_trace(state, "tool", "call_tool", {"tool": name, "output": _trace_output, "risk_score": risk, "fallback_used": fallback_flag, "confidence": serialised.get("confidence", 0.0)}, duration_ms=dur)
+        structured_log("tool_result", run_id=state.get("run_id", ""), step="tool", tool=name, fallback_used=fallback_flag, confidence=serialised.get("confidence", 0.0))
+
+        # SSE publish per tool result
+        try:
+            from app.agent.sse import broadcaster
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(broadcaster.publish(state.get("run_id", ""), "tool_result", {"tool": name, "output": serialised["output"], "risk_score": risk, "fallback_used": fallback_flag}))
+            except RuntimeError:
+                pass
+        except Exception:
+            pass
+
+        # Handle partial batch: continue even if one tool failed (we already do)
+        # Notify if tool failed and we used fallback — escalation may be needed
+
+    # Clear pending calls
+    state["pending_tool_calls"] = []
+    state["status"] = "running"
+
+    # Check escalations after tool batch (e.g., data_stale after get_itt_candidates)
+    try:
+        from app.agent.escalation import check_escalations
+        from app.hitl.models import HITL_GATES
+        triggered = check_escalations(state)
+        if triggered:
+            state["escalation"] = triggered[0]
+            if len(triggered) > 1:
+                state["escalation_list"] = triggered  # type: ignore
+            hitl5 = HITL_GATES.get("HITL-5") or HITL_GATES.get("hitl_5")
+            if hitl5 and hasattr(hitl5, "to_dict"):
+                state["hitl_pending"] = hitl5.to_dict()  # type: ignore
+            elif isinstance(hitl5, dict):
+                state["hitl_pending"] = dict(hitl5)
+            else:
+                state["hitl_pending"] = {"gate_id": "HITL-5", "gate_name": "Escalate to Duty Manager", "trigger": "escalation fired", "timeout_seconds": 1800, "timeout_action": "halt"}
+            state["status"] = "escalated"
+            risk = compute_risk_score(state)
+            structured_log("escalation_after_tool", run_id=state.get("run_id", ""), step="tool", trigger=triggered[0]["trigger"], risk_score=risk)
+            log_trace(state, "escalation", "triggered", {"trigger": triggered[0]["trigger"], "risk_score": risk}, duration_ms=0)
+            # SSE
+            try:
+                from app.agent.sse import broadcaster
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(broadcaster.publish(state.get("run_id", ""), "escalation", {"trigger": triggered[0]["trigger"], "risk_score": risk}))
+                except RuntimeError:
+                    pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Validation guardrails check after tool batch (e.g., weight_bounds after T1)
+    try:
+        from app.agent.validation import validate_all
+        failures = validate_all(state)
+        if failures:
+            # If weight bounds failed, set confidence low to trigger escalation
+            for f in failures:
+                if f["guard"] == "weight_bounds":
+                    state["confidence"] = 0.6
+                    structured_log("guardrail_weight_failed", run_id=state.get("run_id", ""), step="tool", failures=failures)
+                    break
+    except Exception:
+        pass
+
+    return state
+
+
+def _now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
+class _MockProvider:
+    """Deterministic mock provider for demo/tests without real API keys.
+
+    It synthesises tool_calls based on current state progress, mimicking the
+    charter's 17-step workflow so the graph can complete without an LLM.
+    """
+
+    def __init__(self, state: dict[str, Any]):
+        self.state = state
+        self.name = "mock"
+
+    def chat(self, messages, tools=None, temperature=0.0, max_tokens=4096):
+        # Delegate to deterministic planner
+        from app.tools.registry import registry
+        available = set(registry.list()) if registry.list() else {"get_itt_candidates", "check_road_itt_capacity", "check_sea_itt_capacity", "compute_itt_split", "dispatch_road_itt", "request_feeder_hold", "update_tuas_loading_sequence", "notify_parties"}
+        ctx = self.state.get("context", {}) or {}
+        tool_results = self.state.get("tool_results", {}) or {}
+        hitl_history = self.state.get("hitl_history", []) or []
+
+        # Determine which tools have already succeeded
+        succeeded_tools = set()
+        for rid, res in tool_results.items():
+            meta = res.get("metadata", {}) if isinstance(res, dict) else getattr(res, "metadata", {})
+            name = meta.get("tool_name") if isinstance(meta, dict) else ""
+            if not name:
+                # try to infer from output keys
+                out = res.get("output", {}) if isinstance(res, dict) else {}
+                if "total_containers" in out:
+                    name = "get_itt_candidates"
+                elif "available_trucks" in out:
+                    name = "check_road_itt_capacity"
+                elif "feeder_id" in out and "capacity_teu" in out:
+                    name = "check_sea_itt_capacity"
+            if name:
+                # Only count if not error
+                out = res.get("output", {}) if isinstance(res, dict) else {}
+                if "error" not in out:
+                    succeeded_tools.add(name)
+
+        # Check hitl approvals
+        approved = {h.get("gate_id") for h in hitl_history if isinstance(h, dict) and h.get("decision") == "approve"}
+
+        # Build tool_calls deterministically following charter to-be workflow
+        tool_calls = []
+
+        # Phase: ingest -> T1/T2/T3 batch
+        if "get_itt_candidates" not in succeeded_tools and "get_itt_candidates" in available:
+            vessel = ctx.get("vessel_id", "MV PACIFIC STAR")
+            tool_calls.append({"id": "call_T1", "type": "function", "function": {"name": "get_itt_candidates", "arguments": json.dumps({"vessel_id": vessel})}})
+        if "check_road_itt_capacity" not in succeeded_tools and "check_road_itt_capacity" in available:
+            # Only after T1? Actually charter has T1→T2→T3 parallel; we batch T2+T3 after T1
+            if "get_itt_candidates" in succeeded_tools:
+                tool_calls.append({"id": "call_T2", "type": "function", "function": {"name": "check_road_itt_capacity", "arguments": json.dumps({"terminal": "PPT", "time_window_start": "2026-08-19T11:00:00+08:00", "time_window_end": "2026-08-19T18:00:00+08:00"})}})
+        if "check_sea_itt_capacity" not in succeeded_tools and "check_sea_itt_capacity" in available:
+            if "get_itt_candidates" in succeeded_tools:
+                tool_calls.append({"id": "call_T3", "type": "function", "function": {"name": "check_sea_itt_capacity", "arguments": json.dumps({"feeder_id": "FEEDER ATLANTIC-03", "current_time": "2026-08-19T10:35:00+08:00"})}})
+
+        # After T2+T3 have succeeded, call T4
+        if "compute_itt_split" not in succeeded_tools and "compute_itt_split" in available:
+            if "check_road_itt_capacity" in succeeded_tools and "check_sea_itt_capacity" in succeeded_tools:
+                # Build candidates/road/sea from context for T4
+                candidates = ctx.get("candidates", {"total_containers": 120})
+                road_cap = ctx.get("road_capacity", {"available_trucks": 20})
+                sea_cap = ctx.get("sea_capacity", {"feeder_id": "FEEDER ATLANTIC-03"})
+                # If deviation exists and we already had a split, this is re-compute with updated sea
+                # Still call compute_itt_split
+                tool_calls.append({"id": "call_T4", "type": "function", "function": {"name": "compute_itt_split", "arguments": json.dumps({"candidates": candidates, "road_capacity": road_cap, "sea_capacity": sea_cap, "tuas_vessel_departure": ctx.get("tuas_vessel_departure", "2026-08-19T20:00:00+08:00"), "constraints": ctx.get("constraints", {})})}})
+
+        # If T4 done, we should pause for HITL-1 before dispatch. The agent_node's deterministic mock
+        # would otherwise dispatch without HITL. Instead, we stop tool_calls and let graph route to hitl.
+        # So if T4 is the last successful tool and HITL-1 not approved, we don't emit dispatch yet.
+        # The router will set hitl_pending = HITL-1 based on context? Actually we handle that in deterministic planner below.
+        # For now, if T4 succeeded but no HITL, we produce no tool_calls — the graph will route to hitl.
+        # To trigger that, we need the agent_node to set hitl_pending. The mock provider alone can't set hitl_pending.
+        # So we handle HITL injection in the wrapper _mock_provider_for_state via state mutation after chat? 
+        # Instead, we directly check here and set a flag via global: the agent_node after calling mock will inspect context.
+        # So for the mock path, we simply return empty tool_calls when at a HITL gate — the post-processing in agent_node's deterministic fallback covers it.
+        # For now return whatever we built; if T4 already done and HITL pending, we will have empty next batch.
+        # Detect that we've already dispatched tools — don't re-emit same.
+
+        # If we've already approved HITL-1..3, then dispatch and Tuas
+        # But that logic is gated by hitl approvals — we only emit dispatch if approvals exist
+        if "HITL-1" in approved or "hitl_1" in approved:
+            # HITL-1 approved -> dispatch trucks and feeder hold if not yet done
+            if "dispatch_road_itt" not in succeeded_tools and "dispatch_road_itt" in available and "HITL-2" in approved:
+                # Actually need HITL-2 approved first — so wait
+                pass
+            if "dispatch_road_itt" not in succeeded_tools and "dispatch_road_itt" in available:
+                if "HITL-2" in approved or "hitl_2" in approved:
+                    # Build container_ids from candidates for dispatch
+                    candidates = ctx.get("candidates", {}) or {}
+                    all_containers = candidates.get("containers", []) if isinstance(candidates, dict) else []
+                    def _ids(n, offset=0):
+                        if all_containers and isinstance(all_containers, list):
+                            # Use enumerate to get index for fallback id
+                            result = []
+                            for idx, c in enumerate(all_containers[offset:offset+n]):
+                                cid = c.get("container_id")
+                                if cid:
+                                    result.append(cid)
+                                else:
+                                    result.append(f"C{idx+offset:06d}")
+                            return result
+                        return [f"C{i+offset:06d}" for i in range(n)]
+                    if ctx.get("deviation_log"):
+                        # delta dispatch: extra 20 containers (60->100 road) but demo uses 4 trucks for delta
+                        ids = _ids(20, 80)
+                        if len(ids) < 20:
+                            try:
+                                from app.mocks.data import generate_containers
+                                gen = generate_containers()
+                                ids = [c["container_id"] for c in gen[80:100]]
+                            except Exception:
+                                ids = [f"DELTA{i:03d}" for i in range(20)]
+                        tool_calls.append({"id": "call_dispatch_delta", "type": "function", "function": {"name": "dispatch_road_itt", "arguments": json.dumps({"num_trucks": 4, "route": "PPT→West Coast Hwy→AYE→Tuas", "container_ids": ids or [f"DELTA{i:03d}" for i in range(4)]})}})
+                    else:
+                        # initial dispatch 80 containers road: 40x40ft +40x20ft
+                        ids = _ids(80, 0)
+                        # Ensure we have 80 ids even if candidates truncated to 5
+                        if len(ids) < 80:
+                            try:
+                                from app.mocks.data import generate_containers
+                                gen = generate_containers()
+                                ids = [c["container_id"] for c in gen[:80]]
+                            except Exception:
+                                ids = [f"C{i:06d}" for i in range(80)]
+                        tool_calls.append({"id": "call_dispatch", "type": "function", "function": {"name": "dispatch_road_itt", "arguments": json.dumps({"num_trucks": 20, "route": "PPT→West Coast Hwy→AYE→Tuas", "container_ids": ids})}})
+            if "request_feeder_hold" not in succeeded_tools and "request_feeder_hold" in available:
+                if "HITL-3" in approved or "hitl_3" in approved:
+                    tool_calls.append({"id": "call_hold", "type": "function", "function": {"name": "request_feeder_hold", "arguments": json.dumps({"feeder_id": "FEEDER ATLANTIC-03", "hold_hours": 1.0})}})
+
+        # Delta dispatch after deviation + HITL-5 approved (second dispatch, 4 trucks)
+        if ctx.get("deviation_log") and ("HITL-5" in approved or "hitl_5" in approved) and "dispatch_road_itt" in succeeded_tools and not ctx.get("delta_dispatched"):
+            if "dispatch_road_itt" in available:
+                candidates = ctx.get("candidates", {}) or {}
+                all_containers = candidates.get("containers", []) if isinstance(candidates, dict) else []
+                def _delta_ids(n, offset=80):
+                    if all_containers and isinstance(all_containers, list) and len(all_containers) >= offset + n:
+                        return [c.get("container_id") or f"C{idx+offset:06d}" for idx, c in enumerate(all_containers[offset:offset+n])]
+                    try:
+                        from app.mocks.data import generate_containers
+                        gen = generate_containers()
+                        return [c["container_id"] for c in gen[offset:offset+n]]
+                    except Exception:
+                        return [f"DELTA{i:03d}" for i in range(n)]
+                ids = _delta_ids(20, 80)
+                # Use 4 trucks for delta (charter: +4 trucks / +10 trips)
+                tool_calls.append({"id": "call_dispatch_delta", "type": "function", "function": {"name": "dispatch_road_itt", "arguments": json.dumps({"num_trucks": 4, "route": "PPT→West Coast Hwy→AYE→Tuas", "container_ids": ids or [f"DELTA{i:03d}" for i in range(4)]})}})
+
+        # Tuas loading sequence — only after BOTH dispatch and hold succeed (charter: T5 after dispatch+hold, before HITL-4)
+        # Also ensure we don't emit T5 before HITL-3 approved. For delta path, T5_2 after HITL-5.
+        if "update_tuas_loading_sequence" not in succeeded_tools and "update_tuas_loading_sequence" in available:
+            # Initial T5: need HITL-1..3 approved AND dispatch+hold done, HITL-4 not yet approved
+            has_dispatch = "dispatch_road_itt" in succeeded_tools
+            has_hold = "request_feeder_hold" in succeeded_tools
+            # need at least HITL-1,2,3 approved for nominal T5; for hold-less demo, allow dispatch alone if hold not required?
+            # Charter nominal uses both dispatch and hold, so require both if available.
+            can_do_t5 = False
+            if "HITL-1" in approved and "HITL-2" in approved and "HITL-3" in approved:
+                if has_dispatch and has_hold:
+                    can_do_t5 = True
+                elif has_dispatch and "request_feeder_hold" not in available:
+                    can_do_t5 = True
+            # Also handle case where hold is optional: if dispatcher already marked dispatched, we can still do T5 after HITL-2 if hold not needed, but prefer requiring hold
+            # For current PB-12, hold is required, so keep both check.
+            if can_do_t5:
+                def _split_ids():
+                    candidates = ctx.get("candidates", {}) or {}
+                    all_containers = candidates.get("containers", []) if isinstance(candidates, dict) else []
+                    if all_containers and isinstance(all_containers, list) and len(all_containers) >= 120:
+                        road_ids = [c["container_id"] for c in all_containers[:80]]
+                        sea_ids = [c["container_id"] for c in all_containers[80:]]
+                        return road_ids, sea_ids
+                    try:
+                        from app.mocks.data import generate_containers
+                        gen = generate_containers()
+                        road_ids = [c["container_id"] for c in gen[:80]]
+                        sea_ids = [c["container_id"] for c in gen[80:]]
+                        return road_ids, sea_ids
+                    except Exception:
+                        return [f"R{i:03d}" for i in range(80)], [f"S{i:03d}" for i in range(40)]
+                road_ids, sea_ids = _split_ids()
+                if "HITL-4" not in approved and "hitl_4" not in approved:
+                    tool_calls.append({"id": "call_T5", "type": "function", "function": {"name": "update_tuas_loading_sequence", "arguments": json.dumps({"vessel_id": ctx.get("vessel_id", "MV PACIFIC STAR"), "itt_eta_road": "2026-08-19T14:30:00+08:00", "itt_eta_sea": "2026-08-19T16:30:00+08:00", "container_ids_road": road_ids, "container_ids_sea": sea_ids})}})
+            # Delta T5_2: only after deviation + HITL-5 approved + both dispatches done
+            # Handled separately below
+        # Second T5 after deviation (delta)
+        if ctx.get("deviation_log") and "HITL-5" in approved:
+            # Check if delta dispatch done but second Tuas not yet done
+            # We already have succeeded_tools check; if update_tuas already succeeded once, we still want a second call.
+            # So we need a separate check: if deviation exists and second T5 not yet in succeeded, emit it.
+            # succeeded_tools currently counts first T5; we need to allow a second distinct call.
+            # Use a flag in context: tuas_second_done
+            if not ctx.get("tuas_second_done") and "update_tuas_loading_sequence" in succeeded_tools:
+                # First T5 done, need second with updated split (100/20)
+                try:
+                    from app.mocks.data import generate_containers
+                    gen2 = generate_containers()
+                    road_ids2 = [c["container_id"] for c in gen2[:100]]
+                    sea_ids2 = [c["container_id"] for c in gen2[100:120]]
+                except Exception:
+                    # fallback
+                    candidates = ctx.get("candidates", {}) or {}
+                    all_containers = candidates.get("containers", []) if isinstance(candidates, dict) else []
+                    if all_containers and isinstance(all_containers, list) and len(all_containers) >= 120:
+                        road_ids2 = [c["container_id"] for c in all_containers[:100]]
+                        sea_ids2 = [c["container_id"] for c in all_containers[100:120]]
+                    else:
+                        road_ids2 = [f"R{i:03d}" for i in range(100)]
+                        sea_ids2 = [f"S{i:03d}" for i in range(20)]
+                # Ensure delta dispatch done before second T5
+                if "dispatch_road_itt" in succeeded_tools and ctx.get("delta_dispatched"):
+                    tool_calls.append({"id": "call_T5_2", "type": "function", "function": {"name": "update_tuas_loading_sequence", "arguments": json.dumps({"vessel_id": ctx.get("vessel_id", "MV PACIFIC STAR"), "itt_eta_road": "2026-08-19T16:00:00+08:00", "itt_eta_sea": "2026-08-19T18:00:00+08:00", "container_ids_road": road_ids2, "container_ids_sea": sea_ids2})}})
+
+        # Remove duplicates where we re-emit already succeeded tools
+        # Already filtered by succeeded_tools check, so fine
+
+        # Limit to max 3 parallel tools per batch to avoid overwhelming
+        if len(tool_calls) > 3:
+            tool_calls = tool_calls[:3]
+
+        # If we have tool_calls, return them; else return a completion message
+        content = json.dumps({"confidence": 0.92, "reason": "deterministic mock planner"}) if tool_calls else json.dumps({"confidence": 0.95, "status": "awaiting HITL or complete"})
+        from dataclasses import dataclass
+
+        @dataclass
+        class _Resp:
+            content: str
+            tool_calls: list
+            finish_reason: str = "stop"
+            usage: dict = None
+            model: str = "mock"
+            provider: str = "mock"
+            latency_ms: float = 5.0
+            raw: dict = None
+            def __post_init__(self):
+                if self.usage is None:
+                    self.usage = {}
+                if self.raw is None:
+                    self.raw = {}
+
+        return _Resp(content=content, tool_calls=tool_calls)
+
+
+def _mock_provider_for_state(state: dict[str, Any]):
+    return _MockProvider(state)
+
+
+def _fallback_llm_response(state: dict[str, Any], schemas: list[dict[str, Any]]):
+    # Use mock provider as fallback
+    mock = _MockProvider(state)
+    return mock.chat(state.get("messages", []), tools=schemas)
+
