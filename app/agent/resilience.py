@@ -185,4 +185,23 @@ def validate_webhook_event(data: dict[str, Any]) -> tuple[bool, str]:
         return False, "vessel_id required"
     if "tuas_vessel_departure" not in data or not data.get("tuas_vessel_departure"):
         return False, "tuas_vessel_departure required"
+    # Future check per A-21
+    v = data.get("tuas_vessel_departure")
+    if v:
+        try:
+            from datetime import datetime, timedelta, timezone
+            dt = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if dt <= datetime.now(timezone.utc) + timedelta(minutes=30):
+                return False, "tuas_vessel_departure must be > now + 30min"
+        except Exception:
+            return False, "invalid tuas_vessel_departure"
+    # containers_ready vs container_count (422)
+    if "containers_ready" in data and "container_count" in data:
+        try:
+            if int(data["containers_ready"]) > int(data["container_count"]):
+                return False, "containers_ready cannot exceed container_count"
+        except Exception:
+            pass
     return True, ""

@@ -78,10 +78,21 @@ async def receive_webhook(event: ITTCoordinationEvent):
     Returns 422 on Pydantic validation failure (FastAPI auto), 400 for
     semantic errors like containers_ready > container_count.
     """
-    # Semantic guard — containers_ready cannot exceed container_count
+    # Resilience helper validation (422, not 500) — container_count, vessel_id, future departure
+    try:
+        from app.agent.resilience import validate_webhook_event
+        ok, err = validate_webhook_event(event.model_dump())
+        if not ok:
+            raise HTTPException(status_code=422, detail=err)
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    # Semantic guard — containers_ready cannot exceed container_count (422, not 400 per A-21)
     if event.containers_ready > event.container_count:
         raise HTTPException(
-            status_code=400,
+            status_code=422,
             detail=f"containers_ready ({event.containers_ready}) cannot exceed container_count ({event.container_count})",
         )
 
@@ -374,16 +385,18 @@ async def run_demo(payload: dict | None = None):
     elif payload and "event_type" in payload:
         event_data = payload
     else:
-        # Default PB-12 demo event (120 containers PPT→Tuas)
+        # Default PB-12 demo event (120 containers PPT→Tuas) — departure is future per A-21
+        from datetime import datetime, timedelta, timezone
+        _now = datetime.now(timezone.utc)
         event_data = {
             "event_type": "ITT_COORDINATION_REQUEST",
-            "timestamp": "2026-08-19T10:30:00+08:00",
+            "timestamp": (_now - timedelta(minutes=5)).isoformat(),
             "source": "CITOS_PPT",
             "priority": "high",
             "origin_terminal": "PPT",
             "destination_terminal": "TUAS",
             "vessel_id": "MV PACIFIC STAR",
-            "tuas_vessel_departure": "2026-08-19T20:00:00+08:00",
+            "tuas_vessel_departure": (_now + timedelta(hours=12)).isoformat(),
             "container_count": 120,
             "containers_ready": 120,
             "blocks_affected": ["B-07", "B-08", "B-12", "B-14"],

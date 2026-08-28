@@ -20,7 +20,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from datetime import datetime, timedelta, timezone
+
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +282,22 @@ class ITTCoordinationEvent(BaseModel):
     priority_containers: int = Field(0, ge=0, json_schema_extra={"example": 45})
     requested_by: str = Field(..., json_schema_extra={"example": "PPT_Yard_Planner_Lim"})
     notes: str = Field("", json_schema_extra={"example": "Priority transhipment for MV PACIFIC STAR"})
+
+    @field_validator("tuas_vessel_departure")
+    @classmethod
+    def _must_be_future(cls, v: str):
+        try:
+            dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            # Must be > now + 30min per A-21
+            if dt <= datetime.now(timezone.utc) + timedelta(minutes=30):
+                raise ValueError("tuas_vessel_departure must be > now + 30min")
+        except ValueError:
+            raise
+        except Exception:
+            raise ValueError("invalid tuas_vessel_departure")
+        return v
 
 
 # Alias for backward compatibility (ppt_citos used WebhookEvent)
