@@ -77,10 +77,23 @@ export default function NexusDashboard() {
     }
   }, [runId]);
 
-  // Load initial data — single init call sets random scenario + returns all data
+  // Load initial data — cached in sessionStorage to survive page navigation
   useEffect(() => {
+    const cached = sessionStorage.getItem('nexus_init_data');
+    if (cached) {
+      try {
+        const init = JSON.parse(cached);
+        if (init.problem_id) setActiveProblem(init.problem_id);
+        setContainers(init.containers);
+        setTrucks(init.trucks);
+        setFeeder(init.feeder);
+        setQc(init.qc);
+        return;
+      } catch { /* ignore bad cache, fetch fresh */ }
+    }
     initializeSession()
       .then((init) => {
+        sessionStorage.setItem('nexus_init_data', JSON.stringify(init));
         if (init.problem_id) setActiveProblem(init.problem_id);
         setContainers(init.containers);
         setTrucks(init.trucks);
@@ -88,7 +101,6 @@ export default function NexusDashboard() {
         setQc(init.qc);
       })
       .catch(() => {
-        // Fallback: individual fetches (don't touch activeProblem — default is correct)
         getContainerData().then(setContainers).catch(() => {});
         getTruckData().then(setTrucks).catch(() => {});
         getFeederData().then(setFeeder).catch(() => {});
@@ -201,15 +213,28 @@ export default function NexusDashboard() {
 
   async function handleReset() {
     await resetMocks();
+    sessionStorage.removeItem('nexus_init_data');
+    sessionStorage.removeItem('nexus_run_id');
     setRunId(null);
     setEvents([]);
     setHitlGate(null);
     setConfidence(null);
     setRiskScore(null);
-    getContainerData().then(setContainers).catch(() => {});
-    getTruckData().then(setTrucks).catch(() => {});
-    getFeederData().then(setFeeder).catch(() => {});
-    getQcData().then(setQc).catch(() => {});
+    // Re-initialize with fresh random data
+    try {
+      const init = await initializeSession();
+      sessionStorage.setItem('nexus_init_data', JSON.stringify(init));
+      if (init.problem_id) setActiveProblem(init.problem_id);
+      setContainers(init.containers);
+      setTrucks(init.trucks);
+      setFeeder(init.feeder);
+      setQc(init.qc);
+    } catch {
+      getContainerData().then(setContainers).catch(() => {});
+      getTruckData().then(setTrucks).catch(() => {});
+      getFeederData().then(setFeeder).catch(() => {});
+      getQcData().then(setQc).catch(() => {});
+    }
   }
 
   async function handleEdgeCase(caseType: string) {
