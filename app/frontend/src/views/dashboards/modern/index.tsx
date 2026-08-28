@@ -290,15 +290,15 @@ export default function NexusDashboard() {
 
       {/* Main content */}
       <div className="grid grid-cols-12 gap-4">
-        {/* Left column: Agent output + HITL */}
+        {/* Left column: HITL + Agent output */}
         <div className="col-span-12 lg:col-span-8 space-y-4">
-          <AgentOutput events={events} />
-
           <HitlCard
             gate={hitlGate}
             runId={runId || ''}
             onResponded={() => setHitlGate(null)}
           />
+
+          <AgentOutput events={events} />
         </div>
 
         {/* Right column: Status cards + Cost */}
