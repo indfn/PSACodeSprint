@@ -259,6 +259,17 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
 
     state["confidence"] = confidence_val
 
+    # Publish confidence_update SSE event
+    try:
+        from app.agent.sse import broadcaster
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(broadcaster.publish(state.get("run_id", ""), "confidence_update", {"confidence": confidence_val, "source": "agent_node"}))
+        except RuntimeError:
+            pass
+    except Exception:
+        pass
+
     # Handle tool_calls: normalize to list of {id, name, args}
     normalised_calls: list[dict[str, Any]] = []
     invalid_calls: list[dict[str, Any]] = []

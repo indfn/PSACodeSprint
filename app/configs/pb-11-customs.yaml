@@ -10,6 +10,7 @@ llm:
   api_key_env: ANTHROPIC_API_KEY
   fallback_provider: openai
   fallback_model: gpt-4o
+  fallback_api_key_env: OPENAI_API_KEY
 systems:
 - name: tradenet
   type: trade_document

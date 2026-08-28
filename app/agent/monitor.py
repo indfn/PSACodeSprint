@@ -84,6 +84,18 @@ async def monitor_node(state: dict[str, Any]) -> dict[str, Any]:
             ctx["previous_sea_capacity"] = previous
             # Charter confidence trajectory: 0.95 -> 0.78 -> 0.90
             state["confidence"] = 0.78  # below 0.85 → triggers escalation #1
+
+            # Publish confidence_update SSE event
+            try:
+                from app.agent.sse import broadcaster
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(broadcaster.publish(state.get("run_id", ""), "confidence_update", {"confidence": 0.78, "source": "monitor_deviation"}))
+                except RuntimeError:
+                    pass
+            except Exception:
+                pass
+
             ctx["feeder_hold_hours"] = 2.0  # above 1.5h → triggers escalation #2
             ctx["deviation_handled"] = False  # mark deviation detected, not yet handled (handler sets True after HITL-5)
 

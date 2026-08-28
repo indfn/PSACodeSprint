@@ -321,10 +321,6 @@ async def hitl_respond(payload: dict):
         cur = runs.get(run_id)
         if cur and cur.get("status") in ("halted", "cancelled", "holding", "completed", "failed") and not cur.get("hitl_pending"):
             raise HTTPException(status_code=422, detail=f"HITL {payload.get('gate_id','')} already timed out -> {cur.get('status')}")
-    except HTTPException:
-        raise
-    except Exception:
-        pass
 
     try:
         from app.agent.run import resume_agent
