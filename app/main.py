@@ -5,8 +5,11 @@ HITL endpoints, SSE streaming, edge injection.
 Canonical schema import: from app.shared.models import ITTCoordinationEvent
 """
 
+import logging
+import os
 import uuid
 from collections import OrderedDict
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -36,10 +39,104 @@ except ImportError:
 from app.agent.problem_switcher import get_active_problem_id, switch_problem
 from app.shared.models import ITTCoordinationEvent, WebhookResponse
 
+logger = logging.getLogger("psa-nexus.startup")
+
+# Local provider → API key env var mapping (for startup validation)
+_PROVIDER_KEY_MAP: dict[str, str] = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "gemini": "GOOGLE_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+    # Local providers — no API key required
+    "ollama": "",
+    "vllm": "",
+    "lmstudio": "",
+}
+
+
+def _validate_startup() -> list[str]:
+    """Validate env, YAML configs, registry, graph. Returns warnings (never raises)."""
+    warnings: list[str] = []
+
+    # 1. Validate API key for active provider
+    try:
+        from app.configs.problem_config import load_problem_config
+        cfg = load_problem_config(get_active_problem_id())
+        provider = cfg.llm.get("provider", "anthropic")
+        api_key_env = _PROVIDER_KEY_MAP.get(provider, "")
+        if api_key_env and not os.environ.get(api_key_env):
+            warnings.append(f"Missing env var {api_key_env} for provider '{provider}' — LLM calls will fail")
+    except Exception as exc:
+        warnings.append(f"Failed to load active config: {exc}")
+
+    # 2. Parse all 7 YAML configs
+    import glob as _glob
+    from pathlib import Path
+    config_dir = Path(__file__).resolve().parent / "configs"
+    yaml_count = 0
+    for yf in sorted(config_dir.glob("pb-*.yaml")):
+        try:
+            import yaml
+            with open(yf) as f:
+                data = yaml.safe_load(f) or {}
+            if "problem" not in data:
+                warnings.append(f"{yf.name}: missing 'problem' block")
+            if "tools" not in data or not data["tools"]:
+                warnings.append(f"{yf.name}: missing 'tools'")
+            yaml_count += 1
+        except Exception as exc:
+            warnings.append(f"{yf.name}: YAML parse error: {exc}")
+    if yaml_count == 0:
+        warnings.append("No YAML configs found in app/configs/")
+
+    # 3. Verify tool registry consistency (pb-12 tools exist)
+    try:
+        from app.tools.registry import TOOLSETS, _PB12_MODULE_MAP
+        for tool_name in TOOLSETS.get("pb-12-itt", []):
+            if tool_name not in _PB12_MODULE_MAP:
+                warnings.append(f"Registry: pb-12 tool '{tool_name}' not in _PB12_MODULE_MAP")
+    except Exception as exc:
+        warnings.append(f"Registry check failed: {exc}")
+
+    # 4. Verify graph compiles
+    try:
+        from app.agent.graph import build_graph
+        build_graph()
+    except Exception as exc:
+        warnings.append(f"Graph compilation failed: {exc}")
+
+    return warnings
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup/shutdown lifespan — validate configs, register cleanup."""
+    # --- startup ---
+    warnings = _validate_startup()
+    if warnings:
+        for w in warnings:
+            logger.warning("STARTUP: %s", w)
+        print(f"[PSA Nexus] Startup completed with {len(warnings)} warning(s):")
+        for w in warnings:
+            print(f"  ⚠ {w}")
+    else:
+        print("[PSA Nexus] Startup validation passed")
+
+    yield  # app is running
+
+    # --- shutdown ---
+    try:
+        from app.hitl.timeout_scheduler import cancel_all_timeouts
+        cancel_all_timeouts()
+    except (ImportError, Exception):
+        pass
+    print("[PSA Nexus] Shutdown complete")
+
 app = FastAPI(
     title="PSA Nexus — Agentic Multi-Party Coordination Platform",
     description="Unified platform for Cluster C2 (7 problems) — flagship PB-12 ITT Coordination",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
