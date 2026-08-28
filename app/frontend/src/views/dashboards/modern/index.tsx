@@ -301,8 +301,16 @@ export default function NexusDashboard() {
           <AgentOutput events={events} />
         </div>
 
-        {/* Right column: Status cards + Cost */}
+        {/* Right column: Cost + Status cards */}
         <div className="col-span-12 lg:col-span-4 space-y-3">
+          <CostBreakdown
+            roadCost={costData.roadCost}
+            seaHandling={costData.seaHandling}
+            total={costData.total}
+            baseline={costData.baseline}
+            alternatives={costData.alternatives}
+          />
+
           <SystemStatusCard
             name="CITOS PPT"
             metric={`${containers?.total_containers ?? 0} containers`}
@@ -330,14 +338,6 @@ export default function NexusDashboard() {
             value={100}
             max={100}
             status="green"
-          />
-
-          <CostBreakdown
-            roadCost={costData.roadCost}
-            seaHandling={costData.seaHandling}
-            total={costData.total}
-            baseline={costData.baseline}
-            alternatives={costData.alternatives}
           />
         </div>
       </div>
