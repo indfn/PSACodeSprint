@@ -1,5 +1,4 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useEffect, useRef } from 'react';
 
 export interface AgentEvent {
@@ -35,29 +34,25 @@ export default function AgentOutput({ events }: AgentOutputProps) {
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">Agent Output</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <ScrollArea className="h-[400px]">
-          <div ref={scrollRef} className="space-y-1 font-mono text-xs">
-            {events.length === 0 && (
-              <p className="text-muted-foreground">
-                Waiting for agent events...
-              </p>
-            )}
-            {events.map((ev, i) => (
-              <div key={i} className="flex gap-2">
-                <span className="text-muted-foreground shrink-0">
-                  [{formatTime(ev.timestamp)}]
-                </span>
-                <span className="text-foreground">{ev.message}</span>
-              </div>
-            ))}
-          </div>
-        </ScrollArea>
-      </CardContent>
-    </Card>
+    <div className="rounded-xl bg-muted/50 p-4">
+      <h3 className="text-xs font-semibold mb-2 text-muted-foreground">Agent Output</h3>
+      <ScrollArea className="h-[400px]">
+        <div ref={scrollRef} className="space-y-1 font-mono text-xs">
+          {events.length === 0 && (
+            <p className="text-muted-foreground">
+              Waiting for agent events...
+            </p>
+          )}
+          {events.map((ev, i) => (
+            <div key={i} className="flex gap-2">
+              <span className="text-muted-foreground shrink-0">
+                [{formatTime(ev.timestamp)}]
+              </span>
+              <span className="text-foreground">{ev.message}</span>
+            </div>
+          ))}
+        </div>
+      </ScrollArea>
+    </div>
   );
 }

@@ -1,4 +1,3 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useState } from 'react';
@@ -12,7 +11,7 @@ export interface HitlGateInfo {
 }
 
 interface HitlCardProps {
-  gate: HitlGateInfo;
+  gate: HitlGateInfo | null;
   runId: string;
   onResponded?: () => void;
 }
@@ -50,7 +49,7 @@ export default function HitlCard({ gate, runId, onResponded }: HitlCardProps) {
   async function handleDecision(decision: string) {
     setLoading(true);
     try {
-      await hitlRespond(runId, decision, gate.gate_id, reason || undefined);
+      await hitlRespond(runId, decision, gate!.gate_id, reason || undefined);
       setResponded(true);
       onResponded?.();
     } catch (err) {
@@ -60,67 +59,68 @@ export default function HitlCard({ gate, runId, onResponded }: HitlCardProps) {
     }
   }
 
-  if (responded) {
+  if (!gate || responded) {
     return (
-      <Card size="sm">
-        <CardContent className="py-3">
-          <p className="text-xs text-muted-foreground">Decision submitted.</p>
-        </CardContent>
-      </Card>
+      <div className="rounded-xl bg-muted/50 p-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-semibold text-muted-foreground">Approval Queue</h3>
+          <span className="h-2 w-2 rounded-full bg-muted-foreground/30" />
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">No approvals pending</p>
+      </div>
     );
   }
 
   return (
-    <Card size="sm">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-xs font-medium">
-            {gate.gate_name}
-          </CardTitle>
-          <Badge variant="destructive" className="text-[10px]">
-            Pending
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {renderDecisionData(gate.data)}
+    <div className="rounded-xl bg-muted/50 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold text-muted-foreground">Approval Queue</h3>
+        <Badge variant="destructive" className="text-[10px]">
+          Pending
+        </Badge>
+      </div>
 
-        <Textarea
-          placeholder="Reason (optional)..."
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          className="min-h-[60px] text-xs"
-        />
+      <div>
+        <p className="text-xs font-medium">{gate.gate_name}</p>
+      </div>
 
-        <div className="flex gap-1.5">
-          <Button
-            size="sm"
-            variant="destructive"
-            disabled={loading}
-            onClick={() => handleDecision('reject')}
-            className="h-7 text-xs"
-          >
-            Reject
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={loading}
-            onClick={() => handleDecision('modify')}
-            className="h-7 text-xs"
-          >
-            Modify
-          </Button>
-          <Button
-            size="sm"
-            disabled={loading}
-            onClick={() => handleDecision('approve')}
-            className="h-7 text-xs"
-          >
-            Approve
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+      {renderDecisionData(gate.data)}
+
+      <Textarea
+        placeholder="Reason (optional)..."
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        className="min-h-[60px] text-xs"
+      />
+
+      <div className="flex gap-1.5">
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={loading}
+          onClick={() => handleDecision('reject')}
+          className="h-7 text-xs"
+        >
+          Reject
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={loading}
+          onClick={() => handleDecision('modify')}
+          className="h-7 text-xs"
+        >
+          Modify
+        </Button>
+        <Button
+          size="sm"
+          disabled={loading}
+          onClick={() => handleDecision('approve')}
+          className="h-7 text-xs"
+        >
+          Approve
+        </Button>
+      </div>
+    </div>
   );
 }

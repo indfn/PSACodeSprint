@@ -290,20 +290,18 @@ export default function NexusDashboard() {
 
       {/* Main content */}
       <div className="grid grid-cols-12 gap-4">
-        {/* Left column: Agent output + Cost */}
+        {/* Left column: Agent output + HITL */}
         <div className="col-span-12 lg:col-span-8 space-y-4">
           <AgentOutput events={events} />
 
-          <CostBreakdown
-            roadCost={costData.roadCost}
-            seaHandling={costData.seaHandling}
-            total={costData.total}
-            baseline={costData.baseline}
-            alternatives={costData.alternatives}
+          <HitlCard
+            gate={hitlGate}
+            runId={runId || ''}
+            onResponded={() => setHitlGate(null)}
           />
         </div>
 
-        {/* Right column: Status cards + HITL */}
+        {/* Right column: Status cards + Cost */}
         <div className="col-span-12 lg:col-span-4 space-y-3">
           <SystemStatusCard
             name="CITOS PPT"
@@ -334,13 +332,13 @@ export default function NexusDashboard() {
             status="green"
           />
 
-          {hitlGate && (
-            <HitlCard
-              gate={hitlGate}
-              runId={runId || ''}
-              onResponded={() => setHitlGate(null)}
-            />
-          )}
+          <CostBreakdown
+            roadCost={costData.roadCost}
+            seaHandling={costData.seaHandling}
+            total={costData.total}
+            baseline={costData.baseline}
+            alternatives={costData.alternatives}
+          />
         </div>
       </div>
     </div>
