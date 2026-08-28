@@ -166,6 +166,123 @@ Charter §2 + `README.md:§4`:
 
 ## 7) Architecture — System View
 
+### 7a) High-Level System Architecture (for Slide 5)
+
+```mermaid
+flowchart TB
+    %% ── External Events ──
+    CITOS_PPT["CITOS PPT<br/>(container readiness)"] --> Webhook
+    PORTNET["PORTNET / Feeder<br/>(berth + tidal window)"] -. mock .-> Mocks
+    OPTETRUCK["OptETruck<br/>(trucks + transit)"] -. mock .-> Mocks
+    VTIS["VTIS / OptEVoyage<br/>(PB-01 sibling)"] -. mock .-> Mocks
+
+    Webhook["POST /webhook/itt-coordination<br/>T6 — ITTCoordinationEvent<br/>≥50 ctrs, departure > now+2h<br/>app/main.py + app/shared/models.py"]
+
+    subgraph FastAPI ["FastAPI  app/main.py  —  :8000 single port"]
+        Webhook
+        Switch["POST /agent/switch-problem/{id}<br/>load YAML → clear registry → register_many<br/>app/agent/problem_switcher.py"]
+        HITL_API["POST /agent/hitl/respond<br/>approve / reject / modify / timeout<br/>Command(resume=)"]
+        Inject["POST /agent/inject-edge-case<br/>mutate app/mocks/data.py<br/>per-run isolated"]
+        SSE_API["GET /agent/stream/{run_id}<br/>SSE replay buffer + Last-Event-ID<br/>app/agent/sse.py"]
+        Health["GET /health  ·  GET /ui/  (planned)"]
+    end
+
+    Webhook -->|bootstrap 11-field initial_state<br/>run_id == thread_id| Graph
+
+    subgraph Graph ["LangGraph  app/agent/graph.py:95<br/>MemorySaver(thread_id=run_id)"]
+        direction TB
+        AgentNode["agent<br/>LLM reasoning + fast-path HITL<br/>provider + tool_adapter<br/>app/agent/nodes.py:15"]
+        ToolNode["tools<br/>registry.dispatch + fallback<br/>HITL guard + 503/timeout split<br/>app/agent/nodes.py:472"]
+        HITLNode["hitl<br/>interrupt(approval_card)<br/>single node, not 5<br/>app/hitl/gates.py"]
+        MonitorNode["monitor<br/>re-query T3 → detect conflict<br/>re-compute T4 → HITL-5<br/>app/agent/monitor.py"]
+
+        AgentNode -- "pending_tool_calls" --> ToolNode
+        AgentNode -- "hitl_pending / escalation" --> HITLNode
+        AgentNode -- "dispatched + HITL-4 + !monitored" --> MonitorNode
+        ToolNode --> AgentNode
+        HITLNode --> AgentNode
+        MonitorNode -- "hitl_pending" --> HITLNode
+        MonitorNode -- "deviation_log" --> AgentNode
+        MonitorNode -- "clean" --> END_NODE["END"]
+        AgentNode -- "no more work" --> END_NODE
+    end
+
+    Graph --> State[("AgentState  app/agent/state.py:10<br/>messages · tool_results<br/>hitl_pending/history · confidence<br/>trace · deviation_log<br/>problem_config · run_id · context")]
+
+    subgraph Registry ["Tool Registry + Configs"]
+        YAML["7 YAMLs<br/>pb-12-itt.yaml (flagship)<br/>pb-01 / 02 / 04 / 09 / 10 / 11<br/>app/configs/"]
+        Reg["ToolRegistry<br/>TOOLSETS · register_for_problem()<br/>app/tools/registry.py"]
+        ToolsPB12["PB-12: 8 tools<br/>T1 get_itt_candidates<br/>T2 check_road · T3 check_sea<br/>T4 compute_itt_split ($10,400)<br/>T5 update_tuas_loading<br/>T6 dispatch · T7 feeder_hold<br/>T8 notify_parties"]
+        ToolsPB01["PB-01: 5 stub tools<br/>query_vessel_arrival<br/>check_berth / QC<br/>compute_berth_reassign<br/>app/tools/pb01/"]
+        YAML --> Reg
+        Reg --> ToolsPB12
+        Reg --> ToolsPB01
+    end
+
+    AgentNode -. "get_schemas() → adapt(anthropic/openai/gemini)" .-> Reg
+    ToolNode -. "call(name, args)" .-> ToolsPB12
+    Switch -. "swap" .-> Reg
+    Switch -. "build_system_prompt(config)" .-> AgentNode
+
+    subgraph Providers ["LLM Abstraction  app/shared/provider.py"]
+        direction LR
+        P1["Anthropic<br/>Claude Sonnet 4"]
+        P2["OpenAI<br/>GPT-4o"]
+        P3["Gemini"]
+        P4["DeepSeek"]
+        P5["Ollama / vLLM<br/>LM Studio"]
+        P6["Custom<br/>any OpenAI-compatible<br/>base_url"]
+    end
+
+    Providers -. "create_provider(llm_cfg)<br/>+ tool_adapter" .-> AgentNode
+    AgentNode -. "fallback: _mock_provider_for_state<br/>(deterministic, no API key needed)" .-> AgentNode
+
+    subgraph Mocks ["Mock Environment  app/mocks/  (in-process, not HTTP)"]
+        Data["data.py<br/>120 ctrs · 20 trucks · feeder 800/620<br/>_feeder_overrides[run_id]<br/>_stale_overrides[run_id]"]
+        Routers["routers/<br/>citos_ppt · citos_tuas<br/>optetruck · feeder · portnet<br/>vtis · optevoyage · berth"]
+        EdgeHooks["edge_cases.py hooks<br/>inject_feeder_berth_conflict()<br/>inject_stale_data()"]
+    end
+
+    ToolNode -. "in-process call" .-> Mocks
+
+    subgraph Observability ["Observability"]
+        Trace["TraceEntry<br/>timestamp · node · action<br/>risk_score · confidence<br/>duration_ms · fallback_used<br/>app/agent/trace.py"]
+        Logs["Structured JSON logs<br/>stdout + file<br/>app/shared/logging.py"]
+        LangSmith["LangSmith<br/>optional, LANGSMITH_API_KEY"]
+    end
+
+    AgentNode -. "log_trace + structured_log + SSE publish" .-> Observability
+    ToolNode -. "log_trace + risk_score" .-> Observability
+    HITLNode -. "HITL card + trace" .-> Observability
+
+    subgraph Dashboard ["Dashboard  (PLANNED Phase 7)  ⏳ WIP"]
+        direction TB
+        StatusPanel["Status + confidence<br/>streaming reasoning"]
+        ToolLog["Tool call log<br/>collapsible per tool"]
+        HITLCard["HITL Approval Card<br/>Approve / Reject / Modify<br/>30/15/15/10/30 timeouts"]
+        TracePanel["Trace sidebar<br/>color-coded + deviation_log"]
+        EdgePanel["Edge injection<br/>Inject AFTER dispatch hint"]
+        SwitcherUI["Problem Switcher<br/>PB-12 ↔ PB-01 dropdown"]
+        NotifyPanel["Notifications<br/>notify_parties live"]
+    end
+
+    SSE_API -- "8 events: agent_thinking<br/>tool_call/result · hitl_card<br/>escalation · trace_entry<br/>confidence_update · deviation<br/>notification · heartbeat" --> Dashboard
+
+    classDef planned fill:#fff7e6,stroke:#f5a623,stroke-dasharray: 6 4,color:#7a5900
+    classDef core fill:#e6f0ff,stroke:#0e2f5a,color:#0e2f5a
+    classDef hitl fill:#fff3cd,stroke:#856404,color:#856404
+    classDef mock fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+
+    class Dashboard,Health planned
+    class AgentNode,ToolNode,MonitorNode,Graph,State core
+    class HITLNode,HITL_API hitl
+    class Mocks,Data,Routers mock
+```
+
+**How to read it (speaker note for Slide 5):** Single FastAPI process on `:8000` serves *everything* — webhook entry (T6), HITL resume (`Command`), problem switch (YAML swap), edge injection (per-run mock mutation), and SSE replay. The brain is a 4-node LangGraph with `MemorySaver(thread_id=run_id)` so `interrupt → Command(resume)` survives restarts. Tools are *in-process* Python calls against `app/mocks/data.py` — fast and per-run isolated (`_feeder_overrides[run_id]`). Swapping `pb-12-itt.yaml → pb-01-berth.yaml` swaps the entire `TOOLSETS` + prompt without forking code. The dashboard (planned, amber dashed) just *subscribes* to the 8 SSE events the graph already emits — no separate polling.
+
+### 7b) Text Fallback (when Mermaid not rendered)
+
 ```
 External mocks (same FastAPI port 8000):  CITOS PPT, CITOS Tuas, OptETruck, PORTNET/feeder, VTIS/OptEVoyage (PB-01)
                                               │
