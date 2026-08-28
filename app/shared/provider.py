@@ -208,15 +208,28 @@ class AnthropicProvider(LLMProvider):
             else:
                 chat_messages.append({"role": msg["role"], "content": msg["content"]})
 
-        # Convert tools to Anthropic format
+        # Convert tools to Anthropic format — handle both OpenAI format and flat/adapted format
         anthropic_tools = []
         if tools:
             for tool in tools:
-                anthropic_tools.append({
-                    "name": tool["function"]["name"],
-                    "description": tool["function"].get("description", ""),
-                    "input_schema": tool["function"].get("parameters", {}),
-                })
+                if "function" in tool:
+                    anthropic_tools.append({
+                        "name": tool["function"]["name"],
+                        "description": tool["function"].get("description", ""),
+                        "input_schema": tool["function"].get("parameters", {}),
+                    })
+                elif "input_schema" in tool:
+                    # Already adapted to anthropic
+                    anthropic_tools.append(tool)
+                elif "name" in tool:
+                    # Flat format {name, description, parameters}
+                    anthropic_tools.append({
+                        "name": tool["name"],
+                        "description": tool.get("description", ""),
+                        "input_schema": tool.get("parameters", tool.get("input_schema", {})),
+                    })
+                else:
+                    continue
 
         t0 = time.monotonic()
         response = client.messages.create(
@@ -368,17 +381,26 @@ class GeminiProvider(LLMProvider):
             role = "model" if msg["role"] == "assistant" else "user"
             contents.append({"role": role, "parts": [msg["content"]]})
 
-        # Convert tools to Gemini format (flat list of function declarations)
+        # Convert tools to Gemini format (flat list) — handle OpenAI, flat, and already-adapted
         gemini_tools = []
         if tools:
             function_declarations = []
             for tool in tools:
-                fn = tool["function"]
-                function_declarations.append({
-                    "name": fn["name"],
-                    "description": fn.get("description", ""),
-                    "parameters": fn.get("parameters", {}),
-                })
+                if "function" in tool:
+                    fn = tool["function"]
+                    function_declarations.append({
+                        "name": fn["name"],
+                        "description": fn.get("description", ""),
+                        "parameters": fn.get("parameters", {}),
+                    })
+                elif "name" in tool:
+                    function_declarations.append({
+                        "name": tool["name"],
+                        "description": tool.get("description", ""),
+                        "parameters": tool.get("parameters", tool.get("input_schema", {})),
+                    })
+                else:
+                    continue
             gemini_tools = [{"function_declarations": function_declarations}]
 
         config = genai.types.GenerateContentConfig(

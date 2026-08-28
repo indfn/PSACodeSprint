@@ -328,7 +328,7 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
   5. Confidence score propagated through state
   6. Execution trace logged at every step
   7. End-to-end: webhook → agent → tools → HITL → result works
-**Status:** ○ NOT STARTED
+ **Status:** ✅ COMPLETE (2026-08-28) — 5 e2e tests green (happy 80/40=$10,400 + deviation 100/20=$11,200 + HITL-5 pending), 4 nodes (agent/tools/hitl/monitor) + MemorySaver(thread_id) + deterministic mock, truncation fix 120→5 containers, e2e time 37-43s isolated
 
 #### Sub-phases
 
@@ -774,7 +774,7 @@ Phases execute in order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 07.1 → 8
 | 3. Problem Evaluation | ✅ Complete | 2026-08-19 |
 | 4. Foundation Reformation | ✅ Complete | 2026-08-27 |
 | 5. Tool Integration | ✅ Complete | 2026-08-27 |
-| 6. Agent Core (LangGraph) | ○ Not Started | — |
-| 7. Web UI & Integration | ○ Not Started | — |
+| 6. Agent Core (LangGraph) | ✅ Complete | 2026-08-28 |
+| 7. Web UI & Integration | ○ Not Started → next | — |
 | 07.1 Integrated Verification (INSERTED) | ○ Not Started | — |
 | 8. Polish & Deploy | ○ Not Started | — |
