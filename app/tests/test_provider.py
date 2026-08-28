@@ -11,7 +11,7 @@ from app.shared.provider import (
     create_provider,
     create_provider_with_fallback,
 )
-from app.shared.tool_adapter import adapt_tools_for_provider
+from app.tools.tool_adapter import adapt_tools_for_provider
 
 
 # ---------------------------------------------------------------------------

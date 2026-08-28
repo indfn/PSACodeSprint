@@ -173,7 +173,7 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
     else:
         # Adapt schemas for provider (flat -> OpenAI/Anthropic/Gemini)
         try:
-            from app.shared.tool_adapter import adapt_tools_for_provider
+            from app.tools.tool_adapter import adapt_tools_for_provider
             # Registry schemas are flat {name, description, parameters}; adapt to provider format
             # But AnthropicProvider currently expects OpenAI format and does its own conversion,
             # so we need to provide OpenAI format for those providers; adapt does that.

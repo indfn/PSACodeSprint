@@ -1,7 +1,16 @@
-"""Graph assembly — 4 nodes: agent, tools, hitl (interrupt), monitor (Phase 6.9)."""
+"""Graph assembly — 4 nodes: agent, tools, hitl (interrupt), monitor (Phase 6.9).
+
+Optional LangSmith tracing: set LANGCHAIN_TRACING_V2=true + LANGCHAIN_API_KEY
+in .env to enable trace capture at https://smith.langchain.com.
+"""
 from __future__ import annotations
 
+import os
 from typing import Any
+
+# Optional LangSmith tracing — must be set before graph compilation
+if os.environ.get("LANGCHAIN_TRACING_V2") == "true" and os.environ.get("LANGCHAIN_API_KEY"):
+    os.environ.setdefault("LANGCHAIN_PROJECT", "psa-nexus")
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
