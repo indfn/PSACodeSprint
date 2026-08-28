@@ -184,7 +184,26 @@ async def run_agent(event: Any, broadcaster: Any | None = None) -> dict[str, Any
             card = result["hitl_pending"]
         return {"run_id": run_id, "state": result, "trace": export_trace(result), "status": "waiting_hitl", "hitl_card": card, "hitl_pending": result["hitl_pending"]}
 
-    return {"run_id": run_id, "state": result, "trace": export_trace(result), "status": result.get("status", "completed") if isinstance(result, dict) else "completed"}
+    final_status = result.get("status", "completed") if isinstance(result, dict) else "completed"
+    if final_status == "running" and isinstance(result, dict) and not result.get("hitl_pending") and not result.get("escalation"):
+        final_status = "completed"
+        try:
+            result["status"] = "completed"
+        except Exception:
+            pass
+    try:
+        if final_status == "completed":
+            import asyncio
+            from app.agent.sse import broadcaster
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(broadcaster.publish(run_id, "run_complete", {"status": final_status, "run_id": run_id}))
+                loop.create_task(broadcaster.publish(run_id, "trace_entry", {"node": "graph", "action": "completed", "result": {"status": final_status}}))
+            except RuntimeError:
+                pass
+    except Exception:
+        pass
+    return {"run_id": run_id, "state": result, "trace": export_trace(result), "status": final_status}
 
 
 async def resume_agent(run_id: str, decision: dict[str, Any]) -> dict[str, Any]:
@@ -252,4 +271,22 @@ async def resume_agent(run_id: str, decision: dict[str, Any]) -> dict[str, Any]:
             card = result["hitl_pending"]
         return {"run_id": run_id, "state": result, "trace": export_trace(result), "status": "waiting_hitl", "hitl_card": card, "hitl_pending": result["hitl_pending"]}
 
-    return {"run_id": run_id, "state": result, "trace": export_trace(result), "status": result.get("status", "completed") if isinstance(result, dict) else "completed"}
+    final_status = result.get("status", "completed") if isinstance(result, dict) else "completed"
+    if final_status == "running" and isinstance(result, dict) and not result.get("hitl_pending") and not result.get("escalation"):
+        final_status = "completed"
+        try:
+            result["status"] = "completed"
+        except Exception:
+            pass
+    try:
+        if final_status == "completed":
+            import asyncio
+            from app.agent.sse import broadcaster
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(broadcaster.publish(run_id, "run_complete", {"status": final_status, "run_id": run_id}))
+            except RuntimeError:
+                pass
+    except Exception:
+        pass
+    return {"run_id": run_id, "state": result, "trace": export_trace(result), "status": final_status}

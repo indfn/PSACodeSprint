@@ -703,17 +703,24 @@ async def tool_node(state: dict[str, Any]) -> dict[str, Any]:
                 ctx["cost_vs_baseline"] = serialised["output"].get("cost_vs_baseline", {})
                 ctx["roi"] = serialised["output"].get("roi", {})
                 ctx["timeline"] = serialised["output"].get("timeline", {})
-                # action_cost for escalation Trigger #3 is the incremental recovery cost, NOT total transport.
-                # For nominal, set to transport savings (1600) which is <10000 so no escalation.
-                # Only explicit injected high-cost scenarios set action_cost >10000 via context.
                 try:
                     savings = serialised["output"].get("cost_vs_baseline", {}).get("direct_transport_savings", 1600)
                     ctx.setdefault("action_cost", savings)
                 except Exception:
                     pass
-                # also propagate tool confidence to state confidence if higher
                 if serialised["confidence"] and serialised["confidence"] > 0:
-                    # Keep LLM confidence as primary; but deterministic fallback may be lower
+                    pass
+                try:
+                    from app.agent.sse import broadcaster
+                    opt = serialised["output"].get("optimal_split", {})
+                    vsb = serialised["output"].get("cost_vs_baseline", {})
+                    if isinstance(opt, dict):
+                        try:
+                            loop = asyncio.get_running_loop()
+                            loop.create_task(broadcaster.publish(state.get("run_id", ""), "cost_update", {"road_cost": opt.get("road_cost", 0), "sea_handling": opt.get("sea_terminal_handling_cost", 0), "total": opt.get("total_transport_cost", 0), "baseline": vsb.get("baseline_all_road_cost", 0), "alternatives": serialised["output"].get("alternatives", [])}))
+                        except RuntimeError:
+                            pass
+                except Exception:
                     pass
             elif name == "update_tuas_loading_sequence":
                 ctx["tuas_sequence"] = serialised["output"]

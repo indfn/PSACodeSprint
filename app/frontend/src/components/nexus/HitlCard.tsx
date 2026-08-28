@@ -14,6 +14,7 @@ interface HitlCardProps {
   gate: HitlGateInfo | null;
   runId: string;
   onResponded?: () => void;
+  onNextGate?: (gate: HitlGateInfo | null) => void;
 }
 
 function formatValue(val: unknown): string {
@@ -41,18 +42,29 @@ function renderDecisionData(data: Record<string, unknown>) {
   );
 }
 
-export default function HitlCard({ gate, runId, onResponded }: HitlCardProps) {
+export default function HitlCard({ gate, runId, onResponded, onNextGate }: HitlCardProps) {
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
   const [responded, setResponded] = useState(false);
-  useEffect(() => { setResponded(false); }, [gate?.gate_id]);
+  useEffect(() => { setResponded(false); setReason(''); }, [gate?.gate_id]);
 
   async function handleDecision(decision: string) {
     setLoading(true);
     try {
-      await hitlRespond(runId, decision, gate!.gate_id, reason || undefined);
-      setResponded(true);
-      onResponded?.();
+      const res = await hitlRespond(runId, decision, gate!.gate_id, reason || undefined);
+      const nextCard = (res.hitl_card as Record<string, unknown>) || (res.hitl_pending as Record<string, unknown>);
+      if (res.status === 'waiting_hitl' && nextCard) {
+        const gid = (nextCard.gate_id as string) || (nextCard.gateId as string) || '';
+        const gname = (nextCard.gate_name as string) || (nextCard.gateName as string) || 'Approval Required';
+        const cardInner = (nextCard.approval_card as Record<string, unknown>) || nextCard;
+        onNextGate?.({ gate_id: gid, gate_name: gname, data: cardInner as Record<string, unknown> });
+      } else if (res.status === 'completed' || res.status === 'halted' || res.status === 'cancelled' || res.status === 'holding') {
+        onNextGate?.(null);
+        onResponded?.();
+      } else {
+        setResponded(true);
+        onResponded?.();
+      }
     } catch (err) {
       console.error('HITL respond failed:', err);
     } finally {

@@ -121,7 +121,7 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export async function startDemo(scenario?: string, problemId?: string) {
-  return apiFetch<{ run_id: string }>('/agent/run-demo', {
+  return apiFetch<{ run_id: string; status?: string; hitl_card?: Record<string, unknown>; scenario?: string }>('/agent/run-demo', {
     method: 'POST',
     body: JSON.stringify({
       scenario: scenario || undefined,
@@ -166,12 +166,42 @@ export async function getLoadingSequence() {
 }
 
 export async function getRunHistory() {
-  const res = await apiFetch<{ runs: RunRecord[]; count: number }>('/webhook/runs');
-  return res.runs;
+  const res = await apiFetch<{ runs: Record<string, unknown>[]; count: number }>('/webhook/runs');
+  return (res.runs || []).map((r: Record<string, unknown>) => {
+    const state = (r.state as Record<string, unknown>) || {};
+    const trace = (state.trace as unknown[]) || (r.trace as Record<string, unknown>)?.entries as unknown[] || [];
+    const firstTs = (trace[0] as Record<string, unknown>)?.timestamp as string | undefined;
+    const lastTs = (trace[trace.length - 1] as Record<string, unknown>)?.timestamp as string | undefined;
+    const event = (r.event as Record<string, unknown>) || (state.context as Record<string, unknown>)?.event as Record<string, unknown> || {};
+    return {
+      run_id: (r.run_id as string) || '',
+      problem_id: (r.problem_id as string) || (state.problem_id as string) || (event.problem_id as string) || 'pb-12-itt',
+      status: (r.status as string) || (state.status as string) || 'unknown',
+      started_at: firstTs || (r as Record<string, unknown>).started_at as string || new Date().toISOString(),
+      completed_at: lastTs,
+      duration_seconds: undefined,
+      scenario: (r.scenario as string) || (state as Record<string, unknown>).scenario as string | undefined,
+      summary: (r as Record<string, unknown>).summary as string | undefined,
+    } as RunRecord;
+  });
 }
 
 export async function getAgentTrace(runId: string) {
-  return apiFetch<AgentTraceStep[]>(`/agent/trace/${encodeURIComponent(runId)}`);
+  const res = await apiFetch<Record<string, unknown> | AgentTraceStep[]>(`/agent/trace/${encodeURIComponent(runId)}`);
+  if (Array.isArray(res)) return res as AgentTraceStep[];
+  const entries = (res.entries as Record<string, unknown>[]) || [];
+  return entries.map((e: Record<string, unknown>, idx: number) => {
+    const node = (e.node as string) || 'info';
+    const action = (e.action as string) || `${node}:${e.action}`;
+    const typeMap: Record<string, AgentTraceStep['type']> = { tool: 'tool', hitl: 'hitl', escalation: 'escalation', monitor: 'info', agent: 'info', graph: 'complete' };
+    return {
+      step: idx + 1,
+      action: action,
+      timestamp: (e.timestamp as string) || new Date().toISOString(),
+      detail: JSON.stringify((e.result as unknown) || e, null, 2).slice(0, 800),
+      type: typeMap[node] || 'info',
+    } as AgentTraceStep;
+  });
 }
 
 export async function hitlRespond(
@@ -180,7 +210,7 @@ export async function hitlRespond(
   gateId: string,
   reason?: string
 ) {
-  return apiFetch<{ status: string }>('/agent/hitl/respond', {
+  return apiFetch<{ status: string; hitl_card?: Record<string, unknown>; hitl_pending?: Record<string, unknown> }>('/agent/hitl/respond', {
     method: 'POST',
     body: JSON.stringify({
       run_id: runId,
@@ -191,12 +221,13 @@ export async function hitlRespond(
   });
 }
 
-export async function injectEdgeCase(caseType: string, minutes?: number) {
+export async function injectEdgeCase(caseType: string, minutes?: number, runId?: string) {
   return apiFetch<{ status: string }>('/agent/inject-edge-case', {
     method: 'POST',
     body: JSON.stringify({
       case: caseType,
       minutes: minutes || undefined,
+      run_id: runId || undefined,
     }),
   });
 }

@@ -24,6 +24,7 @@ import {
   injectEdgeCase,
   switchProblem,
   initializeSession,
+  getScenarios,
   type ContainerData,
   type TruckData,
   type FeederData,
@@ -35,7 +36,7 @@ const PROBLEMS = [
   { id: 'pb-01-berth', name: 'Berth Reassignment' },
 ];
 
-const SCENARIOS = [
+const FALLBACK_SCENARIOS = [
   { id: 'nominal', name: 'Nominal' },
   { id: 'deviation', name: 'Deviation' },
   { id: 'stale', name: 'Stale Data' },
@@ -44,7 +45,8 @@ const SCENARIOS = [
 
 export default function NexusDashboard() {
   const [activeProblem, setActiveProblem] = useState(PROBLEMS[0].id);
-  const [scenario, setScenario] = useState(SCENARIOS[0].id);
+  const [scenarios, setScenarios] = useState(FALLBACK_SCENARIOS);
+  const [scenario, setScenario] = useState(FALLBACK_SCENARIOS[0].id);
   const [runId, setRunId] = useState<string | null>(() => sessionStorage.getItem('nexus_run_id'));
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [hitlGate, setHitlGate] = useState<HitlGateInfo | null>(null);
@@ -77,6 +79,16 @@ export default function NexusDashboard() {
     }
   }, [runId]);
 
+  // Load scenarios for active problem
+  useEffect(() => {
+    getScenarios().then((list) => {
+      if (list && list.length) {
+        setScenarios(list.map((s) => ({ id: s.id, name: s.name })));
+        setScenario((prev) => (list.some((s) => s.id === prev) ? prev : list[0].id));
+      }
+    }).catch(() => {});
+  }, [activeProblem]);
+
   // Load initial data — cached in sessionStorage to survive page navigation
   useEffect(() => {
     const cached = sessionStorage.getItem('nexus_init_data');
@@ -108,6 +120,31 @@ export default function NexusDashboard() {
       });
   }, []);
 
+  const applyCostFromPayload = useCallback((payload: Record<string, unknown>) => {
+    try {
+      const opt = (payload.optimal_split as Record<string, unknown>) || (payload.cost_breakdown as Record<string, unknown>)?.optimal_split as Record<string, unknown> || null;
+      const vs = (payload.cost_vs_baseline as Record<string, unknown>) || (payload.cost_breakdown as Record<string, unknown>)?.cost_vs_baseline as Record<string, unknown> || null;
+      const alts = (payload.alternatives as unknown[]) || (payload.cost_breakdown as Record<string, unknown>)?.alternatives as unknown[] || [];
+      if (opt) {
+        setCostData({
+          roadCost: (opt.road_cost as number) ?? (opt.roadCost as number) ?? 0,
+          seaHandling: (opt.sea_terminal_handling_cost as number) ?? (opt.seaHandling as number) ?? 0,
+          total: (opt.total_transport_cost as number) ?? (opt.total as number) ?? 0,
+          baseline: (vs?.baseline_all_road_cost as number) ?? (vs?.baseline as number) ?? 0,
+          alternatives: Array.isArray(alts) ? alts.map((a) => typeof a === 'string' ? a : JSON.stringify(a)) : [],
+        });
+      } else if (payload.road_cost || payload.total) {
+        setCostData({
+          roadCost: (payload.road_cost as number) || 0,
+          seaHandling: (payload.sea_handling as number) || 0,
+          total: (payload.total as number) || 0,
+          baseline: (payload.baseline as number) || 0,
+          alternatives: (payload.alternatives as string[]) || [],
+        });
+      }
+    } catch { /* ignore */ }
+  }, []);
+
   // SSE event handler
   const handleSSEEvent = useCallback(
     (event: SSEEvent) => {
@@ -115,56 +152,99 @@ export default function NexusDashboard() {
       const data = event.data;
 
       switch (event.event) {
-        case 'trace_entry':
-          setEvents((prev) => [
-            ...prev,
-            {
-              timestamp: ts,
-              message: (data.message as string) || (data.action as string) || JSON.stringify(data),
-            },
-          ]);
-          if (typeof data.risk_score === 'number') {
-            setRiskScore(data.risk_score);
-          }
+        case 'trace_entry': {
+          const msg = (data.message as string) || (data.action as string) || (data.node ? `${data.node}:${data.action}` : JSON.stringify(data));
+          const resultMsg = (data.result as Record<string, unknown>)?.tool ? ` tool=${(data.result as Record<string, unknown>).tool}` : '';
+          setEvents((prev) => [...prev, { timestamp: ts, message: `${msg}${resultMsg}` }]);
+          if (typeof data.risk_score === 'number') setRiskScore(data.risk_score);
+          if (typeof (data.result as Record<string, unknown>)?.risk_score === 'number') setRiskScore((data.result as Record<string, unknown>).risk_score as number);
+          if (typeof data.confidence === 'number') setConfidence(data.confidence);
+          const resObj = data.result as Record<string, unknown> | undefined;
+          if (resObj && typeof resObj.confidence === 'number') setConfidence(resObj.confidence as number);
+          applyCostFromPayload(data);
+          if (resObj) applyCostFromPayload(resObj);
           break;
+        }
 
-        case 'hitl_request':
-          setHitlGate({
-            gate_id: (data.gate_id as string) || '',
-            gate_name: (data.gate_name as string) || 'Approval Required',
-            data: (data.decision_data as Record<string, unknown>) || data,
-          });
+        case 'hitl_card':
+        case 'hitl_request': {
+          const gateId = (data.gate_id as string) || (data.gateId as string) || '';
+          const gateName = (data.gate_name as string) || (data.gateName as string) || 'Approval Required';
+          const cardData = (data.approval_card as Record<string, unknown>) || (data.decision_data as Record<string, unknown>) || (data.card as Record<string, unknown>) || data;
+          if (typeof data.confidence === 'number') setConfidence(data.confidence);
+          if (typeof data.risk_score === 'number') setRiskScore(data.risk_score);
+          if (typeof (cardData.confidence as number) === 'number') setConfidence(cardData.confidence as number);
+          if (typeof (cardData.risk_score as number) === 'number') setRiskScore(cardData.risk_score as number);
+          applyCostFromPayload(cardData as Record<string, unknown>);
+          applyCostFromPayload(data);
+          setHitlGate({ gate_id: gateId, gate_name: gateName, data: cardData as Record<string, unknown> });
+          setEvents((prev) => [...prev, { timestamp: ts, message: `HITL gate ${gateId}: ${gateName} — awaiting approval` }]);
           break;
+        }
 
         case 'hitl_resolved':
+        case 'hitl_timeout':
           setHitlGate(null);
+          setEvents((prev) => [...prev, { timestamp: ts, message: `HITL ${event.event}: ${JSON.stringify(data).slice(0,120)}` }]);
           break;
 
         case 'cost_update':
-          setCostData({
-            roadCost: (data.road_cost as number) || 0,
-            seaHandling: (data.sea_handling as number) || 0,
-            total: (data.total as number) || 0,
-            baseline: (data.baseline as number) || 0,
-            alternatives: (data.alternatives as string[]) || [],
-          });
-          break;
-
-        case 'confidence_update':
-          if (typeof data.confidence === 'number') {
-            setConfidence(data.confidence);
+          applyCostFromPayload(data);
+          if ((data.road_cost as number) || (data.total as number)) {
+            setCostData({
+              roadCost: (data.road_cost as number) || 0,
+              seaHandling: (data.sea_handling as number) || 0,
+              total: (data.total as number) || 0,
+              baseline: (data.baseline as number) || 0,
+              alternatives: (data.alternatives as string[]) || [],
+            });
           }
           break;
 
+        case 'confidence_update':
+          if (typeof data.confidence === 'number') setConfidence(data.confidence);
+          setEvents((prev) => [...prev, { timestamp: ts, message: `Confidence: ${Math.round((data.confidence as number > 1 ? data.confidence as number : (data.confidence as number)*100))}%` }]);
+          break;
+
+        case 'tool_call': {
+          const tool = (data.tool as string) || (data.name as string) || 'tool';
+          setEvents((prev) => [...prev, { timestamp: ts, message: `→ ${tool} ${JSON.stringify((data.args as object) || {}).slice(0,120)}` }]);
+          break;
+        }
+
+        case 'tool_result': {
+          const tool = (data.tool as string) || (data.name as string) || 'tool';
+          const out = (data.output as Record<string, unknown>) || data;
+          setEvents((prev) => [...prev, { timestamp: ts, message: `← ${tool} completed${(data.fallback_used ? ' (fallback)' : '')}` }]);
+          applyCostFromPayload(out);
+          applyCostFromPayload(data);
+          if (typeof (data.risk_score as number) === 'number') setRiskScore(data.risk_score as number);
+          if (typeof (out.risk_score as number) === 'number') setRiskScore(out.risk_score as number);
+          break;
+        }
+
+        case 'agent_thinking':
+          setEvents((prev) => [...prev, { timestamp: ts, message: `Agent reasoning: ${((data.messages as unknown) || data.step || JSON.stringify(data)).toString().slice(0,200)}` }]);
+          break;
+
+        case 'escalation':
+          setEvents((prev) => [...prev, { timestamp: ts, message: `⚠ Escalation: ${(data.trigger as string) || JSON.stringify(data).slice(0,150)}` }]);
+          if (typeof data.risk_score === 'number') setRiskScore(data.risk_score);
+          break;
+
+        case 'deviation':
+          setEvents((prev) => [...prev, { timestamp: ts, message: `▲ Deviation: ${(data.type as string) || JSON.stringify(data).slice(0,150)}` }]);
+          break;
+
+        case 'notification':
+          setEvents((prev) => [...prev, { timestamp: ts, message: `🔔 Notification: ${JSON.stringify(data).slice(0,150)}` }]);
+          break;
+
         case 'run_complete':
-          setEvents((prev) => [
-            ...prev,
-            { timestamp: ts, message: 'Run complete.' },
-          ]);
+          setEvents((prev) => [...prev, { timestamp: ts, message: 'Run complete.' }]);
           break;
 
         case 'system_status':
-          // Refresh system status cards
           getContainerData().then(setContainers).catch(() => {});
           getTruckData().then(setTrucks).catch(() => {});
           getFeederData().then(setFeeder).catch(() => {});
@@ -176,14 +256,12 @@ export default function NexusDashboard() {
             ...prev,
             {
               timestamp: ts,
-              message:
-                (data.message as string) ||
-                `[${event.event}] ${JSON.stringify(data)}`,
+              message: (data.message as string) || `[${event.event}] ${JSON.stringify(data).slice(0,200)}`,
             },
           ]);
       }
     },
-    []
+    [applyCostFromPayload]
   );
 
   useSSE(runId, handleSSEEvent);
@@ -197,15 +275,30 @@ export default function NexusDashboard() {
     try {
       const res = await startDemo(scenario, activeProblem);
       setRunId(res.run_id);
+      const hitlCard = res.hitl_card as Record<string, unknown> | undefined;
+      if (hitlCard) {
+        const gateId = (hitlCard.gate_id as string) || (hitlCard.gateId as string) || 'HITL-1';
+        const gateName = (hitlCard.gate_name as string) || (hitlCard.gateName as string) || 'Approval Required';
+        const cardInner = (hitlCard.approval_card as Record<string, unknown>) || hitlCard;
+        // Extract approval card if nested (backend nests under hitl_card.approval_card in SSE but flat in HTTP)
+        // HTTP hitl_card is already the card itself (gate_id + cost_breakdown etc), not wrapped
+        const dataForCard = (cardInner as Record<string, unknown>) || hitlCard;
+        if (typeof hitlCard.confidence === 'number') setConfidence(hitlCard.confidence as number);
+        if (typeof hitlCard.risk_score === 'number') setRiskScore(hitlCard.risk_score as number);
+        applyCostFromPayload(hitlCard);
+        applyCostFromPayload(dataForCard);
+        setHitlGate({ gate_id: gateId, gate_name: gateName, data: dataForCard });
+      }
       setEvents((prev) => [
         ...prev,
         {
           timestamp: new Date().toISOString(),
-          message: `Demo started. Run ID: ${res.run_id}`,
+          message: `Demo started. Run ID: ${res.run_id}${res.hitl_card ? ' — HITL required' : ''}`,
         },
       ]);
     } catch (err) {
       console.error('Failed to start demo:', err);
+      setEvents((prev) => [...prev, { timestamp: new Date().toISOString(), message: `Start failed: ${err}` }]);
     } finally {
       setLoading(false);
     }
@@ -240,10 +333,10 @@ export default function NexusDashboard() {
   async function handleEdgeCase(caseType: string) {
     setEdgeLoading(caseType);
     try {
-      await injectEdgeCase(caseType);
+      await injectEdgeCase(caseType, undefined, runId || undefined);
       setEvents((prev) => [
         ...prev,
-        { timestamp: new Date().toISOString(), message: `Edge case injected: ${caseType}` },
+        { timestamp: new Date().toISOString(), message: `Edge case injected: ${caseType}${runId ? ` (run ${runId.slice(0,8)})` : ''}` },
       ]);
       getContainerData().then(setContainers).catch(() => {});
       getTruckData().then(setTrucks).catch(() => {});
@@ -319,11 +412,11 @@ export default function NexusDashboard() {
         <Select value={scenario} onValueChange={(v) => v && setScenario(v)}>
           <SelectTrigger className="h-8 w-[130px]">
             <SelectValue placeholder="Scenario">
-              {SCENARIOS.find((s) => s.id === scenario)?.name}
+              {scenarios.find((s) => s.id === scenario)?.name}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {SCENARIOS.map((s) => (
+            {scenarios.map((s) => (
               <SelectItem key={s.id} value={s.id}>
                 {s.name}
               </SelectItem>
@@ -361,6 +454,17 @@ export default function NexusDashboard() {
             gate={hitlGate}
             runId={runId || ''}
             onResponded={() => setHitlGate(null)}
+            onNextGate={(next) => {
+              if (next) {
+                setHitlGate(next);
+                if (typeof (next.data as Record<string, unknown>).confidence === 'number') setConfidence((next.data as Record<string, unknown>).confidence as number);
+                if (typeof (next.data as Record<string, unknown>).risk_score === 'number') setRiskScore((next.data as Record<string, unknown>).risk_score as number);
+                applyCostFromPayload(next.data);
+              } else {
+                setHitlGate(null);
+                setEvents((prev) => [...prev, { timestamp: new Date().toISOString(), message: 'HITL approved — proceeding' }]);
+              }
+            }}
           />
 
           <AgentOutput events={events} />

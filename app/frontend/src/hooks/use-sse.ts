@@ -8,8 +8,10 @@ export interface SSEEvent {
 
 const EVENT_TYPES = [
   'trace_entry',
+  'hitl_card',
   'hitl_request',
   'hitl_resolved',
+  'hitl_timeout',
   'cost_update',
   'confidence_update',
   'run_complete',
