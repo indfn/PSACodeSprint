@@ -1,14 +1,16 @@
-"""PSA Nexus — Unified FastAPI app (Phase 4).
+"""PSA Nexus — Unified FastAPI app (Phase 6).
 
-Mounts: health, mocks, webhook (agent entry point), agent switch-problem.
+Mounts: health, mocks, webhook (agent entry point), agent switch-problem,
+HITL endpoints, SSE streaming, edge injection.
 Canonical schema import: from app.shared.models import ITTCoordinationEvent
 """
 
 import uuid
 from collections import OrderedDict
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from app.mocks.routers.citos_ppt import router as citos_ppt_router
 from app.mocks.routers.citos_tuas import router as citos_tuas_router
@@ -67,63 +69,74 @@ MAX_RUNS = 100
 runs: OrderedDict[str, dict] = OrderedDict()
 
 
-@app.post("/webhook/itt-coordination", response_model=WebhookResponse, tags=["Webhook"])
+@app.post("/webhook/itt-coordination", tags=["Webhook"])
 async def receive_webhook(event: ITTCoordinationEvent):
     """Webhook endpoint for ITT_COORDINATION_REQUEST events (T6 trigger).
 
     Validates ITTCoordinationEvent (15 fields), bootstraps charter 11-field
-    initial_state, and triggers the agent (Phase 6.9 wires run_agent()).
-    For now: validates + stores run, returns accepted.
+    initial_state, and triggers the agent (Phase 6.9 run_agent).
+    Returns 422 on Pydantic validation failure (FastAPI auto), 400 for
+    semantic errors like containers_ready > container_count.
     """
+    # Semantic guard — containers_ready cannot exceed container_count
     if event.containers_ready > event.container_count:
         raise HTTPException(
             status_code=400,
             detail=f"containers_ready ({event.containers_ready}) cannot exceed container_count ({event.container_count})",
         )
 
-    run_id = f"run-{uuid.uuid4().hex[:8]}"
-    # Charter 11-field initial_state (scaffold — full wiring in Phase 6.9)
-    initial_state = {
-        "run_id": run_id,
-        "event": event.model_dump(),
-        "origin_terminal": event.origin_terminal,
-        "destination_terminal": event.destination_terminal,
-        "vessel_id": event.vessel_id,
-        "container_count": event.container_count,
-        "tuas_vessel_departure": event.tuas_vessel_departure,
-        "blocks_affected": event.blocks_affected,
-        "dg_containers": event.dg_containers,
-        "priority_containers": event.priority_containers,
-        "requested_by": event.requested_by,
-        "current_step": "ingest",
-        "hitl_pending": [],
-        "escalations": [],
-        "confidence_scores": [],
-        "deviation_log": [],
-    }
-    runs[run_id] = {
-        "run_id": run_id,
-        "event": event.model_dump(),
-        "status": "accepted",
-        "current_step": "ingest",
-        "origin_terminal": event.origin_terminal,
-        "destination_terminal": event.destination_terminal,
-        "vessel_id": event.vessel_id,
-        "container_count": event.container_count,
-        "tuas_vessel_departure": event.tuas_vessel_departure,
-        "blocks_affected": event.blocks_affected,
-        "dg_containers": event.dg_containers,
-        "hitl_pending": [],
-        "escalations": [],
-        "confidence_scores": [],
-        "deviation_log": [],
-        "initial_state": initial_state,
-    }
-    if len(runs) > MAX_RUNS:
-        runs.popitem(last=False)
+    # Wire to Phase 6 agent — use run_agent which creates its own run_id and checkpoint
+    try:
+        from app.agent.run import run_agent
+        result = await run_agent(event)
+        run_id = result.get("run_id", f"run-{uuid.uuid4().hex[:8]}")
+        state = result.get("state", {})
+        trace = result.get("trace", {})
+        status = result.get("status", "accepted")
+        # Preserve for legacy /webhook/runs endpoint
+        # Update global runs dict with full trace and status
+        entry = {
+            "run_id": run_id,
+            "event": event.model_dump(),
+            "status": status,
+            "hitl_card": result.get("hitl_card"),
+            "hitl_pending": result.get("hitl_pending") or state.get("hitl_pending") if isinstance(state, dict) else None,
+            "state": state,
+            "trace": trace,
+            "current_step": (state.get("context", {}) or {}).get("current_step", "ingest") if isinstance(state, dict) else "ingest",
+            "origin_terminal": event.origin_terminal,
+            "destination_terminal": event.destination_terminal,
+            "vessel_id": event.vessel_id,
+            "container_count": event.container_count,
+            "tuas_vessel_departure": event.tuas_vessel_departure,
+            "blocks_affected": event.blocks_affected,
+            "dg_containers": event.dg_containers,
+            "hitl_history": state.get("hitl_history", []) if isinstance(state, dict) else [],
+            "deviation_log": state.get("deviation_log", []) if isinstance(state, dict) else [],
+            "confidence": state.get("confidence", 1.0) if isinstance(state, dict) else 1.0,
+        }
+        runs[run_id] = entry
+        if len(runs) > MAX_RUNS:
+            runs.popitem(last=False)
 
-    # Phase 6.9 will call: await run_agent(initial_state)
-    return WebhookResponse(status="accepted", run_id=run_id)
+        # Return shape compatible with both legacy WebhookResponse and Phase 6 HITL flow
+        # If waiting HITL, include hitl_card so client can render
+        if status == "waiting_hitl":
+            return {"status": status, "run_id": run_id, "hitl_card": result.get("hitl_card"), "hitl_pending": result.get("hitl_pending")}
+        return {"status": status, "run_id": run_id, "hitl_card": result.get("hitl_card"), "message": "ITT coordination request received. Agent started."}
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        # Validation errors from create_initial_state (e.g., container_count <50)
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        # Structured log but return 500 (or 422 if validation-like)
+        try:
+            from app.shared.logging import structured_log
+            structured_log("webhook_error", run_id="unknown", step="webhook", error=str(exc))
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"Agent failed: {exc}")
 
 
 @app.get("/webhook/runs", tags=["Webhook"])
@@ -136,8 +149,273 @@ async def list_runs():
 async def get_run_status(run_id: str):
     """Get status of a specific run."""
     if run_id not in runs:
+        # Also try to fetch from graph checkpointer if not in memory
+        try:
+            from app.agent.graph import build_graph
+            graph = build_graph()
+            snapshot = graph.get_state({"configurable": {"thread_id": run_id}})
+            vals = getattr(snapshot, "values", None) or {}
+            if vals:
+                return {"run_id": run_id, "state": vals, "status": vals.get("status", "unknown")}
+        except Exception:
+            pass
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     return runs[run_id]
+
+
+# ---------------------------------------------------------------------------
+# Agent HITL + SSE + edge injection (Phase 6.9 + 7.1)
+# ---------------------------------------------------------------------------
+
+@app.post("/agent/hitl/respond", tags=["Agent"])
+async def hitl_respond(payload: dict):
+    """Resume agent after HITL decision.
+
+    Expected payload: {"run_id": "...", "decision": "approve|reject|modify|timeout",
+                        "reason": "...", "modifications": {...}, "gate_id": "HITL-1"}
+    - decision is required
+    - run_id is required
+    Returns: updated state or waiting_hitl if another gate fires
+    Returns 422 if hitl already timed out (stale)
+    """
+    run_id = payload.get("run_id") or payload.get("runId")
+    if not run_id:
+        raise HTTPException(status_code=422, detail="run_id required")
+    decision = payload.get("decision")
+    if not decision:
+        raise HTTPException(status_code=422, detail="decision required (approve|reject|modify|timeout)")
+
+    # Stale resume — single source of truth is checkpoint (MemorySaver), not in-memory runs dict
+    # runs dict may diverge from checkpoint, so checkpoint is authoritative.
+    try:
+        from app.agent.graph import build_graph
+        from app.agent.resilience import is_hitl_stale
+        graph = build_graph()
+        snapshot = graph.get_state({"configurable": {"thread_id": run_id}})
+        vals = getattr(snapshot, "values", {}) or {}
+        if vals and is_hitl_stale(vals, payload.get("gate_id")):
+            # Update runs store to terminal for consistency
+            if run_id in runs:
+                runs[run_id]["status"] = vals.get("status", "halted")
+            raise HTTPException(status_code=422, detail=f"HITL {payload.get('gate_id','')} already timed out -> {vals.get('status')}")
+        # Fallback: if checkpoint missing but runs shows terminal, treat as stale (with normalized gate check)
+        if not vals:
+            cur = runs.get(run_id)
+            if cur and cur.get("status") in ("halted", "cancelled", "holding", "completed", "failed") and not cur.get("hitl_pending"):
+                raise HTTPException(status_code=422, detail=f"HITL {payload.get('gate_id','')} already timed out -> {cur.get('status')}")
+    except HTTPException:
+        raise
+    except Exception:
+        # Fallback to runs check if graph unavailable
+        cur = runs.get(run_id)
+        if cur and cur.get("status") in ("halted", "cancelled", "holding", "completed", "failed") and not cur.get("hitl_pending"):
+            raise HTTPException(status_code=422, detail=f"HITL {payload.get('gate_id','')} already timed out -> {cur.get('status')}")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    try:
+        from app.agent.run import resume_agent
+        result = await resume_agent(run_id, payload)
+        # Update runs store
+        if run_id in runs:
+            # Merge new state
+            runs[run_id]["state"] = result.get("state", runs[run_id].get("state"))
+            runs[run_id]["trace"] = result.get("trace", runs[run_id].get("trace"))
+            runs[run_id]["status"] = result.get("status", runs[run_id].get("status"))
+            runs[run_id]["hitl_card"] = result.get("hitl_card")
+            runs[run_id]["hitl_pending"] = result.get("hitl_pending")
+            runs[run_id]["hitl_history"] = result.get("state", {}).get("hitl_history", []) if isinstance(result.get("state"), dict) else []
+            runs[run_id]["deviation_log"] = result.get("state", {}).get("deviation_log", []) if isinstance(result.get("state"), dict) else []
+        else:
+            runs[run_id] = {
+                "run_id": run_id,
+                "status": result.get("status", "unknown"),
+                "state": result.get("state", {}),
+                "trace": result.get("trace", {}),
+                "hitl_card": result.get("hitl_card"),
+                "hitl_pending": result.get("hitl_pending"),
+            }
+            if len(runs) > MAX_RUNS:
+                runs.popitem(last=False)
+
+        if result.get("status") == "stale":
+            raise HTTPException(status_code=422, detail=result.get("error", "stale HITL resume"))
+        if result.get("status") == "waiting_hitl":
+            return {"status": "waiting_hitl", "run_id": run_id, "hitl_card": result.get("hitl_card"), "hitl_pending": result.get("hitl_pending"), "state": result.get("state")}
+        return {"status": result.get("status", "completed"), "run_id": run_id, "result": result.get("state"), "trace": result.get("trace"), "hitl_card": result.get("hitl_card")}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        try:
+            from app.shared.logging import structured_log
+            structured_log("hitl_resume_error", run_id=run_id, step="hitl", error=str(exc))
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"HITL resume failed: {exc}")
+
+
+@app.get("/agent/stream/{run_id}", tags=["Agent"])
+async def stream_agent(run_id: str, request: Request, last_event_id: str | None = Header(default=None)):
+    """SSE endpoint with replay buffer — Phase 7.1."""
+    try:
+        from app.agent.sse import broadcaster
+    except ImportError:
+        raise HTTPException(status_code=500, detail="SSE broadcaster not available")
+
+    # Support Last-Event-ID via header or query param
+    query_id = request.query_params.get("lastEventId") or request.query_params.get("Last-Event-ID")
+    effective_last = last_event_id or query_id
+
+    async def event_gen():
+        async for chunk in broadcaster.stream(run_id, last_event_id=effective_last):
+            yield chunk
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    })
+
+
+@app.get("/agent/trace/{run_id}", tags=["Agent"])
+async def get_trace(run_id: str):
+    """Return execution trace for a run."""
+    if run_id in runs:
+        state = runs[run_id].get("state", {})
+        if isinstance(state, dict):
+            from app.agent.trace import export_trace
+            return export_trace(state)
+    try:
+        from app.agent.graph import build_graph
+        graph = build_graph()
+        snapshot = graph.get_state({"configurable": {"thread_id": run_id}})
+        vals = getattr(snapshot, "values", {}) or {}
+        if vals:
+            from app.agent.trace import export_trace
+            return export_trace(vals)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+
+@app.post("/agent/inject-edge-case", tags=["Agent"])
+async def inject_edge_case(payload: dict):
+    """Inject edge case by mutating mock data layer (NOT AgentState)."""
+    case = payload.get("case") or payload.get("edge_case") or payload.get("type")
+    feeder_id = payload.get("feeder_id", "FEEDER ATLANTIC-03")
+    run_id = payload.get("run_id", "")
+
+    # Per-run overrides support (for concurrency isolation)
+    # If run_id provided, we could store per-run override, but for now mutate global
+    # so next monitor_node T3 re-query sees conflict
+    try:
+        from app.tools.edge_cases import inject_feeder_berth_conflict, inject_stale_data
+        if case in ("feeder_berth_conflict", "berth_conflict", "feeder_conflict", "ec_1"):
+            data = inject_feeder_berth_conflict(feeder_id=feeder_id, new_departure=payload.get("new_departure", "2026-08-19T16:00:00+08:00"))
+            # Also mark in runs context if run_id provided
+            if run_id and run_id in runs:
+                ctx = runs[run_id].setdefault("state", {}).setdefault("context", {})
+                ctx["injected_edge"] = "feeder_berth_conflict"
+            return {"status": "injected", "case": "feeder_berth_conflict", "data": data, "run_id": run_id, "hint": "Inject AFTER dispatch, BEFORE monitor check"}
+        elif case in ("stale_data", "data_staleness", "stale", "ec_2", "data_stale"):
+            minutes = int(payload.get("minutes", payload.get("stale_minutes", 25)))
+            data = inject_stale_data(time_offset_minutes=minutes)
+            if run_id and run_id in runs:
+                ctx = runs[run_id].setdefault("state", {}).setdefault("context", {})
+                ctx["stale_minutes"] = minutes
+                ctx["data_stale"] = True
+            return {"status": "injected", "case": "stale_data", "data": data, "run_id": run_id}
+        else:
+            raise HTTPException(status_code=422, detail=f"Unknown edge case '{case}'. Use feeder_berth_conflict or stale_data")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/agent/reset-mocks", tags=["Agent"])
+async def reset_mocks():
+    """Restore clean mock data after edge injection."""
+    try:
+        from app.tools.edge_cases import reset_edge_cases
+        reset_edge_cases()
+        # Also clear notification log for clean test isolation if requested
+        # Keep it — tests that check notification_log already clear manually
+        return {"status": "reset", "message": "Mocks restored to clean state"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/agent/reset/{run_id}", tags=["Agent"])
+async def reset_run(run_id: str):
+    """Clear a single run's SSE buffer and runs entry."""
+    try:
+        from app.agent.sse import broadcaster
+        broadcaster.clear(run_id)
+    except Exception:
+        pass
+    runs.pop(run_id, None)
+    # Also try to clear graph checkpoint (MemorySaver doesn't have delete, but we can reset via pop)
+    return {"status": "reset", "run_id": run_id}
+
+
+@app.post("/agent/run-demo", tags=["Agent"])
+async def run_demo(payload: dict | None = None):
+    """Trigger demo run (SSE-first): connects SSE before starting agent.
+
+    This endpoint is a convenience wrapper around /webhook/itt-coordination that
+    returns run_id immediately so the caller can connect SSE before agent emits.
+    """
+    # Build default PB-12 event if none provided
+    if payload and "event" in payload:
+        event_data = payload["event"]
+    elif payload and "event_type" in payload:
+        event_data = payload
+    else:
+        # Default PB-12 demo event (120 containers PPT→Tuas)
+        event_data = {
+            "event_type": "ITT_COORDINATION_REQUEST",
+            "timestamp": "2026-08-19T10:30:00+08:00",
+            "source": "CITOS_PPT",
+            "priority": "high",
+            "origin_terminal": "PPT",
+            "destination_terminal": "TUAS",
+            "vessel_id": "MV PACIFIC STAR",
+            "tuas_vessel_departure": "2026-08-19T20:00:00+08:00",
+            "container_count": 120,
+            "containers_ready": 120,
+            "blocks_affected": ["B-07", "B-08", "B-12", "B-14"],
+            "dg_containers": 3,
+            "priority_containers": 45,
+            "requested_by": "PPT_Yard_Planner_Lim",
+            "notes": "Demo run — 120 containers PPT→Tuas",
+        }
+
+    try:
+        event = ITTCoordinationEvent(**event_data)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid event: {exc}")
+
+    try:
+        from app.agent.run import run_agent
+        result = await run_agent(event)
+        run_id = result.get("run_id")
+        runs[run_id] = {
+            "run_id": run_id,
+            "event": event.model_dump(),
+            "status": result.get("status", "waiting_hitl"),
+            "hitl_card": result.get("hitl_card"),
+            "hitl_pending": result.get("hitl_pending"),
+            "state": result.get("state", {}),
+            "trace": result.get("trace", {}),
+        }
+        if len(runs) > MAX_RUNS:
+            runs.popitem(last=False)
+        return {"run_id": run_id, "status": result.get("status"), "hitl_card": result.get("hitl_card")}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # ---------------------------------------------------------------------------

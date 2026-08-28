@@ -160,19 +160,27 @@ async def hitl_node(state: dict[str, Any]) -> Command:
     # This line pauses execution; upon resume, decision is the value passed to Command(resume=...)
     decision = interrupt(interrupt_payload)  # type: ignore
 
-    # Guard: if state already terminal (timeout fired → halted/cancelled/holding), reject late resume
-    # This is checked after resume — if timeout handler already set status terminal and cleared hitl_pending,
-    # we still receive the late resume; we should not re-enter handler.
-    if state.get("status") in ("halted", "cancelled", "holding") and state.get("hitl_pending") is None:
-        # State already terminal — late resume after 30-min halt window
-        # Return terminal state without reprocessing
-        try:
-            from app.agent.trace import log_trace as _lt
+    # Guard: stale resume via single resilience helper (normalizes HITL-1 == hitl_1, checks TTL)
+    try:
+        from app.agent.resilience import is_hitl_stale
+        if is_hitl_stale(state, gate_id):
+            try:
+                from app.agent.trace import log_trace as _lt
 
-            _lt(state, "hitl", "stale_resume_ignored", {"gate_id": gate_id, "decision": decision}, duration_ms=0)
-        except Exception:
-            pass
-        return state  # type: ignore
+                _lt(state, "hitl", "stale_resume_ignored", {"gate_id": gate_id, "decision": decision}, duration_ms=0)
+            except Exception:
+                pass
+            return state  # type: ignore
+    except Exception:
+        # Fallback to legacy check
+        if state.get("status") in ("halted", "cancelled", "holding") and state.get("hitl_pending") is None:
+            try:
+                from app.agent.trace import log_trace as _lt
+
+                _lt(state, "hitl", "stale_resume_ignored", {"gate_id": gate_id, "decision": decision}, duration_ms=0)
+            except Exception:
+                pass
+            return state  # type: ignore
 
     # Normal resume — handle decision via handler.py
     # handler mutates state and clears or escalates hitl_pending
