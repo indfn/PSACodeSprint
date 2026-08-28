@@ -536,11 +536,12 @@ class DeepSeekProvider(LLMProvider):
 # ---------------------------------------------------------------------------
 
 class CustomProvider(LLMProvider):
-    """Any custom LLM endpoint — OpenAI-compatible or Anthropic-compatible.
+    """Any custom LLM endpoint — OpenAI, Anthropic, or Google compatible.
 
-    Uses api_type to determine which client to use:
+    Uses api_type to determine which client/protocol to use:
       - "openai" (default): openai.OpenAI client — Ollama, vLLM, LM Studio, OpenRouter, Together, Groq
       - "anthropic": anthropic.Anthropic client — Anthropic-compatible proxies
+      - "google": httpx REST calls to /v1beta/models/{model}:generateContent — Google AI Studio, Vertex AI, Gemini-compatible proxies
 
     YAML config:
         llm:
@@ -549,9 +550,13 @@ class CustomProvider(LLMProvider):
           base_url: http://localhost:11434/v1  # Ollama
           api_type: openai                     # default, can omit
           # OR:
-          base_url: https://my-anthropic-proxy.com/v1  # Anthropic-compatible proxy
+          base_url: https://my-anthropic-proxy.com/v1
           api_type: anthropic
           model: claude-sonnet-4-20250514
+          # OR:
+          base_url: https://generativelanguage.googleapis.com/v1beta  # Google AI Studio
+          api_type: google
+          model: gemini-2.0-flash
     """
 
     name = "custom"
@@ -568,7 +573,7 @@ class CustomProvider(LLMProvider):
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.api_type = api_type.lower().strip() if api_type else "openai"
-        if self.api_type not in ("openai", "anthropic"):
+        if self.api_type not in ("openai", "anthropic", "google"):
             logger.warning("CustomProvider: unknown api_type '%s' — falling back to 'openai'", self.api_type)
             self.api_type = "openai"
         if not self.model:
@@ -583,6 +588,8 @@ class CustomProvider(LLMProvider):
     ) -> LLMResponse:
         if self.api_type == "anthropic":
             return self._chat_anthropic(messages, tools, temperature, max_tokens)
+        if self.api_type == "google":
+            return self._chat_google(messages, tools, temperature, max_tokens)
         return self._chat_openai(messages, tools, temperature, max_tokens)
 
     def _chat_openai(
@@ -729,6 +736,122 @@ class CustomProvider(LLMProvider):
             provider=f"custom-anthropic ({self.base_url})",
             latency_ms=latency_ms,
             raw={"id": response.id, "type": response.type, "stop_reason": response.stop_reason},
+        )
+
+    def _chat_google(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+        temperature: float,
+        max_tokens: int,
+    ) -> LLMResponse:
+        """Google/Gemini API via REST — uses /v1beta/models/{model}:generateContent.
+
+        Works with Google AI Studio, Vertex AI, and any endpoint speaking
+        Google's generateContent protocol.
+        """
+        import httpx
+
+        # Build URL: base_url may already include /v1beta or not
+        base = self.base_url.rstrip("/")
+        if base.endswith("/v1beta") or base.endswith("/v1"):
+            url = f"{base}/models/{self.model}:generateContent"
+        else:
+            url = f"{base}/v1beta/models/{self.model}:generateContent"
+
+        # Convert messages to Gemini contents format
+        contents = []
+        system_instruction = None
+        for msg in messages:
+            if msg["role"] == "system":
+                system_instruction = msg["content"]
+                continue
+            role = "model" if msg["role"] == "assistant" else "user"
+            contents.append({"role": role, "parts": [{"text": msg["content"]}]})
+
+        # Build request body
+        body: dict[str, Any] = {
+            "contents": contents,
+            "generationConfig": {
+                "temperature": temperature,
+                "maxOutputTokens": max_tokens,
+            },
+        }
+        if system_instruction:
+            body["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+
+        # Convert tools to Gemini format
+        if tools:
+            function_declarations = []
+            for tool in tools:
+                if "function" in tool:
+                    fn = tool["function"]
+                    function_declarations.append({
+                        "name": fn["name"],
+                        "description": fn.get("description", ""),
+                        "parameters": fn.get("parameters", {}),
+                    })
+                elif "name" in tool:
+                    function_declarations.append({
+                        "name": tool["name"],
+                        "description": tool.get("description", ""),
+                        "parameters": tool.get("parameters", tool.get("input_schema", {})),
+                    })
+            if function_declarations:
+                body["tools"] = [{"functionDeclarations": function_declarations}]
+
+        # API key as query param (Google AI Studio convention)
+        params = {"key": self.api_key} if self.api_key and self.api_key != "dummy" else {}
+
+        t0 = time.monotonic()
+        try:
+            with httpx.Client(timeout=60) as client:
+                resp = client.post(url, json=body, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPStatusError as exc:
+            logger.error("Google custom provider HTTP error %s: %s", exc.response.status_code, exc.response.text[:200])
+            raise
+        except httpx.RequestError as exc:
+            logger.error("Google custom provider connection failed (%s): %s", url, exc)
+            raise
+
+        latency_ms = (time.monotonic() - t0) * 1000
+
+        # Parse response
+        content = None
+        tool_calls = []
+        candidates = data.get("candidates", [])
+        if candidates:
+            candidate = candidates[0]
+            parts = candidate.get("content", {}).get("parts", [])
+            for part in parts:
+                if "text" in part:
+                    content = part["text"]
+                elif "functionCall" in part:
+                    fc = part["functionCall"]
+                    tool_calls.append({
+                        "id": f"google_{fc['name']}",
+                        "type": "function",
+                        "function": {
+                            "name": fc["name"],
+                            "arguments": json.dumps(fc.get("args", {})),
+                        },
+                    })
+
+        usage_meta = data.get("usageMetadata", {})
+        return LLMResponse(
+            content=content,
+            tool_calls=tool_calls,
+            finish_reason=candidates[0].get("finishReason", "STOP") if candidates else "STOP",
+            usage={
+                "input_tokens": usage_meta.get("promptTokenCount", 0),
+                "output_tokens": usage_meta.get("candidatesTokenCount", 0),
+            },
+            model=self.model or "default",
+            provider=f"custom-google ({self.base_url})",
+            latency_ms=latency_ms,
+            raw=data,
         )
 
 

@@ -14,6 +14,7 @@ base_url: ""
 # api_type: determines client format for custom/ollama/vllm/lmstudio providers
 #   "openai" (default) — uses openai.OpenAI client (Ollama, vLLM, LM Studio, OpenRouter, Together, Groq)
 #   "anthropic"        — uses anthropic.Anthropic client (Anthropic-compatible proxies)
+#   "google"           — uses REST /v1beta/models/{model}:generateContent (Google AI Studio, Vertex AI, Gemini proxies)
 api_type: openai
 
 fallback_provider: openai
