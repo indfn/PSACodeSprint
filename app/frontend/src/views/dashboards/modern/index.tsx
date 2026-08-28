@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Play, RotateCcw, Zap, Clock } from 'lucide-react';
+import { Play, RotateCcw, Zap } from 'lucide-react';
 import SystemStatusCard from '@/components/nexus/SystemStatusCard';
 import AgentOutput, { AgentEvent } from '@/components/nexus/AgentOutput';
 import HitlCard, { HitlGateInfo } from '@/components/nexus/HitlCard';
@@ -271,16 +271,6 @@ export default function NexusDashboard() {
         >
           <Zap size={14} />
           {edgeLoading === 'berth_conflict' ? 'Injecting...' : 'Berth Conflict'}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!!edgeLoading}
-          onClick={() => handleEdgeCase('stale_data')}
-          className="gap-1.5"
-        >
-          <Clock size={14} />
-          {edgeLoading === 'stale_data' ? 'Injecting...' : 'Stale Data'}
         </Button>
         <div className="h-4 w-px bg-border" />
         <Button size="sm" variant="ghost" onClick={handleReset} className="gap-1.5">
