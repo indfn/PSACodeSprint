@@ -486,6 +486,14 @@ async def run_demo(payload: dict | None = None):
     scenario_id = "nominal"
     if payload:
         scenario_id = payload.get("scenario", "nominal")
+        # Switch problem if requested
+        requested_problem = payload.get("problem_id")
+        if requested_problem:
+            try:
+                from app.agent.problem_switcher import switch_problem as _switch
+                _switch(requested_problem)
+            except Exception:
+                pass
 
     # Set active scenario (randomizes mock data for this run)
     from app.agent.problem_switcher import get_active_problem_id
@@ -613,6 +621,38 @@ async def switch_problem_endpoint(problem_id: str):
     }
 
 
+@app.post("/agent/initialize", tags=["Agent"])
+async def initialize_session():
+    """Set a random scenario for initial data variation on page load.
+
+    Returns the initial mock data for all systems.
+    """
+    import time
+    from app.agent.problem_switcher import get_active_problem_id
+    from app.mocks.scenarios import set_scenario, PB12_SCENARIOS, PB01_SCENARIOS
+    from app.mocks.data import get_container_data, get_truck_data, get_feeder_data
+    from app.mocks.pb01_data import get_qc_data
+
+    problem_id = get_active_problem_id()
+    scenarios = PB12_SCENARIOS if problem_id.startswith("pb-12") else PB01_SCENARIOS
+    scenario_id = list(scenarios.keys())[0]  # pick first nominal
+    set_scenario(problem_id, scenario_id, seed=int(time.time_ns()))
+
+    containers = get_container_data()
+    trucks = get_truck_data()
+    feeder = get_feeder_data()
+    qc = get_qc_data()
+
+    return {
+        "problem_id": problem_id,
+        "scenario": scenario_id,
+        "containers": containers,
+        "trucks": trucks,
+        "feeder": feeder,
+        "qc": qc,
+    }
+
+
 @app.get("/agent/active-problem", tags=["Agent"])
 async def get_active_problem():
     """Return currently active problem id and summary."""
@@ -620,6 +660,7 @@ async def get_active_problem():
 
     cfg = load_problem_config(get_active_problem_id())
     return {
+        "problem_id": get_active_problem_id(),
         "active_problem_id": get_active_problem_id(),
         "problem": cfg.problem.__dict__,
         "systems": [s.name for s in cfg.systems],

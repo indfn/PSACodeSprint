@@ -6,6 +6,22 @@ export interface SSEEvent {
   timestamp: string;
 }
 
+const EVENT_TYPES = [
+  'trace_entry',
+  'hitl_request',
+  'hitl_resolved',
+  'cost_update',
+  'confidence_update',
+  'run_complete',
+  'system_status',
+  'escalation',
+  'notification',
+  'deviation',
+  'agent_thinking',
+  'tool_call',
+  'tool_result',
+];
+
 export function connectSSE(
   runId: string,
   onEvent: (event: SSEEvent) => void,
@@ -13,6 +29,27 @@ export function connectSSE(
 ): () => void {
   const es = new EventSource(`/agent/stream/${runId}`);
 
+  // Named events — EventSource only dispatches to onmessage for unnamed events
+  for (const eventType of EVENT_TYPES) {
+    es.addEventListener(eventType, ((e: MessageEvent) => {
+      try {
+        const raw = JSON.parse(e.data);
+        onEvent({
+          event: eventType,
+          data: raw.data || raw,
+          timestamp: raw.timestamp || new Date().toISOString(),
+        });
+      } catch {
+        onEvent({
+          event: eventType,
+          data: { raw: e.data },
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }) as EventListener);
+  }
+
+  // Fallback for unnamed events
   es.onmessage = (e: MessageEvent) => {
     try {
       const data = JSON.parse(e.data);

@@ -24,6 +24,7 @@ import {
   getActiveProblem,
   injectEdgeCase,
   switchProblem,
+  initializeSession,
   type ContainerData,
   type TruckData,
   type FeederData,
@@ -45,7 +46,7 @@ const SCENARIOS = [
 export default function NexusDashboard() {
   const [activeProblem, setActiveProblem] = useState(PROBLEMS[0].id);
   const [scenario, setScenario] = useState(SCENARIOS[0].id);
-  const [runId, setRunId] = useState<string | null>(null);
+  const [runId, setRunId] = useState<string | null>(() => sessionStorage.getItem('nexus_run_id'));
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [hitlGate, setHitlGate] = useState<HitlGateInfo | null>(null);
 
@@ -68,14 +69,35 @@ export default function NexusDashboard() {
   const [loading, setLoading] = useState(false);
   const [edgeLoading, setEdgeLoading] = useState<string | null>(null);
 
-  // Load initial data
+  // Persist runId across page navigation
   useEffect(() => {
-    getActiveProblem()
-      .then((p) => setActiveProblem(p.problem_id))
-      .catch(() => {});
-    getContainerData().then(setContainers).catch(() => {});
-    getTruckData().then(setTrucks).catch(() => {});
-    getFeederData().then(setFeeder).catch(() => {});
+    if (runId) {
+      sessionStorage.setItem('nexus_run_id', runId);
+    } else {
+      sessionStorage.removeItem('nexus_run_id');
+    }
+  }, [runId]);
+
+  // Load initial data — single init call sets random scenario + returns all data
+  useEffect(() => {
+    initializeSession()
+      .then((init) => {
+        setActiveProblem(init.problem_id);
+        setContainers(init.containers);
+        setTrucks(init.trucks);
+        setFeeder(init.feeder);
+        setQc(init.qc);
+      })
+      .catch(() => {
+        // Fallback: individual fetches
+        getActiveProblem()
+          .then((p) => setActiveProblem(p.problem_id))
+          .catch(() => {});
+        getContainerData().then(setContainers).catch(() => {});
+        getTruckData().then(setTrucks).catch(() => {});
+        getFeederData().then(setFeeder).catch(() => {});
+        getQcData().then(setQc).catch(() => {});
+      });
   }, []);
 
   // SSE event handler

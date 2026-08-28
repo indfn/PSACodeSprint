@@ -38,7 +38,7 @@ function formatTime(ts: string) {
 
 export default function AgentTrace() {
   const [searchParams] = useSearchParams();
-  const runId = searchParams.get('run_id');
+  const runId = searchParams.get('run_id') || sessionStorage.getItem('nexus_run_id');
   const [steps, setSteps] = useState<AgentTraceStep[]>([]);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 

@@ -200,6 +200,17 @@ export async function getScenarios() {
   return apiFetch<Scenario[]>('/agent/scenarios');
 }
 
+export async function initializeSession() {
+  return apiFetch<{
+    problem_id: string;
+    scenario: string;
+    containers: ContainerData;
+    trucks: TruckData;
+    feeder: FeederData;
+    qc: QcData;
+  }>('/agent/initialize', { method: 'POST' });
+}
+
 // ---- Admin ----
 
 export interface AdminConfig {
