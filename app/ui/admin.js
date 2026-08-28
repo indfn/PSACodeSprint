@@ -148,13 +148,13 @@
 
     if (!provider) {
       dom.apikeySuccess.textContent = 'Provider is required';
-      dom.apikeySuccess.style.color = 'var(--accent-red)';
+      dom.apikeySuccess.style.color = 'var(--danger)';
       dom.apikeySuccess.classList.add('visible');
       return;
     }
     if (!key) {
       dom.apikeySuccess.textContent = 'API key is required';
-      dom.apikeySuccess.style.color = 'var(--accent-red)';
+      dom.apikeySuccess.style.color = 'var(--danger)';
       dom.apikeySuccess.classList.add('visible');
       return;
     }
@@ -173,7 +173,7 @@
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: 'Injection failed' }));
         dom.apikeySuccess.textContent = err.detail || 'Failed';
-        dom.apikeySuccess.style.color = 'var(--accent-red)';
+        dom.apikeySuccess.style.color = 'var(--danger)';
         dom.apikeySuccess.classList.add('visible');
         dom.btnInjectKey.disabled = false;
         dom.btnInjectKey.textContent = 'INJECT KEY';
@@ -182,7 +182,7 @@
 
       const data = await res.json();
       dom.apikeySuccess.textContent = data.message || 'Key injected successfully';
-      dom.apikeySuccess.style.color = 'var(--status-green)';
+      dom.apikeySuccess.style.color = 'var(--success)';
       dom.apikeySuccess.classList.add('visible');
       dom.apiKeyKey.value = '';
 
@@ -190,7 +190,7 @@
       loadConfig();
     } catch (err) {
       dom.apikeySuccess.textContent = 'Connection error';
-      dom.apikeySuccess.style.color = 'var(--accent-red)';
+      dom.apikeySuccess.style.color = 'var(--danger)';
       dom.apikeySuccess.classList.add('visible');
     }
 

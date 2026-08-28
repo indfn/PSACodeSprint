@@ -198,7 +198,7 @@
 
   function renderNotifications() {
     if (state.notifications.length === 0) {
-      dom.notifList.innerHTML = '<div class="notification-empty">[ NO NOTIFICATIONS ]</div>';
+      dom.notifList.innerHTML = '<div class="notification-empty">No notifications</div>';
       return;
     }
     dom.notifList.innerHTML = state.notifications
