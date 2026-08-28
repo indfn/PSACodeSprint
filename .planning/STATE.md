@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-08-27)
 
 **Core Value:** Build PSA Nexus — a generalizable agentic platform (Cluster C2, 7 problems) demonstrated via PB-12 (ITT Coordination, $8K/incident) and proven switchable to a sibling problem (e.g. PB-01 Berth Delay) on the same LangGraph core.
-**Current focus:** Phase 6.5 — Integration Wiring & Cleanup (next to execute)
+**Current focus:** Phase 7 — Web UI — Nexus Dashboard (next to execute)
 
 ## Current Position
 
-Phase: 6.5 of 10 (Integration Wiring — next to execute)
+Phase: 7 of 10 (Web UI — next to execute)
 Plans: 10 detailed plans created (Phases 1–3 research + Phases 4–8 build + 6.5 wiring + 07.1 Integrated Verification, 63 sub-phases)
-Status: Phases 1–6 complete (Phase 6 executed 2026-08-28 — LangGraph 4 nodes + 5 HITL gates interrupt/Command + 7 escalation + monitor deviation 100/20 + e2e 5 tests green 37-43s). Phase 6.5 planned (14 gaps identified: C1-C4 requirements/env/startup, H1-H5 timeouts/SSE/config, M1-M5 cleanup/relocation). Phases 7–8 (+07.1 gate) planned.
-Last activity: 2026-08-28 — Phase 6.5 designed: 6 sub-phases (requirements fix, lifespan validation, HITL timeout scheduler, SSE events, cleanup/relocation, integration tests)
+Status: Phases 1–6.5 complete (Phase 6.5 executed 2026-08-28 — 14 integration gaps fixed: requirements UTF-8, lifespan validation, HITL timeout scheduler, SSE confidence_update, YAML fallback_api_key_env, prototype deleted, tool_adapter relocated, LangSmith wiring, 24 new tests). Phases 7–8 (+07.1 gate) planned.
+Last activity: 2026-08-28 — Phase 6.5 complete: 6 sub-phases executed (6.5.1–6.5.6), 24 new integration tests, 165 pass/3 skip
 
-Progress: ██████░░░░ 60% (6/10 phases complete, 4 planned + verified)
+Progress: ███████░░░ 70% (7/10 phases complete, 3 planned)
 
 ## What's Built
 
@@ -48,7 +48,7 @@ Progress: ██████░░░░ 60% (6/10 phases complete, 4 planned + 
 | 4 robustness scenarios | ✅ Done | `app/tests/test_robustness.py` S1 nominal, S2 incomplete (weight_bounds), S3 503→fallback+notify, S4 skipped pending HITL-5 (Phase 6) — Phase 5.13 |
 | LangGraph agent core | ✅ Done | `app/agent/graph.py` 4 nodes agent/tools/hitl/monitor + MemorySaver(thread_id), `run.py` ainvoke/Command(resume) — Phase 6 |
 | HITL gates | ✅ Done | `app/hitl/models.py` 5 gates 30/15/15/10/30 + timeout_actions escalate/cancel/hold/halt, `gates.py` single hitl_node interrupt + `handler.py` REJECT/MODIFY/TIMEOUT — Phase 6 |
-| HITL timeout scheduler | ❌ Not started | — Phase 6.5 (background asyncio task, auto-fire timeout_action after timeout_seconds) |
+| HITL timeout scheduler | ✅ Done | `app/hitl/timeout_scheduler.py` background asyncio task, auto-fire timeout_action after timeout_seconds, cancel on manual decision — Phase 6.5 |
 | Escalation triggers | ✅ Done | `app/agent/escalation.py` 7 triggers `<0.85/>1.5h/>$10k/>30m/<60%/>15m/planner_conflict`, confidence 0.92→0.78→0.90 — Phase 6.6 |
 | Monitoring loop | ✅ Done | `app/agent/monitor.py` re-query T3 → detect berth conflict → re-compute 80/40→100/20 + HITL-5 emergency, `e2e` deviation PASSED 37s — Phase 6.10 |
 | Web UI / SSE | ❌ Not started | — Phase 7 (Nexus branding + SSE replay buffer + problem switcher) |
@@ -59,7 +59,7 @@ Progress: ██████░░░░ 60% (6/10 phases complete, 4 planned + 
 
 **Velocity:**
 - Total plans completed: 10 (research phases + 6.5 wiring)
-- Build phases: fully planned + double cross-checked, 40 gaps fixed total + 14 new gaps identified (Phase 6.5)
+- Build phases: fully planned + double cross-checked, 40 gaps fixed total + 14 new gaps fixed (Phase 6.5)
 
 **By Phase:**
 
@@ -71,7 +71,7 @@ Progress: ██████░░░░ 60% (6/10 phases complete, 4 planned + 
 | 4. Foundation + Platform | ✅ Complete (2026-08-27) | 9 — 57 tests pass, 04-REVIEW-FIX 6 fixes |
 | 5. Tool Integration + Notification + Robustness | ✅ Complete (2026-08-27) | 13 — 127 pass/3 skipped S4, 05-REVIEW 15 issues fixed (C1 YAML, H1 guard, H2 weight) |
 | 6. Agent Core — Nexus Brain | ✅ Complete (2026-08-28) | 12 — e2e 5 green (42s happy/37s deviation), truncation + HITL-5 pending fix |
-| 6.5. Integration Wiring & Cleanup | ○ Planned → next (depends on Phase 6 ✅) | 6 — 14 gaps (C1-C4, H1-H5, M1-M5): requirements, lifespan, timeout, SSE, cleanup |
+| 6.5. Integration Wiring & Cleanup | ✅ Complete (2026-08-28) | 6 — 14 gaps fixed, 24 new tests, 165 pass/3 skip, prototype deleted, tool_adapter relocated |
 | 7. Web UI — Nexus Dashboard | ○ Planned → depends on Phase 6.5 | 8 |
 | 07.1 Integrated Verification (INSERTED) | ○ Planned → depends on Phase 7 | 8 |
 | 8. Polish & Deploy — Nexus Launch | ○ Planned → depends on 07.1 | 7 (**8.3 DISABLED local-only demo**) |
