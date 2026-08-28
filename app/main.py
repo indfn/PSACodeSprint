@@ -669,7 +669,7 @@ async def health():
     return {"status": "ok", "service": "psa-nexus"}
 
 
-app.mount("/ui", StaticFiles(directory="app/ui", html=True), name="ui")
+app.mount("/ui", StaticFiles(directory="frontend/dist", html=True), name="ui")
 
 
 @app.get("/", include_in_schema=False)
