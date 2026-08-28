@@ -536,23 +536,22 @@ class DeepSeekProvider(LLMProvider):
 # ---------------------------------------------------------------------------
 
 class CustomProvider(LLMProvider):
-    """Any OpenAI-compatible API — Ollama, vLLM, LM Studio, OpenRouter, Together, Groq, etc.
+    """Any custom LLM endpoint — OpenAI-compatible or Anthropic-compatible.
 
-    Uses the OpenAI Python client with a custom base_url. Works with any
-    server that implements the OpenAI chat completions API.
+    Uses api_type to determine which client to use:
+      - "openai" (default): openai.OpenAI client — Ollama, vLLM, LM Studio, OpenRouter, Together, Groq
+      - "anthropic": anthropic.Anthropic client — Anthropic-compatible proxies
 
     YAML config:
         llm:
           provider: custom
           model: llama3.1:8b
           base_url: http://localhost:11434/v1  # Ollama
-          api_key: ollama                        # dummy key for Ollama
+          api_type: openai                     # default, can omit
           # OR:
-          base_url: http://localhost:8000/v1     # vLLM
-          api_key: token-abc123
-          # OR:
-          base_url: https://openrouter.ai/api/v1  # OpenRouter
-          api_key: sk-or-...
+          base_url: https://my-anthropic-proxy.com/v1  # Anthropic-compatible proxy
+          api_type: anthropic
+          model: claude-sonnet-4-20250514
     """
 
     name = "custom"
@@ -562,11 +561,16 @@ class CustomProvider(LLMProvider):
         api_key: str | None = None,
         model: str = "",
         base_url: str = "http://localhost:11434/v1",
+        api_type: str = "openai",
     ):
         super().__init__()
         self.api_key = api_key or os.environ.get("CUSTOM_API_KEY", "dummy")
         self.model = model
         self.base_url = base_url.rstrip("/")
+        self.api_type = api_type.lower().strip() if api_type else "openai"
+        if self.api_type not in ("openai", "anthropic"):
+            logger.warning("CustomProvider: unknown api_type '%s' — falling back to 'openai'", self.api_type)
+            self.api_type = "openai"
         if not self.model:
             logger.warning("CustomProvider: no model specified — server will use its default")
 
@@ -576,6 +580,17 @@ class CustomProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.0,
         max_tokens: int = 4096,
+    ) -> LLMResponse:
+        if self.api_type == "anthropic":
+            return self._chat_anthropic(messages, tools, temperature, max_tokens)
+        return self._chat_openai(messages, tools, temperature, max_tokens)
+
+    def _chat_openai(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+        temperature: float,
+        max_tokens: int,
     ) -> LLMResponse:
         import openai
 
@@ -629,6 +644,91 @@ class CustomProvider(LLMProvider):
             provider=f"custom ({self.base_url})",
             latency_ms=latency_ms,
             raw=response.model_dump(),
+        )
+
+    def _chat_anthropic(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+        temperature: float,
+        max_tokens: int,
+    ) -> LLMResponse:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=self.api_key, base_url=self.base_url)
+
+        # Separate system message (Anthropic format)
+        system_msg = ""
+        chat_messages = []
+        for msg in messages:
+            if msg["role"] == "system":
+                system_msg = msg["content"]
+            else:
+                chat_messages.append({"role": msg["role"], "content": msg["content"]})
+
+        t0 = time.monotonic()
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": chat_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if system_msg:
+            kwargs["system"] = system_msg
+        if tools:
+            # Convert OpenAI tool format to Anthropic format
+            anthropic_tools = []
+            for t in tools:
+                if t.get("type") == "function":
+                    fn = t["function"]
+                    anthropic_tools.append({
+                        "name": fn["name"],
+                        "description": fn.get("description", ""),
+                        "input_schema": fn.get("parameters", {"type": "object", "properties": {}}),
+                    })
+                else:
+                    anthropic_tools.append(t)
+            kwargs["tools"] = anthropic_tools
+
+        try:
+            response = client.messages.create(**kwargs)
+        except anthropic.APIConnectionError as exc:
+            logger.error("Custom Anthropic provider connection failed (%s): %s", self.base_url, exc)
+            raise
+        except anthropic.APIError as exc:
+            logger.error("Custom Anthropic provider API error: %s", exc)
+            raise
+
+        latency_ms = (time.monotonic() - t0) * 1000
+
+        # Extract content and tool calls from Anthropic response
+        content = ""
+        tool_calls = []
+        for block in response.content:
+            if block.type == "text":
+                content = block.text
+            elif block.type == "tool_use":
+                tool_calls.append({
+                    "id": block.id,
+                    "type": "function",
+                    "function": {
+                        "name": block.name,
+                        "arguments": json.dumps(block.input),
+                    },
+                })
+
+        return LLMResponse(
+            content=content,
+            tool_calls=tool_calls,
+            finish_reason=response.stop_reason or "end_turn",
+            usage={
+                "input_tokens": response.usage.input_tokens if response.usage else 0,
+                "output_tokens": response.usage.output_tokens if response.usage else 0,
+            },
+            model=self.model or "default",
+            provider=f"custom-anthropic ({self.base_url})",
+            latency_ms=latency_ms,
+            raw={"id": response.id, "type": response.type, "stop_reason": response.stop_reason},
         )
 
 
@@ -685,6 +785,7 @@ def create_provider(config: dict[str, Any]) -> LLMProvider:
     api_key_env = config.get("api_key_env", "")
     api_key = config.get("api_key") or (os.environ.get(api_key_env, "") if api_key_env else "")
     base_url = config.get("base_url", "")
+    api_type = config.get("api_type", "openai")
 
     if provider_name not in PROVIDERS:
         raise ValueError(
@@ -707,6 +808,7 @@ def create_provider(config: dict[str, Any]) -> LLMProvider:
             }
             base_url = defaults.get(provider_name, "")
         kwargs["base_url"] = base_url
+        kwargs["api_type"] = api_type
         if api_key:
             kwargs["api_key"] = api_key
         if model:

@@ -98,6 +98,7 @@ async def get_config(request: Request):
             "model": llm_data.get("model", ""),
             "base_url": llm_data.get("base_url", ""),
             "api_key_env": llm_data.get("api_key_env", ""),
+            "api_type": llm_data.get("api_type", "openai"),
             "fallback_provider": llm_data.get("fallback_provider", ""),
             "fallback_model": llm_data.get("fallback_model", ""),
             "fallback_api_key_env": llm_data.get("fallback_api_key_env", ""),
@@ -145,7 +146,7 @@ async def update_config(payload: dict, request: Request):
                 llm_data = yaml.safe_load(f) or {}
 
         # Allowed fields
-        allowed = {"provider", "model", "base_url", "api_key_env",
+        allowed = {"provider", "model", "base_url", "api_key_env", "api_type",
                     "fallback_provider", "fallback_model", "fallback_api_key_env", "fallback_base_url"}
         for k, v in updates.items():
             if k in allowed:
