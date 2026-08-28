@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Bell, Play, RotateCcw } from 'lucide-react';
+import { Play, RotateCcw, Zap, Clock } from 'lucide-react';
 import SystemStatusCard from '@/components/nexus/SystemStatusCard';
 import AgentOutput, { AgentEvent } from '@/components/nexus/AgentOutput';
 import HitlCard, { HitlGateInfo } from '@/components/nexus/HitlCard';
@@ -21,6 +21,7 @@ import {
   getFeederData,
   resetMocks,
   getActiveProblem,
+  injectEdgeCase,
   type ContainerData,
   type TruckData,
   type FeederData,
@@ -34,7 +35,7 @@ const PROBLEMS = [
 const SCENARIOS = [
   { id: 'nominal', name: 'Nominal' },
   { id: 'deviation', name: 'Deviation' },
-  { id: 'stale', name: 'Stale' },
+  { id: 'stale', name: 'Stale Data' },
   { id: 'escalation', name: 'Escalation' },
 ];
 
@@ -58,6 +59,7 @@ export default function NexusDashboard() {
   });
 
   const [loading, setLoading] = useState(false);
+  const [edgeLoading, setEdgeLoading] = useState<string | null>(null);
 
   // Load initial data
   useEffect(() => {
@@ -170,23 +172,41 @@ export default function NexusDashboard() {
     getFeederData().then(setFeeder).catch(() => {});
   }
 
+  async function handleEdgeCase(caseType: string) {
+    setEdgeLoading(caseType);
+    try {
+      await injectEdgeCase(caseType);
+      setEvents((prev) => [
+        ...prev,
+        { timestamp: new Date().toISOString(), message: `Edge case injected: ${caseType}` },
+      ]);
+      getContainerData().then(setContainers).catch(() => {});
+      getTruckData().then(setTrucks).catch(() => {});
+      getFeederData().then(setFeeder).catch(() => {});
+    } catch (err) {
+      console.error('Edge case injection failed:', err);
+    } finally {
+      setEdgeLoading(null);
+    }
+  }
+
   const containerStatus =
-    containers && containers.total > 0
-      ? containers.total >= (containers.summary?.ready || 0)
+    containers && containers.total_containers > 0
+      ? containers.data_age_minutes < 10
         ? 'green'
         : 'amber'
       : 'green';
   const truckStatus = trucks
-    ? trucks.available > trucks.total * 0.3
+    ? trucks.available_trucks > trucks.total_fleet * 0.3
       ? 'green'
       : 'amber'
     : 'green';
   const feederStatus = feeder
-    ? feeder.status === 'active'
+    ? feeder.berth_status.includes('berthed')
       ? 'green'
-      : feeder.status === 'delayed'
-      ? 'amber'
-      : 'red'
+      : feeder.berth_status === 'conflict'
+      ? 'red'
+      : 'amber'
     : 'green';
 
   return (
@@ -194,7 +214,7 @@ export default function NexusDashboard() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-bold tracking-tight">PSA NEXUS</h1>
+          <h1 className="text-lg font-bold tracking-tight">Nexus Dashboard</h1>
           <Select value={activeProblem} onValueChange={(v) => v && setActiveProblem(v)}>
             <SelectTrigger className="h-8 w-[180px]">
               <SelectValue />
@@ -207,18 +227,6 @@ export default function NexusDashboard() {
               ))}
             </SelectContent>
           </Select>
-          <Select value={scenario} onValueChange={(v) => v && setScenario(v)}>
-            <SelectTrigger className="h-8 w-[140px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SCENARIOS.map((s) => (
-                <SelectItem key={s.id} value={s.id}>
-                  {s.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="text-[10px]">
@@ -227,14 +235,11 @@ export default function NexusDashboard() {
           <Badge variant="outline" className="text-[10px]">
             Risk: Low
           </Badge>
-          <Button variant="ghost" size="icon-sm">
-            <Bell size={16} />
-          </Button>
         </div>
       </div>
 
       {/* Action bar */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
           disabled={loading}
@@ -244,7 +249,41 @@ export default function NexusDashboard() {
           <Play size={14} />
           {loading ? 'Starting...' : 'Start Demo'}
         </Button>
-        <Button size="sm" variant="outline" onClick={handleReset} className="gap-1.5">
+        <Select value={scenario} onValueChange={(v) => v && setScenario(v)}>
+          <SelectTrigger className="h-8 w-[130px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SCENARIOS.map((s) => (
+              <SelectItem key={s.id} value={s.id}>
+                {s.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="h-4 w-px bg-border" />
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!!edgeLoading}
+          onClick={() => handleEdgeCase('berth_conflict')}
+          className="gap-1.5"
+        >
+          <Zap size={14} />
+          {edgeLoading === 'berth_conflict' ? 'Injecting...' : 'Berth Conflict'}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!!edgeLoading}
+          onClick={() => handleEdgeCase('stale_data')}
+          className="gap-1.5"
+        >
+          <Clock size={14} />
+          {edgeLoading === 'stale_data' ? 'Injecting...' : 'Stale Data'}
+        </Button>
+        <div className="h-4 w-px bg-border" />
+        <Button size="sm" variant="ghost" onClick={handleReset} className="gap-1.5">
           <RotateCcw size={14} />
           Reset
         </Button>
@@ -274,22 +313,22 @@ export default function NexusDashboard() {
         <div className="col-span-12 lg:col-span-4 space-y-3">
           <SystemStatusCard
             name="CITOS PPT"
-            metric={`${containers?.total ?? 0} / 120 containers`}
-            value={containers?.total ?? 0}
+            metric={`${containers?.total_containers ?? 0} containers`}
+            value={containers?.total_containers ?? 0}
             max={120}
             status={containerStatus}
           />
           <SystemStatusCard
             name="OptETruck"
-            metric={`${trucks?.available ?? 0} / ${trucks?.total ?? 0} trucks available`}
-            value={trucks?.available ?? 0}
-            max={trucks?.total ?? 1}
+            metric={`${trucks?.available_trucks ?? 0} / ${trucks?.total_fleet ?? 0} trucks`}
+            value={trucks?.available_trucks ?? 0}
+            max={trucks?.total_fleet ?? 1}
             status={truckStatus}
           />
           <SystemStatusCard
             name="Feeder"
-            metric={`${feeder?.current_load ?? 0} / ${feeder?.capacity_teu ?? 1} TEU`}
-            value={feeder?.current_load ?? 0}
+            metric={`${feeder?.current_occupancy_teu ?? 0} / ${feeder?.capacity_teu ?? 1} TEU`}
+            value={feeder?.current_occupancy_teu ?? 0}
             max={feeder?.capacity_teu ?? 1}
             status={feederStatus}
           />

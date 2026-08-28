@@ -5,33 +5,48 @@ export interface SSEEvent {
 }
 
 export interface ContainerData {
-  containers: Array<{
-    id: string;
-    status: string;
-    type: string;
-    weight_tonnes: number;
-    destination: string;
-  }>;
-  total: number;
-  summary: Record<string, number>;
+  status: string;
+  vessel_id: string;
+  total_containers: number;
+  total_teu: number;
+  container_breakdown: Record<string, number>;
+  dg_containers: number;
+  reefer_containers: number;
+  blocks_affected: string[];
+  data_age_minutes: number;
 }
 
 export interface TruckData {
-  available: number;
-  total: number;
-  capacity_tonnes: number;
-  breakdown: Record<string, number>;
+  status: string;
+  terminal: string;
+  available_trucks: number;
+  total_fleet: number;
+  transit_time_minutes: number;
+  road_conditions: Record<string, string>;
+  cost_per_trip: number;
+  estimated_round_trip_minutes: number;
 }
 
 export interface FeederData {
-  vessel_id: string;
-  name: string;
   status: string;
-  eta: string;
+  feeder_id: string;
+  feeder_operator: string;
   capacity_teu: number;
-  current_load: number;
-  containers_onboard: number;
-  route: string;
+  current_occupancy_teu: number;
+  berth_status: string;
+  departure_window: {
+    earliest: string;
+    latest: string;
+    requested: string;
+  };
+  downstream_constraints: {
+    destination_port: string;
+    tidal_window: string;
+    transit_time_hours: number;
+    must_depart_by: string;
+  };
+  hold_cost_per_hour: number;
+  available_capacity_teu: number;
 }
 
 export interface RunRecord {
