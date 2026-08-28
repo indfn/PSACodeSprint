@@ -465,9 +465,93 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 
 ---
 
+### Phase 6.5: Integration Wiring & Cleanup
+**Goal:** Fix all missing connections — requirements, startup validation, HITL timeouts, SSE events, config consistency, dead code cleanup — so the system actually runs end-to-end without silent failures.
+**Depends on:** Phase 6
+**Requirements:** T-18, A-17, D-08 + startup validation, timeout scheduler, config consistency
+**Success Criteria** (what must be TRUE):
+  1. `pip install -r requirements.txt` installs all deps (including `langgraph`) without encoding errors
+  2. `.env.example` documents all env vars; `load_dotenv()` wires them at startup
+  3. App fails fast with clear error if required env vars missing
+  4. `lifespan` handler validates env vars, YAML configs, registry, graph at startup
+  5. HITL timeout scheduler auto-fires `timeout_action` after `timeout_seconds`
+  6. SSE events `confidence_update` and `notification` published
+  7. All 7 YAML configs have consistent `fallback_api_key_env`
+  8. `prototype/` deleted, `__init__.py` re-exports, `tool_adapter.py` relocated
+  9. LangSmith tracing wired (optional, activates if `LANGSMITH_API_KEY` set)
+  10. All existing tests pass + new tests for startup, timeout, SSE coverage
+**Status:** ○ NOT STARTED
+
+#### Sub-phases
+
+##### 6.5.1: Fix Dependencies & Environment
+**What:** Fix broken requirements file (UTF-16→UTF-8), add missing packages, create `.env.example`, wire `load_dotenv()`.
+**Duration:** ~30 minutes
+**Deliverables:**
+- `requirements.txt` — UTF-8, adds `langgraph`, `langsmith`, `langchain-core`, `python-dotenv`
+- `.env.example` — documented template with all env vars
+- `app/main.py` — `load_dotenv()` called at module level before FastAPI init
+**Depends on:** Phase 6
+**Verification:** `file requirements.txt` says UTF-8; `pip install -r requirements.txt` installs cleanly
+
+##### 6.5.2: Startup Lifespan & Validation
+**What:** Add FastAPI `lifespan` that validates env vars, YAML configs, registry, graph compilation at startup — fail fast with clear errors.
+**Duration:** ~1 hour
+**Deliverables:**
+- `app/main.py` — `lifespan` async context manager with 5-point validation: API key check, YAML load, registry init, graph compile, LangSmith status
+- Clear ✓/✗ per check in startup logs; `sys.exit(1)` on failure
+**Depends on:** 6.5.1
+**Verification:** `unset ANTHROPIC_API_KEY && python -m uvicorn app.main:app` → clear error, exits
+
+##### 6.5.3: HITL Timeout Scheduler
+**What:** Build background task that auto-fires timeout decisions when HITL gates exceed their timeout.
+**Duration:** ~1.5 hours
+**Deliverables:**
+- `app/hitl/timeout_scheduler.py` — `schedule_timeout()`, `cancel_timeout()`, `cancel_all_timeouts()`
+- Wired into `hitl_node` (schedules on interrupt) and `POST /agent/hitl/respond` (cancels on manual decision)
+- Cleanup on run completion/reset
+**Depends on:** 6.5.1
+**Verification:** HITL gate fires → wait timeout_seconds → auto-timeout; manual approve before timeout → cancelled
+
+##### 6.5.4: SSE Events & Config Consistency
+**What:** Publish missing SSE events, fix YAML config inconsistency, fix unreachable exception handler.
+**Duration:** ~1 hour
+**Deliverables:**
+- `app/agent/nodes.py` — `confidence_update` events published after confidence computation
+- `app/tools/notify.py` — `notification` events published when `notify_parties()` called
+- 6 YAML configs — add `fallback_api_key_env: OPENAI_API_KEY`
+- `app/main.py` — remove unreachable exception handler (lines 218-227)
+**Depends on:** 6.5.1
+**Verification:** SSE stream shows `confidence_update` and `notification` events; all 7 configs consistent
+
+##### 6.5.5: Cleanup & Relocation
+**What:** Delete dead code, re-export modules, relocate mispathed files, wire optional LangSmith.
+**Duration:** ~1.5 hours
+**Deliverables:**
+- `prototype/` — deleted
+- `app/agent/__init__.py` — re-exports `build_graph`, `AgentState`, `run_agent`, `resume_agent`, `switch_problem`, `get_active_problem_id`
+- `app/hitl/__init__.py` — re-exports `hitl_node`, `handle_hitl_response`, `HITL_GATES`, `schedule_timeout`, `cancel_timeout`
+- `app/shared/tool_adapter.py` → `app/tools/tool_adapter.py` (relocated, all imports updated)
+- `app/agent/graph.py` — LangSmith wiring (optional, no-op if no API key)
+**Depends on:** 6.5.1
+**Verification:** `ls prototype/` → not exists; re-exports work; tool_adapter importable from new path
+
+##### 6.5.6: Integration Tests
+**What:** Add tests verifying all wiring works together.
+**Duration:** ~30 minutes
+**Deliverables:**
+- `app/tests/test_startup.py` — lifespan validation (4 tests)
+- `app/tests/test_timeout.py` — timeout scheduler (3 tests)
+- `app/tests/test_sse_events.py` — SSE event coverage (2 tests)
+- `app/tests/test_configs.py` — YAML config consistency (3 tests)
+**Depends on:** 6.5.2, 6.5.3, 6.5.4, 6.5.5
+**Verification:** `pytest app/tests/test_startup.py test_timeout.py test_sse_events.py test_configs.py -v` — 12 new tests pass
+
+---
+
 ### Phase 7: Web UI & Integration — PSA Nexus Dashboard
 **Goal:** Build the PSA Nexus dashboard with real-time SSE streaming, problem switcher, approval cards, and demo scenario controls.
-**Depends on:** Phase 6
+**Depends on:** Phase 6.5
 **Requirements:** U-01 through U-12
 **Success Criteria** (what must be TRUE):
   1. Web UI loads in browser with clean, professional design
@@ -752,15 +836,16 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 | 4. Foundation Reformation + Platform | 9 (4.1–4.9) | ~1.5 days |
 | 5. Tool Integration + Notification + Robustness | 13 (5.1–5.13) | ~2 days |
 | 6. Agent Core (LangGraph) — Nexus Brain | 12 (6.1–6.12) | ~2–3 days |
+| 6.5. Integration Wiring & Cleanup | 6 (6.5.1–6.5.6) | ~1 day |
 | 7. Web UI — Nexus Dashboard | 8 (7.1–7.8) | ~2 days |
 | 07.1 Integrated Verification (INSERTED) | 8 (07.1.1–07.1.8) | ~0.5–1 day |
 | 8. Polish & Deploy — Nexus Launch | 7 (8.1–8.7, **8.3 DISABLED local-only demo**) | ~1–2 days |
-| **Total** | **57** | **~7.5–12 days** |
+| **Total** | **63** | **~8.5–13 days** |
 
 ## Progress
 
 **Execution Order:**
-Phases execute in order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 07.1 → 8
+Phases execute in order: 1 → 2 → 3 → 4 → 5 → 6 → 6.5 → 7 → 07.1 → 8
 
 | Phase | Status | Completed |
 |-------|--------|-----------|
@@ -770,6 +855,7 @@ Phases execute in order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 07.1 → 8
 | 4. Foundation Reformation | ✅ Complete | 2026-08-27 |
 | 5. Tool Integration | ✅ Complete | 2026-08-27 |
 | 6. Agent Core (LangGraph) | ✅ Complete | 2026-08-28 |
-| 7. Web UI & Integration | ○ Not Started → next | — |
+| 6.5. Integration Wiring & Cleanup | ○ Not Started | — |
+| 7. Web UI & Integration | ○ Not Started | — |
 | 07.1 Integrated Verification (INSERTED) | ○ Not Started | — |
 | 8. Polish & Deploy | ○ Not Started | — |
