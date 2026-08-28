@@ -12,7 +12,7 @@ U-01 through U-12 (requirements.md)
 ## Success Criteria
 1. Dashboard loads with tactical telemetry aesthetic — dark CRT, monospace data, visible grid borders, red accent
 2. SSE streams agent events in real time with replay buffer and `Last-Event-ID` support
-3. HITL cards appear one at a time, approve/reject/modify all work inline (no popups, no hanging cards, no multiple cards)
+3. HITL cards appear one at a time, approve/reject/modify all work inline (no popups, no stacking, no hanging)
 4. Rejection reason uses inline text field (no browser `prompt()`)
 5. Modify expands card with editable fields, submit completes the action
 6. Stale HITL returns 422 shown as inline error (not crash)
@@ -23,8 +23,50 @@ U-01 through U-12 (requirements.md)
 11. Problem switcher dropdown in header changes active problem
 12. Admin page accessible via `/admin` link (not a tab)
 13. Notifications appear as bell icon with dropdown
-14. No `prompt()`, no `alert()`, no `confirm()` anywhere
-15. 183+ tests still pass (no backend regressions)
+14. No `prompt()`, `alert()`, `confirm()` anywhere
+15. 4 demo scenarios with randomized data within probability distributions
+16. Scenario picker dropdown lets judge select which scenario to run
+17. 183+ tests still pass (no backend regressions)
+
+---
+
+## Demo Scenario System
+
+### Architecture
+- 4 scenarios, each with its own probability distribution profile
+- `POST /agent/run-demo` accepts `scenario` parameter
+- Mock data generators accept scenario profile and randomize within bounds
+- New `random.Random()` seed per run (timestamp-based) for variation within scenario
+
+### Scenario Profiles
+
+| Scenario | Containers | Trucks Available | Feeder Occupancy | Confidence | What Agent Does |
+|----------|-----------|-----------------|-----------------|------------|----------------|
+| **NOMINAL** | 100-140 (μ=120, σ=15) | 40-55 (μ=48, σ=5) | 500-750 TEU (μ=620, σ=80) | 0.88-0.95 | Clean 80/40 split, all 5 HITL gates pass, completed |
+| **DEVIATION** | 110-130 (μ=120, σ=8) | 35-50 (μ=42, σ=5) | 550-700 TEU (μ=620, σ=50) | 0.82-0.90 | Feeder berth conflict during monitor → agent re-computes split → HITL-5 fires |
+| **STALE** | 80-120 (μ=100, σ=15) | 25-45 (μ=35, σ=8) | 400-650 TEU (μ=550, σ=80) | 0.75-0.85 | PPT data 25+ min old → guardrails fire → secondary query → HITL with warning |
+| **ESCALATION** | 120-150 (μ=135, σ=12) | 20-40 (μ=30, σ=8) | 600-800 TEU (μ=700, σ=60) | 0.60-0.78 | Low confidence → multiple triggers → HITL-5 escalation to duty manager |
+
+### Data Generation per Scenario
+Each scenario defines distributions for:
+- `container_count`: normal(μ, σ) clamped to [min, max]
+- `containers_ready`: container_count minus random(0-5) unstowed
+- `available_trucks`: normal(μ, σ) clamped to [min, max]
+- `feeder_occupancy`: normal(μ, σ) clamped to [min, max]
+- `confidence_initial`: uniform(min, max)
+- `dg_containers`: random(1-5)
+- `blocks_affected`: random subset of [B-07, B-08, B-12, B-14]
+
+### Scenario-Specific Mutations
+- **DEVIATION**: after HITL-1 approval, auto-inject `feeder_berth_conflict` at the right moment (before monitor check)
+- **STALE**: set `_stale_minutes = 25` before container query, so T1 returns stale data
+- **ESCALATION**: set initial confidence to 0.65, which triggers escalation triggers #1 (<0.85) and #5 (<60% trucks if trucks are low)
+
+### UI Integration
+- Scenario dropdown next to Start Demo button: `[NOMINAL ▾] [START DEMO]`
+- Dropdown values: Nominal, Deviation, Stale, Escalation
+- Selected scenario passed as `scenario` field in `POST /agent/run-demo` payload
+- Data visualizer shows the randomized data (not hardcoded 120/50/620)
 
 ---
 
@@ -458,10 +500,24 @@ app/ui/
 
 **Verification:** Start demo → HITL-1 card appears → approve → card disappears → HITL-2 appears → reject with reason → card disappears → modify with field edit → submit → card disappears → all 5 gates pass or some reject/timeout. No popups. No stacking. No hanging.
 
-### 7.5 — Data Visualizer
-**Goal:** Live status bars showing mock API data for each PSA system.
+### 7.5 — Data Visualizer + Scenario System
+**Goal:** Live status bars showing mock API data for each PSA system. Scenario-based randomized data generation.
 
-**Files:** `app.js`, `style.css`, `index.html` (dashboard panel)
+**Files:** `app.js`, `style.css`, `index.html` (dashboard panel), `app/mocks/scenarios.py` (NEW), `app/mocks/data.py`, `app/main.py`
+
+**Scenario system (backend):**
+- `app/mocks/scenarios.py` — 4 scenario profiles with distributions:
+  ```python
+  SCENARIOS = {
+      "nominal": {"containers": (120, 15, 100, 140), "trucks": (48, 5, 40, 55), ...},
+      "deviation": {"containers": (120, 8, 110, 130), "trucks": (42, 5, 35, 50), ...},
+      "stale": {"containers": (100, 15, 80, 120), "trucks": (35, 8, 25, 45), ...},
+      "escalation": {"containers": (135, 12, 120, 150), "trucks": (30, 8, 20, 40), ...},
+  }
+  ```
+- `generate_scenario_data(scenario_id)` → randomized container list, truck data, feeder data
+- Per-run seeding: `random.Random(time.time_ns())` for variation
+- Scenario-specific mutations: DEVIATION auto-injects berth conflict before monitor, STALE sets `_stale_minutes=25`, ESCALATION sets low initial confidence
 
 **Data sources (direct fetch, not from agent state):**
 - `GET /api/citos/ppt/containers` → container count, breakdown, DG, blocks
@@ -470,18 +526,21 @@ app/ui/
 - `GET /api/citos/tuas/loading-sequence` → QC assignments, ETA
 
 **Tasks:**
-1. Data fetcher function: fetches all four endpoints in parallel
-2. Renderer for each system block:
-   - `[CITOS PPT]` — container bar (X/120), DG count, blocks list
-   - `[OPTETRUCK]` — truck bar (X/50), transit time, cost/trip
-   - `[FEEDER]` — capacity bar (X/800 TEU), berth status, departure window
-   - `[TUAS QC]` — QC assignments (QC-07: Bay14, Bay12), ETA
-3. Status bar CSS: pure div with `background` for fill, `background: #1C1C1C` for empty
-4. Color coding: green (healthy), amber (warning), red (critical)
-5. Refresh triggers: demo start, after each HITL approval, manual refresh button
-6. Last-updated timestamp per block
+1. Create `app/mocks/scenarios.py` with 4 scenario profiles and `generate_scenario_data()`
+2. Update `app/mocks/data.py` to accept scenario profile and randomize within bounds
+3. Update `POST /agent/run-demo` to accept `scenario` parameter and pass to generators
+4. Data fetcher function: fetches all four endpoints in parallel
+5. Renderer for each system block (dynamic max based on scenario):
+   - `[CITOS PPT]` — container bar (X/max), DG count, blocks list
+   - `[OPTETRUCK]` — truck bar (X/max), transit time, cost/trip
+   - `[FEEDER]` — capacity bar (X/max TEU), berth status, departure window
+   - `[TUAS QC]` — QC assignments, ETA
+6. Status bar CSS: pure div with `background` for fill, `background: #1C1C1C` for empty
+7. Color coding: green (healthy), amber (warning), red (critical)
+8. Refresh triggers: demo start, after each HITL approval, manual refresh button
+9. Last-updated timestamp per block
 
-**Verification:** Dashboard shows four data blocks with bars and numbers. Data matches mock API responses. Bars update after demo actions.
+**Verification:** Dashboard shows four data blocks with bars. Different scenario picks produce different data. Bars update after demo actions.
 
 ### 7.6 — Agent Trace (Step-by-Step)
 **Goal:** Human-readable step list with expandable detail, driven by SSE events.

@@ -674,14 +674,17 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 **Depends on:** 7.3
 **Verification:** Start demo → HITL-1 appears → approve → disappears → HITL-2 → reject with reason → disappears → modify with edit → submit → disappears → all 5 gates pass. No popups. No stacking. No hanging.
 
-##### 7.5: Data Visualizer
-**What:** Live status bars showing mock API data for each PSA system. Direct fetch from mock endpoints.
-**Duration:** ~2 hours
+##### 7.5: Data Visualizer + Scenario System
+**What:** Live status bars showing mock API data. 4 demo scenarios with randomized data within probability distributions. Judge picks scenario from dropdown.
+**Duration:** ~3 hours
 **Deliverables:**
-- `app/ui/app.js` — data fetcher (parallel fetch of 4 mock endpoints), renderer for `[CITOS PPT]` (container bar X/120, DG, blocks), `[OPTETRUCK]` (truck bar X/50, transit), `[FEEDER]` (capacity bar X/800, berth, departure), `[TUAS QC]` (QC assignments, ETA), color coding (green/amber/red), refresh triggers, timestamps
-- `app/ui/style.css` — status bar CSS (div-based fill/empty), monospace numbers
-**Depends on:** 7.1
-**Verification:** Dashboard shows 4 data blocks with bars and numbers matching mock API responses
+- `app/mocks/scenarios.py` (NEW) — 4 scenario profiles (nominal, deviation, stale, escalation) with distributions for containers, trucks, feeder, confidence
+- `app/mocks/data.py` — update data generators to accept scenario profile and randomize within bounds
+- `app/main.py` — update `POST /agent/run-demo` to accept `scenario` parameter
+- `app/ui/app.js` — data fetcher + renderers (4 system blocks with dynamic bars)
+- `app/ui/style.css` — status bar CSS, monospace numbers
+**Depends on:** 7.2
+**Verification:** Dashboard shows 4 data blocks. Different scenarios produce different data ranges.
 
 ##### 7.6: Agent Trace (Step-by-Step)
 **What:** Human-readable step list with expandable detail, driven by SSE events. No raw orchestrator logs.
