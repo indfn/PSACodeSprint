@@ -22,6 +22,7 @@ import {
   resetMocks,
   getActiveProblem,
   injectEdgeCase,
+  switchProblem,
   type ContainerData,
   type TruckData,
   type FeederData,
@@ -58,6 +59,9 @@ export default function NexusDashboard() {
     alternatives: [] as string[],
   });
 
+  const [confidence, setConfidence] = useState<number | null>(null);
+  const [riskScore, setRiskScore] = useState<number | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [edgeLoading, setEdgeLoading] = useState<string | null>(null);
 
@@ -86,6 +90,9 @@ export default function NexusDashboard() {
               message: (data.message as string) || (data.action as string) || JSON.stringify(data),
             },
           ]);
+          if (typeof data.risk_score === 'number') {
+            setRiskScore(data.risk_score);
+          }
           break;
 
         case 'hitl_request':
@@ -108,6 +115,12 @@ export default function NexusDashboard() {
             baseline: (data.baseline as number) || 0,
             alternatives: (data.alternatives as string[]) || [],
           });
+          break;
+
+        case 'confidence_update':
+          if (typeof data.confidence === 'number') {
+            setConfidence(data.confidence);
+          }
           break;
 
         case 'run_complete':
@@ -145,6 +158,8 @@ export default function NexusDashboard() {
     setLoading(true);
     setEvents([]);
     setHitlGate(null);
+    setConfidence(null);
+    setRiskScore(null);
     try {
       const res = await startDemo(scenario, activeProblem);
       setRunId(res.run_id);
@@ -215,7 +230,12 @@ export default function NexusDashboard() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold tracking-tight">Nexus Dashboard</h1>
-          <Select value={activeProblem} onValueChange={(v) => v && setActiveProblem(v)}>
+          <Select value={activeProblem} onValueChange={(v) => {
+            if (v && v !== activeProblem) {
+              setActiveProblem(v);
+              switchProblem(v).catch(() => {});
+            }
+          }}>
             <SelectTrigger className="h-8 w-[180px]">
               <SelectValue placeholder="Select problem">
                 {PROBLEMS.find((p) => p.id === activeProblem)?.name}
@@ -229,6 +249,14 @@ export default function NexusDashboard() {
               ))}
             </SelectContent>
           </Select>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary" className="text-[10px]">
+            Confidence: {confidence !== null ? `${Math.round(confidence * 100)}%` : '—'}
+          </Badge>
+          <Badge variant="outline" className="text-[10px]">
+            Risk: {riskScore !== null ? (riskScore >= 0.7 ? 'High' : riskScore >= 0.4 ? 'Medium' : 'Low') : '—'}
+          </Badge>
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="text-[10px]">
