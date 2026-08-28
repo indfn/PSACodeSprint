@@ -15,9 +15,9 @@ from typing import Any
 from fastapi import Request, HTTPException
 from fastapi.responses import RedirectResponse
 
-# Hardcoded demo credentials
-_ADMIN_USER = "admin"
-_ADMIN_PASS = "admin123"
+# Credentials from env vars (demo defaults for local dev only)
+_ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
+_ADMIN_PASS = os.environ.get("ADMIN_PASS", "admin123")
 _SESSION_SECRET = os.environ.get("ADMIN_SESSION_SECRET", "psa-nexus-admin-dev-secret")
 _SESSION_TTL = 3600  # 1 hour
 

@@ -9,6 +9,7 @@ from typing import Any
 from app.agent.confidence import compute_risk_score
 from app.agent.prompts import build_agent_messages
 from app.agent.trace import log_trace
+from app.hitl.models import HITL5_FALLBACK
 from app.shared.logging import structured_log
 
 
@@ -420,7 +421,7 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
                 elif isinstance(hitl5, dict):
                     state["hitl_pending"] = dict(hitl5)
                 else:
-                    state["hitl_pending"] = {"gate_id": "HITL-5", "gate_name": "Escalate to Duty Manager", "trigger": "escalation fired", "timeout_seconds": 1800, "timeout_action": "halt"}
+                    state["hitl_pending"] = dict(HITL5_FALLBACK)
                 state["status"] = "escalated"
                 try:
                     from app.agent.sse import broadcaster
@@ -785,7 +786,7 @@ async def tool_node(state: dict[str, Any]) -> dict[str, Any]:
             elif isinstance(hitl5, dict):
                 state["hitl_pending"] = dict(hitl5)
             else:
-                state["hitl_pending"] = {"gate_id": "HITL-5", "gate_name": "Escalate to Duty Manager", "trigger": "escalation fired", "timeout_seconds": 1800, "timeout_action": "halt"}
+                state["hitl_pending"] = dict(HITL5_FALLBACK)
             state["status"] = "escalated"
             risk = compute_risk_score(state)
             structured_log("escalation_after_tool", run_id=state.get("run_id", ""), step="tool", trigger=triggered[0]["trigger"], risk_score=risk)

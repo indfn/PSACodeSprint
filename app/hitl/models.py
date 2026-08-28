@@ -133,3 +133,13 @@ HITL_GATES: dict[str, HITLGate] = {
 # Also expose lower-case hyphen forms
 for k, v in list(HITL_GATES.items()):
     HITL_GATES[k.lower()] = v
+
+
+# Canonical HITL-5 fallback dict — used across nodes.py, monitor.py, handler.py
+HITL5_FALLBACK: dict[str, Any] = {
+    "gate_id": "HITL-5",
+    "gate_name": "Escalate to Duty Manager",
+    "trigger": "escalation fired",
+    "timeout_seconds": 1800,
+    "timeout_action": "halt",
+}

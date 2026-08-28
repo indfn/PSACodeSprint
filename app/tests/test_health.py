@@ -27,7 +27,7 @@ def test_mock_optetruck(client):
     r = client.get("/api/optetruck/capacity")
     assert r.status_code == 200
     assert r.json()["status"] == "success"
-    assert r.json()["available_trucks"] == 20
+    assert r.json()["available_trucks"] == 50
 
 
 def test_mock_feeder(client):

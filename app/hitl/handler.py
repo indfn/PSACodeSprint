@@ -5,6 +5,8 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from app.hitl.models import HITL5_FALLBACK
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -139,7 +141,7 @@ async def handle_hitl_response(
                 if escalate_gate and hasattr(escalate_gate, "to_dict"):
                     escalate_gate = escalate_gate.to_dict()
             except Exception:
-                escalate_gate = {"gate_id": "HITL-5", "gate_name": "Escalate to Duty Manager", "timeout_seconds": 1800, "timeout_action": "halt"}
+                escalate_gate = dict(HITL5_FALLBACK)
             state["escalation"] = {"trigger": "hitl_rejection_no_alternatives", "gate_id": gate_id, "severity": "high", "reason": reason, "timestamp": _now_iso()}
             state["hitl_pending"] = escalate_gate
             state["status"] = "escalated"
@@ -251,7 +253,7 @@ async def handle_hitl_response(
                 if esc_gate and hasattr(esc_gate, "to_dict"):
                     esc_gate = esc_gate.to_dict()
             except Exception:
-                esc_gate = {"gate_id": "HITL-5", "gate_name": "Escalate to Duty Manager", "timeout_seconds": 1800, "timeout_action": "halt"}
+                esc_gate = dict(HITL5_FALLBACK)
             state["escalation"] = {"trigger": "hitl_timeout", "gate_id": gate_id, "timeout_action": "escalate", "timestamp": _now_iso()}
             state["hitl_pending"] = esc_gate
             state["status"] = "escalated"

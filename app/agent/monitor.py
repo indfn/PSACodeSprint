@@ -1,9 +1,12 @@
 """Monitoring / Re-computation Loop — Steps 12–17 (Phase 6.10)."""
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from typing import Any
+
+from app.hitl.models import HITL5_FALLBACK
 
 
 def _now_iso() -> str:
@@ -171,14 +174,14 @@ async def monitor_node(state: dict[str, Any]) -> dict[str, Any]:
                 elif isinstance(hitl5, dict):
                     pending = dict(hitl5)
                 else:
-                    pending = {"gate_id": "HITL-5", "gate_name": "Escalate to Duty Manager", "trigger": "escalation fired", "timeout_seconds": 1800, "timeout_action": "halt"}
+                    pending = dict(HITL5_FALLBACK)
                 # Add emergency card data
                 emergency_card = build_emergency_resplit_card(state, deviation)
                 pending["approval_card"] = emergency_card
                 pending["emergency"] = True
                 state["hitl_pending"] = pending
             except Exception:
-                state["hitl_pending"] = {"gate_id": "HITL-5", "gate_name": "Escalate to Duty Manager", "trigger": "escalation fired", "timeout_seconds": 1800, "timeout_action": "halt", "approval_card": build_emergency_resplit_card(state, deviation)}
+                state["hitl_pending"] = {**HITL5_FALLBACK, "approval_card": build_emergency_resplit_card(state, deviation)}
 
             # Trace deviation
             try:
