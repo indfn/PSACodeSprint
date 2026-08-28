@@ -21,7 +21,6 @@ import {
   getFeederData,
   getQcData,
   resetMocks,
-  getActiveProblem,
   injectEdgeCase,
   switchProblem,
   initializeSession,
@@ -82,17 +81,14 @@ export default function NexusDashboard() {
   useEffect(() => {
     initializeSession()
       .then((init) => {
-        setActiveProblem(init.problem_id);
+        if (init.problem_id) setActiveProblem(init.problem_id);
         setContainers(init.containers);
         setTrucks(init.trucks);
         setFeeder(init.feeder);
         setQc(init.qc);
       })
       .catch(() => {
-        // Fallback: individual fetches
-        getActiveProblem()
-          .then((p) => setActiveProblem(p.problem_id))
-          .catch(() => {});
+        // Fallback: individual fetches (don't touch activeProblem — default is correct)
         getContainerData().then(setContainers).catch(() => {});
         getTruckData().then(setTrucks).catch(() => {});
         getFeederData().then(setFeeder).catch(() => {});
