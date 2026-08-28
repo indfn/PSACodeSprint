@@ -3,13 +3,6 @@ problem:
   name: Expressway Disruption Gridlock
   sector: Gate & External Haulage
   description: Reroute trucks when AYE/ECP is blocked, reallocate time slots
-llm:
-  provider: anthropic
-  model: claude-sonnet-4-20250514
-  api_key_env: ANTHROPIC_API_KEY
-  fallback_provider: openai
-  fallback_model: gpt-4o
-  fallback_api_key_env: OPENAI_API_KEY
 systems:
 - name: optetruck
   type: transport

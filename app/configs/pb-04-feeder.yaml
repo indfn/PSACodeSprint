@@ -3,13 +3,6 @@ problem:
   name: Missed Feeder Connection
   sector: Multimodal Logistics
   description: Reroute containers when feeder misses connection at downstream port
-llm:
-  provider: anthropic
-  model: claude-sonnet-4-20250514
-  api_key_env: ANTHROPIC_API_KEY
-  fallback_provider: openai
-  fallback_model: gpt-4o
-  fallback_api_key_env: OPENAI_API_KEY
 systems:
 - name: portnet
   type: community

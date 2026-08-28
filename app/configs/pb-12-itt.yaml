@@ -3,13 +3,6 @@ problem:
   name: Multi-Party ITT Coordination Failure
   sector: Multimodal Logistics
   description: Move 120 containers PPT→Tuas, optimise road/sea split
-llm:
-  provider: anthropic
-  model: claude-sonnet-4-20250514
-  api_key_env: ANTHROPIC_API_KEY
-  fallback_provider: openai
-  fallback_model: gpt-4o
-  fallback_api_key_env: OPENAI_API_KEY
 systems:
 - name: citos_ppt
   type: terminal_os

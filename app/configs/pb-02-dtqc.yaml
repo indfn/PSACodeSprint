@@ -3,13 +3,6 @@ problem:
   name: DTQC Breakdown Cascade
   sector: Container Yard & Internal Transport
   description: Reallocate cranes when a quay crane breaks down mid-operations
-llm:
-  provider: anthropic
-  model: claude-sonnet-4-20250514
-  api_key_env: ANTHROPIC_API_KEY
-  fallback_provider: openai
-  fallback_model: gpt-4o
-  fallback_api_key_env: OPENAI_API_KEY
 systems:
 - name: rocc
   type: crane_control

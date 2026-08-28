@@ -4,13 +4,6 @@ problem:
   sector: Multimodal Logistics
   description: Prioritise document acceleration when multiple containers are held
     by customs
-llm:
-  provider: anthropic
-  model: claude-sonnet-4-20250514
-  api_key_env: ANTHROPIC_API_KEY
-  fallback_provider: openai
-  fallback_model: gpt-4o
-  fallback_api_key_env: OPENAI_API_KEY
 systems:
 - name: tradenet
   type: trade_document

@@ -3,13 +3,6 @@ problem:
   name: Sea-Air Cut-Off Breach
   sector: Multimodal Logistics
   description: Decide modal shift when sea cut-off is missed for air cargo handover
-llm:
-  provider: anthropic
-  model: claude-sonnet-4-20250514
-  api_key_env: ANTHROPIC_API_KEY
-  fallback_provider: openai
-  fallback_model: gpt-4o
-  fallback_api_key_env: OPENAI_API_KEY
 systems:
 - name: optemodal
   type: modal_planning

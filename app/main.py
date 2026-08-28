@@ -39,6 +39,9 @@ except ImportError:
 from app.agent.problem_switcher import get_active_problem_id, switch_problem
 from app.shared.models import ITTCoordinationEvent, WebhookResponse
 
+# Admin router (config management + API key injection)
+from app.admin import admin_router
+
 logger = logging.getLogger("psa-nexus.startup")
 
 # Local provider → API key env var mapping (for startup validation)
@@ -160,6 +163,9 @@ if optevoyage_router is not None:
     app.include_router(optevoyage_router)
 if berth_router is not None:
     app.include_router(berth_router)
+
+# Admin router (config management, auth, API key injection)
+app.include_router(admin_router)
 
 # ---------------------------------------------------------------------------
 # Webhook — agent entry point (charter T6), NOT a mock system

@@ -17,6 +17,19 @@ from typing import Any
 import yaml
 
 CONFIG_DIR = Path(__file__).resolve().parent
+LLM_CONFIG_PATH = CONFIG_DIR / "llm.yaml"
+
+
+def _load_global_llm_config() -> dict[str, Any]:
+    """Load global LLM config from llm.yaml.
+
+    Returns empty dict if file not found (caller applies defaults).
+    """
+    if not LLM_CONFIG_PATH.exists():
+        return {}
+    with open(LLM_CONFIG_PATH) as f:
+        data = yaml.safe_load(f) or {}
+    return dict(data)
 
 
 @dataclass
@@ -248,7 +261,12 @@ def load_problem_config(problem_id: str) -> ProblemConfig:
             agent_response=ec.get("agent_response", ""),
         ))
 
-    llm = dict(data.get("llm", {}) or {})
+    # --- llm: merge global llm.yaml with per-problem override ---
+    llm = _load_global_llm_config()
+    problem_llm = dict(data.get("llm", {}) or {})
+    if problem_llm:
+        # Per-problem override (opt-in: only if problem YAML defines llm:)
+        llm.update(problem_llm)
 
     return ProblemConfig(
         problem=problem,

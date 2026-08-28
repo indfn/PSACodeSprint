@@ -1,0 +1,17 @@
+# Global LLM Provider Configuration — PSA Nexus
+#
+# Single source of truth for provider, model, API keys, base_url.
+# Per-problem YAMLs inherit this unless they define their own llm: block.
+#
+# Admin API: GET /api/admin/config (read), POST /api/admin/config (write)
+# API keys: POST /api/admin/api-key (write-only, never echoed back)
+
+provider: anthropic
+model: claude-sonnet-4-20250514
+api_key_env: ANTHROPIC_API_KEY
+base_url: ""
+
+fallback_provider: openai
+fallback_model: gpt-4o
+fallback_api_key_env: OPENAI_API_KEY
+fallback_base_url: ""
