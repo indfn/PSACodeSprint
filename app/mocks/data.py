@@ -100,9 +100,12 @@ def generate_containers() -> list[dict]:
 
 
 _stale_minutes: int = 0
+# Per-run overrides for concurrency isolation (Plan §6.12)
+_overrides: dict[str, dict] = {}
+_stale_overrides: dict[str, int] = {}
 
 
-def get_container_data(vessel_id: str = "MV PACIFIC STAR") -> dict:
+def get_container_data(vessel_id: str = "MV PACIFIC STAR", run_id: str = "") -> dict:
     """CITOS PPT container readiness — Tool 1 response."""
     containers = generate_containers()
     fortyft = [c for c in containers if c["size"] == "40ft"]
@@ -134,11 +137,13 @@ def get_container_data(vessel_id: str = "MV PACIFIC STAR") -> dict:
         "reefer_containers": 0,
     }
 
-    if _stale_minutes > 0:
-        result["data_timestamp"] = (datetime.now() - timedelta(minutes=_stale_minutes)).isoformat()
-        result["data_age_minutes"] = float(_stale_minutes)
+    # Per-run stale override takes precedence over global
+    effective_stale = _stale_overrides.get(run_id, _stale_minutes) if run_id else _stale_minutes
+    if effective_stale > 0:
+        result["data_timestamp"] = (datetime.now() - timedelta(minutes=effective_stale)).isoformat()
+        result["data_age_minutes"] = float(effective_stale)
         result["edge_case"] = "data_staleness"
-        result["edge_case_note"] = f"PPT CITOS data is {_stale_minutes} min old — containers may not be ready."
+        result["edge_case_note"] = f"PPT CITOS data is {effective_stale} min old — containers may not be ready."
     else:
         result["data_timestamp"] = datetime.now().isoformat()
         result["data_age_minutes"] = 0.5
@@ -209,8 +214,21 @@ FEEDER_DATA = {
 _FEEDER_DATA_ORIGINAL: dict = copy.deepcopy(FEEDER_DATA)
 
 
-def get_feeder_data(feeder_id: str = "FEEDER ATLANTIC-03") -> dict:
-    """PORTNET sea ITT capacity — Tool 3 response."""
+def get_feeder_data(feeder_id: str = "FEEDER ATLANTIC-03", run_id: str = "") -> dict:
+    """PORTNET sea ITT capacity — Tool 3 response (per-run override isolated)."""
+    # Check per-run override first
+    if run_id and run_id in _overrides:
+        ov = _overrides[run_id]
+        # ov is dict of feeder overrides merged onto FEEDER_DATA
+        effective = {**FEEDER_DATA, **ov}
+        # Ensure feeder_id is requested one
+        effective["feeder_id"] = feeder_id
+        # Update available_capacity if capacity fields overridden
+        try:
+            effective["available_capacity_teu"] = effective["capacity_teu"] - effective["current_occupancy_teu"]
+        except Exception:
+            pass
+        return {"status": "success", **effective}
     return {
         "status": "success",
         **FEEDER_DATA,

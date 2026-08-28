@@ -324,7 +324,7 @@ async def inject_edge_case(payload: dict):
     try:
         from app.tools.edge_cases import inject_feeder_berth_conflict, inject_stale_data
         if case in ("feeder_berth_conflict", "berth_conflict", "feeder_conflict", "ec_1"):
-            data = inject_feeder_berth_conflict(feeder_id=feeder_id, new_departure=payload.get("new_departure", "2026-08-19T16:00:00+08:00"))
+            data = inject_feeder_berth_conflict(feeder_id=feeder_id, new_departure=payload.get("new_departure", "2026-08-19T16:00:00+08:00"), run_id=run_id)
             # Also mark in runs context if run_id provided
             if run_id and run_id in runs:
                 ctx = runs[run_id].setdefault("state", {}).setdefault("context", {})
@@ -332,7 +332,7 @@ async def inject_edge_case(payload: dict):
             return {"status": "injected", "case": "feeder_berth_conflict", "data": data, "run_id": run_id, "hint": "Inject AFTER dispatch, BEFORE monitor check"}
         elif case in ("stale_data", "data_staleness", "stale", "ec_2", "data_stale"):
             minutes = int(payload.get("minutes", payload.get("stale_minutes", 25)))
-            data = inject_stale_data(time_offset_minutes=minutes)
+            data = inject_stale_data(time_offset_minutes=minutes, run_id=run_id)
             if run_id and run_id in runs:
                 ctx = runs[run_id].setdefault("state", {}).setdefault("context", {})
                 ctx["stale_minutes"] = minutes

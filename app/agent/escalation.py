@@ -73,11 +73,16 @@ def check_data_stale(state: dict[str, Any], threshold_minutes: float = 30) -> bo
         except Exception:
             pass
 
-    # Check global mock stale
+    # Check global mock stale and per-run stale overrides
     try:
         from app.mocks import data as mock_data
         if int(getattr(mock_data, "_stale_minutes", 0)) > threshold_minutes:
             return True
+        # Per-run stale isolation
+        overrides = getattr(mock_data, "_stale_overrides", {}) or {}
+        for v in overrides.values():
+            if int(v) > threshold_minutes:
+                return True
     except Exception:
         pass
 

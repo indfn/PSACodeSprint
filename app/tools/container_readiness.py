@@ -17,7 +17,8 @@ class ContainerReadinessTool(BaseTool):
     timeout_seconds = 10
 
     async def execute(self, vessel_id: str = "MV PACIFIC STAR", **kwargs) -> ToolResult:
-        data = get_container_data(vessel_id)
+        run_id = kwargs.get("_run_id", "") or kwargs.get("run_id", "")
+        data = get_container_data(vessel_id, run_id=run_id)
         confidence = 0.95
         if isinstance(data, dict) and "data_age_minutes" in data:
             age = data["data_age_minutes"]

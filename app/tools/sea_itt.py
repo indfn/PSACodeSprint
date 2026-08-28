@@ -25,7 +25,8 @@ class SeaITTCapacityTool(BaseTool):
     timeout_seconds = 10
 
     async def execute(self, feeder_id: str, current_time: str, **kwargs) -> ToolResult:
-        data = get_feeder_data(feeder_id=feeder_id)
+        run_id = kwargs.get("_run_id", "") or kwargs.get("run_id", "")
+        data = get_feeder_data(feeder_id=feeder_id, run_id=run_id)
         if not isinstance(data, dict) or data.get("status") != "success":
             return ToolResult(output={"status": "error", "error": f"Feeder '{feeder_id}' not found"}, confidence=0.0, metadata={})
 
