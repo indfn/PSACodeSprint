@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-08-27)
 
 **Core Value:** Build PSA Nexus — a generalizable agentic platform (Cluster C2, 7 problems) demonstrated via PB-12 (ITT Coordination, $8K/incident) and proven switchable to a sibling problem (e.g. PB-01 Berth Delay) on the same LangGraph core.
-**Current focus:** Phase 07.1 — Integrated Verification (next) | Phase 7 complete, awaiting code review
+**Current focus:** Phase 7 — Web UI — Nexus Dashboard (next to execute)
 
 ## Current Position
 
-Phase: 07.1 of 10 (Integrated Verification — next to execute)
+Phase: 7 of 10 (Web UI — next to execute)
 Plans: 11 detailed plans created (Phases 1–3 research + Phases 4–8 build + 6.5 wiring + 6.7 admin API + 07.1 Integrated Verification, 68 sub-phases)
-Status: Phases 1–7 complete (Phase 7 executed 2026-08-28 — Nexus dashboard: OLED bento, SSE replay, 5 HITL gates, edge injection, demo runner, trace, switcher, notifications, admin page; 183 tests pass). Phases 07.1–8 planned.
-Last activity: 2026-08-28 — Phase 7 complete: 9/9 sub-phases (HTML/CSS/JS + HITL spotlight + edge/arm + demo replay + trace + switcher + notifications + admin), mount fix, 183 tests pass
+Status: Phases 1–6.7 complete (Phase 6.7 executed 2026-08-28 — global llm.yaml, removed llm: from 7 YAMLs, admin auth + config API + API key injection). Phases 7–8 (+07.1 gate) planned.
+Last activity: 2026-08-28 — Phase 6.7 complete: global LLM config, admin module (auth + config endpoints + API key injection), 172 tests pass
 
-Progress: █████████░ 81% (9/11 phases complete, 2 planned)
+Progress: ████████░░ 72% (8/11 phases complete, 3 planned)
 
 ## What's Built
 
@@ -53,7 +53,7 @@ Progress: █████████░ 81% (9/11 phases complete, 2 planned)
 | Admin API | ✅ Done | `app/admin/` auth (admin/admin123, HMAC cookie) + GET/POST /api/admin/config + POST /api/admin/api-key (write-only) — Phase 6.7 |
 | Escalation triggers | ✅ Done | `app/agent/escalation.py` 7 triggers `<0.85/>1.5h/>$10k/>30m/<60%/>15m/planner_conflict`, confidence 0.92→0.78→0.90 — Phase 6.6 |
 | Monitoring loop | ✅ Done | `app/agent/monitor.py` re-query T3 → detect berth conflict → re-compute 80/40→100/20 + HITL-5 emergency, `e2e` deviation PASSED 37s — Phase 6.10 |
-| Web UI / SSE | ✅ Done | `app/ui/` — index.html + style.css + app.js + admin.html/admin.js, SSE replay, 5 HITL spotlight, edge injection, demo runner, trace, switcher, notifications (Phase 7) |
+| Web UI / SSE | ❌ Not started | — Phase 7 (Nexus branding + SSE replay buffer + problem switcher) |
 | Docker / deploy | ❌ Not started | — Phase 8 (pinned deps + local docker-compose only, 8.3 Railway/Render DISABLED) |
 | Demo video / deck | ❌ Not started | — Phase 8 (Nexus deck per rubric, sibling switch demo) |
 
@@ -75,7 +75,7 @@ Progress: █████████░ 81% (9/11 phases complete, 2 planned)
 | 6. Agent Core — Nexus Brain | ✅ Complete (2026-08-28) | 12 — e2e 5 green (42s happy/37s deviation), truncation + HITL-5 pending fix |
 | 6.5. Integration Wiring & Cleanup | ✅ Complete (2026-08-28) | 6 — 14 gaps fixed, 24 new tests, 165 pass/3 skip, prototype deleted, tool_adapter relocated |
 | 6.7. Global LLM Config + Admin API | ✅ Complete (2026-08-28) | 5 — global llm.yaml, admin auth + config API, 172 tests pass |
-| 7. Web UI — Nexus Dashboard | ✅ Complete (2026-08-28) | 9 — OLED bento, SSE replay, HITL spotlight, edge/arm, demo replay, trace, switcher, notifications, admin page; 183 tests pass |
+| 7. Web UI — Nexus Dashboard | ○ Planned → depends on Phase 6.7 | 9 |
 | 07.1 Integrated Verification (INSERTED) | ○ Planned → depends on Phase 7 | 8 |
 | 8. Polish & Deploy — Nexus Launch | ○ Planned → depends on 07.1 | 7 (**8.3 DISABLED local-only demo**) |
 
@@ -159,7 +159,7 @@ Deep sweep flagged 5 HIGH + several MEDIUM gaps previously missed (review was ch
 
 - ~~Execute Phase 6: Agent Core — Nexus Brain (12 sub-phases) — DONE 2026-08-28~~
 - ~~Execute Phase 6.7: Global LLM Config + Admin API (5 sub-phases) — DONE 2026-08-28~~
-- ~~Execute Phase 7: Web UI — Nexus Dashboard (9 sub-phases) — DONE 2026-08-28 (183 tests, 9/9 sub-phases, awaiting code review)~~
+- Execute Phase 7: Web UI — Nexus Dashboard (9 sub-phases) — next
 - Execute Phase 07.1: Integrated Verification — gate before deploy (8 sub-phases)
 - Execute Phase 8: Polish & Deploy — Nexus Launch (7 sub-phases, depends on 07.1)
 
