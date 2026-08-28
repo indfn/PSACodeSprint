@@ -28,8 +28,10 @@ class BaseTool(ABC):
 
     async def call(self, **kwargs) -> ToolResult:
         t0 = time.monotonic()
-        run_id = kwargs.pop("_run_id", "")
-        hitl_approved = kwargs.pop("_hitl_approved", None)
+        run_id = kwargs.get("_run_id", "") or kwargs.get("run_id", "")
+        hitl_approved = kwargs.get("_hitl_approved", None)
+        _run_id_val = kwargs.pop("_run_id", run_id)
+        _hitl_val = kwargs.pop("_hitl_approved", hitl_approved)
 
         required = self.parameters_schema.get("required", []) if isinstance(self.parameters_schema, dict) else []
         properties = self.parameters_schema.get("properties", {}) if isinstance(self.parameters_schema, dict) else {}
@@ -92,6 +94,10 @@ class BaseTool(ABC):
                         metadata={"tool_name": self.name, "timestamp": datetime.now(timezone.utc).isoformat(), "duration_ms": duration_ms, "run_id": run_id, "error": f"type_mismatch:{key}"},
                     )
 
+        # forward per-run context to execute for isolation
+        kwargs["_run_id"] = _run_id_val
+        if _hitl_val is not None:
+            kwargs["_hitl_approved"] = _hitl_val
         try:
             result: ToolResult = await asyncio.wait_for(
                 self.execute(**kwargs), timeout=self.timeout_seconds
