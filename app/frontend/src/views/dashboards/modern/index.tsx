@@ -41,7 +41,7 @@ const SCENARIOS = [
 
 export default function NexusDashboard() {
   const [activeProblem, setActiveProblem] = useState(PROBLEMS[0].id);
-  const [scenario, setScenario] = useState('nominal');
+  const [scenario, setScenario] = useState(SCENARIOS[0].id);
   const [runId, setRunId] = useState<string | null>(null);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [hitlGate, setHitlGate] = useState<HitlGateInfo | null>(null);
@@ -217,7 +217,9 @@ export default function NexusDashboard() {
           <h1 className="text-lg font-bold tracking-tight">Nexus Dashboard</h1>
           <Select value={activeProblem} onValueChange={(v) => v && setActiveProblem(v)}>
             <SelectTrigger className="h-8 w-[180px]">
-              <SelectValue />
+              <SelectValue placeholder="Select problem">
+                {PROBLEMS.find((p) => p.id === activeProblem)?.name}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {PROBLEMS.map((p) => (
@@ -251,7 +253,9 @@ export default function NexusDashboard() {
         </Button>
         <Select value={scenario} onValueChange={(v) => v && setScenario(v)}>
           <SelectTrigger className="h-8 w-[130px]">
-            <SelectValue />
+            <SelectValue placeholder="Scenario">
+              {SCENARIOS.find((s) => s.id === scenario)?.name}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {SCENARIOS.map((s) => (
