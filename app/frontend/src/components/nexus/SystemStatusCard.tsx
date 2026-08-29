@@ -24,19 +24,20 @@ export default function SystemStatusCard({ name, metric, value, max, status, det
   const pct = max > 0 ? (value / max) * 100 : 0;
   return (
     <Card size="sm">
-      <CardHeader className="pb-1">
+      <CardHeader className="pb-1 pt-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <CardTitle className="text-xs font-medium">{name}</CardTitle>
+            <span className="text-[10px] text-muted-foreground">·</span>
+            <span className="text-[10px] text-muted-foreground">{metric}</span>
             {tooltip && <TooltipProvider><Tooltip><TooltipTrigger><HelpCircle size={10} className="text-muted-foreground"/></TooltipTrigger><TooltipContent className="max-w-[240px] text-xs">{tooltip}</TooltipContent></Tooltip></TooltipProvider>}
           </div>
           <span className={`h-2.5 w-2.5 rounded-full ${statusColors[status]}`} title={statusLabel[status]}/>
         </div>
       </CardHeader>
-      <CardContent>
-        <p className="text-xs text-muted-foreground mb-1">{metric}</p>
-        {detail && <p className="text-xs text-muted-foreground mb-2">{detail}</p>}
-        <Progress value={pct} className="h-1.5" />
+      <CardContent className="pt-0">
+        {detail && <p className="text-[10px] text-muted-foreground mb-1">{detail}</p>}
+        <Progress value={pct} className="h-1" />
       </CardContent>
     </Card>
   );
