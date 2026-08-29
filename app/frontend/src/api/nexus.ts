@@ -280,6 +280,18 @@ export async function completeProblem(problemId: string) {
   );
 }
 
+export interface ActiveRun {
+  run_id: string | null;
+  problem_id: string | null;
+  status: 'idle' | 'running' | 'waiting_hitl' | 'completed';
+  hitl_card: Record<string, unknown> | null;
+  scenario: string | null;
+}
+
+export async function getActiveRun() {
+  return apiFetch<ActiveRun>('/agent/active-run');
+}
+
 // ---- Admin ----
 
 export interface AdminConfig {

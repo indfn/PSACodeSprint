@@ -811,6 +811,45 @@ async def complete_problem(problem_id: str):
     return {"status": "completed", "problem_id": stem}
 
 
+@app.get("/agent/active-run", tags=["Agent"])
+async def get_active_run():
+    """Return the current active run across all instances.
+
+    All browsers poll this to get the same run_id, problem_id, and status.
+    Source of truth is the backend runs dict, not sessionStorage.
+    """
+    # Find the most recent run that is still active (waiting_hitl or running)
+    active = None
+    for run_id, entry in reversed(list(runs.items())):
+        status = entry.get("status", "")
+        if status in ("waiting_hitl", "running"):
+            active = {
+                "run_id": run_id,
+                "problem_id": entry.get("problem_id", ""),
+                "status": status,
+                "hitl_card": entry.get("hitl_card"),
+                "scenario": entry.get("scenario"),
+            }
+            break
+
+    if active:
+        return active
+
+    # Check if there's a recently completed run (for the 5s transition window)
+    for run_id, entry in reversed(list(runs.items())):
+        status = entry.get("status", "")
+        if status in ("completed",):
+            return {
+                "run_id": None,
+                "problem_id": entry.get("problem_id", ""),
+                "status": "completed",
+                "hitl_card": None,
+                "scenario": entry.get("scenario"),
+            }
+
+    return {"run_id": None, "problem_id": None, "status": "idle", "hitl_card": None, "scenario": None}
+
+
 # ---------------------------------------------------------------------------
 # UI static mount — React SPA served from app/frontend/dist
 # ---------------------------------------------------------------------------

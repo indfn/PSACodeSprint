@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -8,13 +8,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { RotateCcw, Zap } from 'lucide-react';
+import { RotateCcw, Zap, Radio } from 'lucide-react';
 import SystemStatusCard from '@/components/nexus/SystemStatusCard';
 import AgentOutput, { AgentEvent } from '@/components/nexus/AgentOutput';
 import HitlCard, { HitlGateInfo } from '@/components/nexus/HitlCard';
 import CostBreakdown from '@/components/nexus/CostBreakdown';
 import WorkflowProgress from '@/components/nexus/WorkflowProgress';
-import WaitingStage from '@/components/nexus/WaitingStage';
+import ProblemBar from '@/components/nexus/ProblemBar';
 import { useSSE, SSEEvent } from '@/hooks/use-sse';
 import {
   getContainerData,
@@ -25,6 +25,7 @@ import {
   injectEdgeCase,
   initializeSession,
   getScenarios,
+  getActiveRun,
   completeProblem,
   type ContainerData,
   type TruckData,
@@ -45,15 +46,10 @@ const PROBLEM_NAMES: Record<string, string> = {
 };
 
 export default function NexusDashboard() {
-  // View state: 'waiting' = problem registry, 'dashboard' = active workflow
-  const [view, setView] = useState<'waiting' | 'dashboard'>(() => {
-    // If there's an active run in sessionStorage, go straight to dashboard
-    return sessionStorage.getItem('nexus_run_id') ? 'dashboard' : 'waiting';
-  });
   const [activeProblem, setActiveProblem] = useState('pb-12-itt');
   const [scenarios, setScenarios] = useState(FALLBACK_SCENARIOS);
   const [scenario, setScenario] = useState(FALLBACK_SCENARIOS[0].id);
-  const [runId, setRunId] = useState<string | null>(() => sessionStorage.getItem('nexus_run_id'));
+  const [runId, setRunId] = useState<string | null>(null);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [hitlGate, setHitlGate] = useState<HitlGateInfo | null>(null);
 
@@ -72,20 +68,65 @@ export default function NexusDashboard() {
 
   const [confidence, setConfidence] = useState<number | null>(null);
   const [riskScore, setRiskScore] = useState<number | null>(null);
-
   const [edgeLoading, setEdgeLoading] = useState<string | null>(null);
 
-  // Timer for auto-transition back to waiting after run_complete
-  const completeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Persist runId across page navigation
-  useEffect(() => {
-    if (runId) {
-      sessionStorage.setItem('nexus_run_id', runId);
-    } else {
-      sessionStorage.removeItem('nexus_run_id');
+  // Poll active-run to sync across all instances
+  const pollActiveRun = useCallback(async () => {
+    try {
+      const active = await getActiveRun();
+      if (active.run_id && active.status !== 'completed') {
+        // There's an active run — connect to it
+        if (runId !== active.run_id) {
+          setRunId(active.run_id);
+          if (active.problem_id) setActiveProblem(active.problem_id);
+          setEvents([]);
+          setHitlGate(null);
+          // Load fresh data for this problem
+          resetMocks().catch(() => {});
+          initializeSession()
+            .then((init) => {
+              sessionStorage.setItem('nexus_init_data', JSON.stringify(init));
+              setContainers(init.containers);
+              setTrucks(init.trucks);
+              setFeeder(init.feeder);
+              setQc(init.qc);
+            })
+            .catch(() => {});
+        }
+        // If there's a hitl_card from the registry, use it
+        if (active.hitl_card) {
+          const gateId = (active.hitl_card.gate_id as string) || (active.hitl_card.gateId as string) || '';
+          const gateName = (active.hitl_card.gate_name as string) || (active.hitl_card.gateName as string) || 'Approval Required';
+          const cardData = (active.hitl_card.approval_card as Record<string, unknown>) || active.hitl_card;
+          setHitlGate({ gate_id: gateId, gate_name: gateName, data: cardData as Record<string, unknown> });
+        }
+      } else if (active.status === 'completed' && runId) {
+        // Run just completed — clear after brief delay
+        setTimeout(() => {
+          setRunId(null);
+          setEvents([]);
+          setHitlGate(null);
+          setConfidence(null);
+          setRiskScore(null);
+        }, 5000);
+      } else if (active.status === 'idle' && runId) {
+        // No active run and we had one — clear
+        setRunId(null);
+        setEvents([]);
+        setHitlGate(null);
+        setConfidence(null);
+        setRiskScore(null);
+      }
+    } catch {
+      // Registry not available, ignore
     }
   }, [runId]);
+
+  useEffect(() => {
+    pollActiveRun();
+    const interval = setInterval(pollActiveRun, 3000);
+    return () => clearInterval(interval);
+  }, [pollActiveRun]);
 
   // Load scenarios for active problem
   useEffect(() => {
@@ -97,9 +138,8 @@ export default function NexusDashboard() {
     }).catch(() => {});
   }, [activeProblem]);
 
-  // Load initial data — cached in sessionStorage to survive page navigation
+  // Load initial data
   useEffect(() => {
-    if (view !== 'dashboard') return;
     const cached = sessionStorage.getItem('nexus_init_data');
     if (cached) {
       try {
@@ -110,7 +150,7 @@ export default function NexusDashboard() {
         setFeeder(init.feeder);
         setQc(init.qc);
         return;
-      } catch { /* ignore bad cache, fetch fresh */ }
+      } catch { /* ignore */ }
     }
     initializeSession()
       .then((init) => {
@@ -127,7 +167,7 @@ export default function NexusDashboard() {
         getFeederData().then(setFeeder).catch(() => {});
         getQcData().then(setQc).catch(() => {});
       });
-  }, [view]);
+  }, []);
 
   const applyCostFromPayload = useCallback((payload: Record<string, unknown>) => {
     try {
@@ -257,20 +297,9 @@ export default function NexusDashboard() {
 
         case 'run_complete':
           setEvents((prev) => [...prev, { timestamp: ts, message: 'Run complete.' }]);
-          // Mark problem as completed on backend, then auto-transition to waiting after 5s
           if (activeProblem) {
             completeProblem(activeProblem).catch(() => {});
           }
-          if (completeTimerRef.current) clearTimeout(completeTimerRef.current);
-          completeTimerRef.current = setTimeout(() => {
-            setView('waiting');
-            setRunId(null);
-            setEvents([]);
-            setHitlGate(null);
-            setConfidence(null);
-            setRiskScore(null);
-            sessionStorage.removeItem('nexus_run_id');
-          }, 5000);
           break;
 
         case 'system_status':
@@ -295,7 +324,7 @@ export default function NexusDashboard() {
 
   useSSE(runId, handleSSEEvent);
 
-  // Called by WaitingStage when user clicks "Simulate Webhook"
+  // Called by ProblemBar when user clicks Start
   const handleRunStarted = useCallback((newRunId: string, problemId: string) => {
     setRunId(newRunId);
     setActiveProblem(problemId);
@@ -303,10 +332,7 @@ export default function NexusDashboard() {
     setHitlGate(null);
     setConfidence(null);
     setRiskScore(null);
-    setView('dashboard');
-    // Reset mocks for this problem
     resetMocks().catch(() => {});
-    // Load fresh data
     initializeSession()
       .then((init) => {
         sessionStorage.setItem('nexus_init_data', JSON.stringify(init));
@@ -321,13 +347,11 @@ export default function NexusDashboard() {
   async function handleReset() {
     await resetMocks();
     sessionStorage.removeItem('nexus_init_data');
-    sessionStorage.removeItem('nexus_run_id');
     setRunId(null);
     setEvents([]);
     setHitlGate(null);
     setConfidence(null);
     setRiskScore(null);
-    setView('waiting');
   }
 
   async function handleEdgeCase(caseType: string) {
@@ -349,12 +373,7 @@ export default function NexusDashboard() {
     }
   }
 
-  // ---- WAITING VIEW ----
-  if (view === 'waiting') {
-    return <WaitingStage onRunStarted={handleRunStarted} />;
-  }
-
-  // ---- DASHBOARD VIEW ----
+  const isIdle = !runId;
   const containerStatus =
     !containers ? 'amber' :
     containers.total_containers > 0
@@ -369,7 +388,10 @@ export default function NexusDashboard() {
     feeder.berth_status === 'conflict' ? 'red' : 'amber';
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
+      {/* ProblemBar — always visible at top */}
+      <ProblemBar onRunStarted={handleRunStarted} activeRunProblemId={runId ? activeProblem : null} />
+
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -408,7 +430,7 @@ export default function NexusDashboard() {
         <Button
           size="sm"
           variant="outline"
-          disabled={!!edgeLoading}
+          disabled={!!edgeLoading || isIdle}
           onClick={() => handleEdgeCase('berth_conflict')}
           className="gap-1.5"
         >
@@ -418,7 +440,7 @@ export default function NexusDashboard() {
         <div className="h-4 w-px bg-border" />
         <Button size="sm" variant="ghost" onClick={handleReset} className="gap-1.5">
           <RotateCcw size={14} />
-          Back to Registry
+          Reset
         </Button>
         {runId && (
           <Badge variant="secondary" className="text-[10px]">
@@ -429,26 +451,45 @@ export default function NexusDashboard() {
 
       <WorkflowProgress hitlGateId={hitlGate?.gate_id || null} events={events} status={events.some(e=>e.message.includes('Run complete'))?'completed': hitlGate?'running' : events.length?'running':'idle'} />
 
-      {/* Main content */}
+      {/* Main content — always renders the same layout */}
       <div className="grid grid-cols-12 gap-4">
         {/* Left column: HITL + Agent output */}
         <div className="col-span-12 lg:col-span-8 space-y-4">
-          <HitlCard
-            gate={hitlGate}
-            runId={runId || ''}
-            onResponded={() => setHitlGate(null)}
-            onNextGate={(next) => {
-              if (next) {
-                setHitlGate(next);
-                if (typeof (next.data as Record<string, unknown>).confidence === 'number') setConfidence((next.data as Record<string, unknown>).confidence as number);
-                if (typeof (next.data as Record<string, unknown>).risk_score === 'number') setRiskScore((next.data as Record<string, unknown>).risk_score as number);
-                applyCostFromPayload(next.data);
-              } else {
-                setHitlGate(null);
-                setEvents((prev) => [...prev, { timestamp: new Date().toISOString(), message: 'HITL approved — proceeding' }]);
-              }
-            }}
-          />
+          {isIdle ? (
+            /* Idle state: "Waiting for event" placeholder */
+            <div className="rounded-xl border bg-card px-4 py-8 flex flex-col items-center justify-center text-center space-y-3 min-h-[180px]">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Radio size={16} className="animate-pulse" />
+                <span className="text-sm font-medium">Waiting for event</span>
+              </div>
+              <p className="text-xs text-muted-foreground max-w-[280px]">
+                Select a problem from the bar above and click <span className="font-medium">Start</span> to simulate a webhook event.
+              </p>
+              <div className="flex items-center gap-4 text-[10px] text-muted-foreground pt-2">
+                <span>All instances share this state</span>
+                <span>·</span>
+                <span>One active run at a time</span>
+              </div>
+            </div>
+          ) : (
+            /* Running state: live HITL card */
+            <HitlCard
+              gate={hitlGate}
+              runId={runId || ''}
+              onResponded={() => setHitlGate(null)}
+              onNextGate={(next) => {
+                if (next) {
+                  setHitlGate(next);
+                  if (typeof (next.data as Record<string, unknown>).confidence === 'number') setConfidence((next.data as Record<string, unknown>).confidence as number);
+                  if (typeof (next.data as Record<string, unknown>).risk_score === 'number') setRiskScore((next.data as Record<string, unknown>).risk_score as number);
+                  applyCostFromPayload(next.data);
+                } else {
+                  setHitlGate(null);
+                  setEvents((prev) => [...prev, { timestamp: new Date().toISOString(), message: 'HITL approved — proceeding' }]);
+                }
+              }}
+            />
+          )}
 
           <AgentOutput events={events} />
         </div>
