@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { getAgentTrace, type AgentTraceStep } from '@/api/nexus';
 import { ChevronRight, ChevronDown } from 'lucide-react';
@@ -41,6 +42,7 @@ export default function AgentTrace() {
   const runId = searchParams.get('run_id') || sessionStorage.getItem('nexus_run_id');
   const [steps, setSteps] = useState<AgentTraceStep[]>([]);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [newestFirst, setNewestFirst] = useState(true);
 
   useEffect(() => {
     if (runId) {
@@ -56,10 +58,10 @@ export default function AgentTrace() {
         ...prev,
         {
           step: prev.length + 1,
-          action: (event.data.action as string) || 'Unknown action',
+          action: (event.data.action as string) || `${(event.data.node as string)||''}:${(event.data.action as string)||''}`,
           timestamp: event.timestamp,
-          detail: event.data.detail as string | undefined,
-          type: (event.data.type as AgentTraceStep['type']) || 'info',
+          detail: JSON.stringify(event.data.result || event.data, null, 2).slice(0,1200),
+          type: (event.data.type as AgentTraceStep['type']) || (event.data.node === 'tool' ? 'tool' : event.data.node === 'hitl' ? 'hitl' : event.data.node === 'escalation' ? 'escalation' : 'info'),
         },
       ]);
     }
@@ -112,14 +114,16 @@ export default function AgentTrace() {
       {steps.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">
-              Trace ({steps.length} steps)
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">Trace ({steps.length} steps)</CardTitle>
+              <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={()=>setNewestFirst(v=>!v)}>{newestFirst ? 'Newest first ↓' : 'Oldest first ↑'}</Button>
+            </div>
+            <p className="text-xs text-muted-foreground">Full tool JSON — Agent Output is the human summary.</p>
           </CardHeader>
           <CardContent>
             <ScrollArea className="h-[calc(100vh-200px)]">
               <div className="space-y-2">
-                {steps.map((step) => (
+                {(newestFirst ? [...steps].reverse() : steps).map((step) => (
                   <div
                     key={step.step}
                     className={`border-l-2 ${typeColors[step.type] || typeColors.info} pl-3`}

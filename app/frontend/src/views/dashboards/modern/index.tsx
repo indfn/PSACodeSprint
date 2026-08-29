@@ -13,6 +13,7 @@ import SystemStatusCard from '@/components/nexus/SystemStatusCard';
 import AgentOutput, { AgentEvent } from '@/components/nexus/AgentOutput';
 import HitlCard, { HitlGateInfo } from '@/components/nexus/HitlCard';
 import CostBreakdown from '@/components/nexus/CostBreakdown';
+import WorkflowProgress from '@/components/nexus/WorkflowProgress';
 import { useSSE, SSEEvent } from '@/hooks/use-sse';
 import {
   startDemo,
@@ -446,6 +447,8 @@ export default function NexusDashboard() {
         )}
       </div>
 
+      <WorkflowProgress hitlGateId={hitlGate?.gate_id || null} events={events} status={events.some(e=>e.message.includes('Run complete'))?'completed': hitlGate?'running' : events.length?'running':'idle'} />
+
       {/* Main content */}
       <div className="grid grid-cols-12 gap-4">
         {/* Left column: HITL + Agent output */}
@@ -482,10 +485,12 @@ export default function NexusDashboard() {
 
           <SystemStatusCard
             name="CITOS PPT"
-            metric={`${containers?.total_containers ?? 0} containers`}
+            metric={`${containers?.total_containers ?? 0} containers • ${containers?.blocks_affected?.join(', ') || '4 blocks'}`}
             value={containers?.total_containers ?? 0}
-            max={120}
+            max={140}
             status={containerStatus}
+            detail={containers ? `${containers.dg_containers} DG • ${containers.data_age_minutes < 10 ? `${containers.data_age_minutes.toFixed(1)}m fresh` : `${containers.data_age_minutes.toFixed(0)}m stale — risk!`} • MV PACIFIC STAR` : undefined}
+            tooltip="Green <10m fresh, amber stale. DG = dangerous goods. Data from CITOS PPT."
           />
           <SystemStatusCard
             name="OptETruck"
@@ -493,6 +498,8 @@ export default function NexusDashboard() {
             value={trucks?.available_trucks ?? 0}
             max={trucks?.total_fleet ?? 1}
             status={truckStatus}
+            detail={trucks ? `${trucks.transit_time_minutes} min PPT→Tuas • $150/trip • ${trucks.road_conditions?.AYE || 'normal'}` : undefined}
+            tooltip="LTA: 1×40ft or 2×20ft per truck. Capacity vs 80 trips all-road baseline."
           />
           <SystemStatusCard
             name="Feeder"
@@ -500,6 +507,8 @@ export default function NexusDashboard() {
             value={feeder?.current_occupancy_teu ?? 0}
             max={feeder?.capacity_teu ?? 1}
             status={feederStatus}
+            detail={feeder ? `${feeder.berth_status} • ${feeder.departure_window?.earliest?.slice(11,16)}–${feeder.departure_window?.latest?.slice(11,16)} • hold $${feeder.hold_cost_per_hour}/hr` : undefined}
+            tooltip="Berthed vs conflict (red). Late departure misses Port Klang tidal window → $5k missed connection."
           />
           <SystemStatusCard
             name="Tuas QC"
@@ -511,6 +520,8 @@ export default function NexusDashboard() {
               qc.qc_status.every((q) => q.status === 'available') ? 'green' :
               qc.qc_status.some((q) => q.status === 'available') ? 'amber' : 'red'
             }
+            detail={qc ? `Berth B-03 • FIFO loading • 30 min margin to departure` : undefined}
+            tooltip="40 QCs at Tuas mega port. Sequence updated per ITT ETAs (road 14:30, sea 16:30)."
           />
         </div>
       </div>
