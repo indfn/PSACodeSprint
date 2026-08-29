@@ -720,6 +720,132 @@ async def get_registry():
     return {"problems": registry, "active_problem": get_active_problem_id()}
 
 
+@app.post("/agent/create-event/{problem_id}", tags=["Agent"])
+async def create_event(problem_id: str):
+    """Simulate a webhook event for a specific problem.
+
+    Creates a realistic webhook request using randomized mock data.
+    Returns the event data for display in EventCard.
+    The operator then clicks Run to start the agent with this event.
+    """
+    import random
+    from datetime import datetime, timedelta, timezone
+    from app.agent.problem_switcher import switch_problem as _switch, _resolve_stem, CANONICAL_STEMS
+
+    stem = _resolve_stem(problem_id)
+    if stem not in CANONICAL_STEMS.values():
+        raise HTTPException(status_code=404, detail=f"Unknown problem: {problem_id}")
+
+    # Switch to this problem
+    try:
+        _switch(stem)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Cannot load problem {stem}: {exc}")
+
+    # Build realistic webhook event from mock data
+    _now = datetime.now(timezone.utc)
+    from app.mocks.data import get_container_data, get_truck_data
+    container_data = get_container_data()
+    truck_data = get_truck_data()
+
+    # Randomize vessel name and departure
+    vessels = ["MV PACIFIC STAR", "MV ATLANTIC DAWN", "MV SOUTHERN BREEZE", "MV NORTHERN LIGHT", "MV EASTERN WIND"]
+    vessel = random.choice(vessels)
+    departure_hours = random.uniform(8, 18)
+
+    # Randomize requesting officer
+    officers = ["PPT_Yard_Planner_Lim", "PPT_Ops_Chief_Tan", "PPT_Duty_Manager_Lee"]
+    officer = random.choice(officers)
+
+    event_data = {
+        "event_type": "ITT_COORDINATION_REQUEST",
+        "timestamp": (_now - timedelta(minutes=random.randint(1, 10))).isoformat(),
+        "source": "CITOS_PPT",
+        "priority": random.choice(["high", "high", "medium"]),
+        "origin_terminal": "PPT",
+        "destination_terminal": "TUAS",
+        "vessel_id": vessel,
+        "tuas_vessel_departure": (_now + timedelta(hours=departure_hours)).isoformat(),
+        "container_count": container_data["total_containers"],
+        "containers_ready": container_data["total_containers"],
+        "blocks_affected": container_data["blocks_affected"],
+        "dg_containers": container_data["dg_containers"],
+        "priority_containers": sum(1 for c in container_data["containers"] if c.get("priority") == "high"),
+        "requested_by": officer,
+        "notes": f"Webhook received — {container_data['total_containers']} containers PPT→Tuas, {vessel}",
+    }
+
+    return {"event": event_data, "problem_id": stem}
+
+
+@app.post("/agent/run-event", tags=["Agent"])
+async def run_event(payload: dict):
+    """Start the agent with a previously created event and selected scenario.
+
+    Accepts: { event: ITTCoordinationEvent, scenario: string, problem_id: string }
+    Sets the scenario distribution, then runs the agent.
+    """
+    from app.agent.problem_switcher import switch_problem as _switch, _resolve_stem
+
+    event_data = payload.get("event")
+    scenario_id = payload.get("scenario", "nominal")
+    problem_id = payload.get("problem_id", "")
+
+    if not event_data:
+        raise HTTPException(status_code=422, detail="Missing 'event' in payload")
+
+    stem = _resolve_stem(problem_id) if problem_id else None
+    if stem:
+        try:
+            _switch(stem)
+        except Exception:
+            pass
+
+    # Set scenario distribution for this run
+    from app.mocks.scenarios import set_scenario
+    from app.agent.problem_switcher import get_active_problem_id
+    pid = get_active_problem_id()
+    set_scenario(pid, scenario_id, seed=int(time.time_ns()))
+
+    try:
+        event = ITTCoordinationEvent(**event_data)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid event: {exc}")
+
+    # Mark running
+    if stem:
+        problem_statuses[stem] = "running"
+
+    try:
+        from app.agent.run import run_agent
+        result = await run_agent(event)
+        run_id = result.get("run_id")
+        runs[run_id] = {
+            "run_id": run_id,
+            "event": event.model_dump(),
+            "status": result.get("status", "waiting_hitl"),
+            "hitl_card": result.get("hitl_card"),
+            "hitl_pending": result.get("hitl_pending"),
+            "state": result.get("state", {}),
+            "trace": result.get("trace", {}),
+            "scenario": scenario_id,
+            "problem_id": pid,
+        }
+        if len(runs) > MAX_RUNS:
+            runs.popitem(last=False)
+
+        return {
+            "run_id": run_id,
+            "status": result.get("status"),
+            "hitl_card": result.get("hitl_card"),
+            "scenario": scenario_id,
+        }
+    except Exception as exc:
+        if stem:
+            problem_statuses[stem] = "idle"
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.post("/agent/simulate-webhook/{problem_id}", tags=["Agent"])
 async def simulate_webhook(problem_id: str):
     """Trigger a simulated webhook event for a specific problem.

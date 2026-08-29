@@ -273,6 +273,20 @@ export async function simulateWebhook(problemId: string) {
   );
 }
 
+export async function createEvent(problemId: string) {
+  return apiFetch<{ event: Record<string, unknown>; problem_id: string }>(
+    `/agent/create-event/${encodeURIComponent(problemId)}`,
+    { method: 'POST' }
+  );
+}
+
+export async function runEvent(event: Record<string, unknown>, scenario: string, problemId: string) {
+  return apiFetch<{ run_id: string; status?: string; hitl_card?: Record<string, unknown>; scenario: string }>(
+    '/agent/run-event',
+    { method: 'POST', body: JSON.stringify({ event, scenario, problem_id: problemId }) }
+  );
+}
+
 export async function completeProblem(problemId: string) {
   return apiFetch<{ status: string; problem_id: string }>(
     `/agent/complete-problem/${encodeURIComponent(problemId)}`,

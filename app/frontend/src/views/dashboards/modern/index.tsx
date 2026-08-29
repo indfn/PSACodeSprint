@@ -26,7 +26,8 @@ import {
   initializeSession,
   getScenarios,
   getActiveRun,
-  simulateWebhook,
+  createEvent,
+  switchProblem,
   completeProblem,
   type ContainerData,
   type TruckData,
@@ -336,32 +337,34 @@ export default function NexusDashboard() {
 
   async function handleSimulate() {
     setSimulating(true);
+    setWebhookEvent(null);
     try {
-      const res = await simulateWebhook(activeProblem);
-      if (res.run_id) {
-        setRunId(res.run_id);
-        setEvents([]);
-        setHitlGate(null);
-        setConfidence(null);
-        setRiskScore(null);
-        setWebhookEvent({ id: res.run_id, data: res.hitl_card || {} });
-        resetMocks().catch(() => {});
-        initializeSession()
-          .then((init) => {
-            sessionStorage.setItem('nexus_init_data', JSON.stringify(init));
-            setContainers(init.containers);
-            setTrucks(init.trucks);
-            setFeeder(init.feeder);
-            setQc(init.qc);
-          })
-          .catch(() => {});
-      }
+      const res = await createEvent(activeProblem);
+      setWebhookEvent({ id: `evt-${Date.now()}`, data: res.event });
     } catch (err) {
-      console.error('Simulate failed:', err);
+      console.error('Create event failed:', err);
     } finally {
       setSimulating(false);
     }
   }
+
+  const handleRunStarted = useCallback((newRunId: string) => {
+    setRunId(newRunId);
+    setEvents([]);
+    setHitlGate(null);
+    setConfidence(null);
+    setRiskScore(null);
+    resetMocks().catch(() => {});
+    initializeSession()
+      .then((init) => {
+        sessionStorage.setItem('nexus_init_data', JSON.stringify(init));
+        setContainers(init.containers);
+        setTrucks(init.trucks);
+        setFeeder(init.feeder);
+        setQc(init.qc);
+      })
+      .catch(() => {});
+  }, []);
 
   async function handleReset() {
     await resetMocks();
@@ -428,30 +431,21 @@ export default function NexusDashboard() {
 
       {/* Action bar */}
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={activeProblem} onValueChange={(v) => v && setActiveProblem(v)}>
+        <Select value={activeProblem} onValueChange={(v) => {
+          if (v && v !== activeProblem) {
+            setActiveProblem(v);
+            switchProblem(v).catch(() => {});
+          }
+        }}>
           <SelectTrigger className="h-8 w-[160px]">
-            <SelectValue placeholder="Problem">
-              {PROBLEMS.find((p) => p.id === activeProblem)?.name}
+            <SelectValue>
+              {PROBLEMS.find((p) => p.id === activeProblem)?.name || activeProblem}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {PROBLEMS.map((p) => (
               <SelectItem key={p.id} value={p.id}>
                 {p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={scenario} onValueChange={(v) => v && setScenario(v)}>
-          <SelectTrigger className="h-8 w-[130px]">
-            <SelectValue placeholder="Scenario">
-              {scenarios.find((s) => s.id === scenario)?.name}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {scenarios.map((s) => (
-              <SelectItem key={s.id} value={s.id}>
-                {s.name}
               </SelectItem>
             ))}
           </SelectContent>
@@ -463,8 +457,24 @@ export default function NexusDashboard() {
           className="gap-1.5"
         >
           <Play size={14} />
-          {simulating ? 'Starting...' : 'Simulate Webhook'}
+          {simulating ? 'Creating...' : 'Simulate Webhook'}
         </Button>
+        <div className="h-4 w-px bg-border" />
+        <span className="text-[10px] text-muted-foreground">Scenario for run:</span>
+        <Select value={scenario} onValueChange={(v) => v && setScenario(v)}>
+          <SelectTrigger className="h-8 w-[130px]">
+            <SelectValue>
+              {scenarios.find((s) => s.id === scenario)?.name || scenario}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {scenarios.map((s) => (
+              <SelectItem key={s.id} value={s.id}>
+                {s.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <div className="h-4 w-px bg-border" />
         <Button
           size="sm"
@@ -496,7 +506,12 @@ export default function NexusDashboard() {
         <div className="col-span-12 lg:col-span-8 space-y-4">
           {!runId ? (
             /* Idle: show EventCard */
-            <EventCard eventId={null} eventData={null} />
+            <EventCard
+              eventId={webhookEvent?.id || null}
+              eventData={webhookEvent?.data || null}
+              scenario={scenario}
+              onRunStarted={handleRunStarted}
+            />
           ) : hitlGate ? (
             /* HITL gate active: show approval card */
             <HitlCard
@@ -517,7 +532,12 @@ export default function NexusDashboard() {
             />
           ) : events.length === 0 ? (
             /* Just started, no events yet: show webhook event received */
-            <EventCard eventId={webhookEvent?.id || null} eventData={webhookEvent?.data || null} />
+            <EventCard
+              eventId={webhookEvent?.id || null}
+              eventData={webhookEvent?.data || null}
+              scenario={scenario}
+              onRunStarted={handleRunStarted}
+            />
           ) : (
             /* Running but no HITL gate: ingest/processing stage */
             <div className="rounded-xl border bg-card p-4 flex items-center gap-2 text-muted-foreground">
