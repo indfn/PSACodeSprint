@@ -6,6 +6,11 @@ import { getRunHistory, type RunRecord } from '@/api/nexus';
 import { useNavigate } from 'react-router';
 import { ChevronRight, ChevronDown } from 'lucide-react';
 
+const PROBLEM_NAMES: Record<string, string> = {
+  'pb-12-itt': 'ITT Coordination',
+  'pb-01-berth': 'Berth Reassignment',
+};
+
 const statusColors: Record<string, string> = {
   completed: 'bg-emerald-500/10 text-emerald-500',
   running: 'bg-blue-500/10 text-blue-500',
@@ -94,7 +99,7 @@ export default function History() {
                         <ChevronRight size={14} />
                       )}
                       <CardTitle className="text-sm font-medium">
-                        {run.problem_id}
+                        {PROBLEM_NAMES[run.problem_id] || run.problem_id}
                       </CardTitle>
                     </button>
                     <div className="flex items-center gap-2">
@@ -124,7 +129,7 @@ export default function History() {
                       {run.scenario && (
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Scenario</span>
-                          <span>{run.scenario}</span>
+                          <span>{PROBLEM_NAMES[run.problem_id] || run.problem_id} · {run.scenario}</span>
                         </div>
                       )}
                       {run.summary && (

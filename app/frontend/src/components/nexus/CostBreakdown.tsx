@@ -18,6 +18,22 @@ function parseAlt(alt: string): Alternative | null {
   return null;
 }
 
+function humanRisk(raw: string): string {
+  const map: Record<string, string> = {
+    'road_congestion_delay': 'Road congestion',
+    'road_congestion': 'Road congestion',
+    'moderate': 'Moderate',
+    'low': 'Low',
+    'high': 'High',
+    'berth_conflict': 'Berth conflict',
+    'feeder_delay': 'Feeder delay',
+    'low_risk': 'Low risk',
+    'medium_risk': 'Medium risk',
+    'high_risk': 'High risk',
+  };
+  return map[raw] || raw.split('_').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+}
+
 export default function CostBreakdown({ roadCost, seaHandling, total, baseline, alternatives }: CostBreakdownProps) {
   const savings = baseline - total;
   const pct = baseline ? (savings / baseline) * 100 : 0;
@@ -60,14 +76,13 @@ export default function CostBreakdown({ roadCost, seaHandling, total, baseline, 
         {parsedAlts.length > 0 && (
           <div className="space-y-1">
             <div className="rounded-md border overflow-hidden">
-              <div className="grid grid-cols-[1fr_1fr_1fr_80px] gap-px bg-border text-xs">
-                <div className="bg-muted p-1.5 font-medium">Road / Sea</div><div className="bg-muted p-1.5 font-medium">Cost</div><div className="bg-muted p-1.5 font-medium">Split</div><div className="bg-muted p-1.5 font-medium">Risk</div>
+              <div className="grid grid-cols-[1fr_1fr_80px] gap-px bg-border text-xs">
+                <div className="bg-muted p-1.5 font-medium">Road / Sea</div><div className="bg-muted p-1.5 font-medium">Cost</div><div className="bg-muted p-1.5 font-medium">Risk</div>
                 {parsedAlts.map((a,i)=> (
                   <>
                     <div key={`r${i}`} className="bg-card p-1.5">{a.road_containers} / {a.sea_containers}</div>
                     <div key={`c${i}`} className="bg-card p-1.5 font-medium">${a.total_transport_cost.toLocaleString()}</div>
-                    <div key={`s${i}`} className="bg-card p-1.5 truncate">{a.road_breakdown}</div>
-                    <div key={`k${i}`} className="bg-card p-1.5"><Badge variant={a.risk.includes('congest')?'secondary':'outline'} className="text-xs">{a.risk}</Badge></div>
+                    <div key={`k${i}`} className="bg-card p-1.5"><Badge variant={a.risk.includes('congest')?'secondary':'outline'} className="text-xs">{humanRisk(a.risk)}</Badge></div>
                   </>
                 ))}
               </div>

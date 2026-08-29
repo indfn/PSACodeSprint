@@ -5,6 +5,22 @@ import { hitlRespond } from '@/api/nexus';
 import { Badge } from '@/components/ui/badge';
 import { Clock, Shield, AlertTriangle, CheckCircle2, XCircle, Edit3 } from 'lucide-react';
 
+function humanRisk(raw: string): string {
+  const map: Record<string, string> = {
+    'road_congestion_delay': 'Road congestion',
+    'road_congestion': 'Road congestion',
+    'moderate': 'Moderate',
+    'low': 'Low',
+    'high': 'High',
+    'berth_conflict': 'Berth conflict',
+    'feeder_delay': 'Feeder delay',
+    'low_risk': 'Low risk',
+    'medium_risk': 'Medium risk',
+    'high_risk': 'High risk',
+  };
+  return map[raw] || raw.split('_').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+}
+
 export interface HitlGateInfo {
   gate_id: string;
   gate_name: string;
@@ -155,7 +171,7 @@ export default function HitlCard({ gate, runId, onResponded, onNextGate }: HitlC
                   <p className="font-medium">{String(a.road_containers)} road + {String(a.sea_containers)} sea • {fmtMoney(a.total_transport_cost as number)}</p>
                   <p className="text-muted-foreground">{String(a.road_breakdown)}</p>
                 </div>
-                <Badge variant={ String(a.risk).includes('congest') ? 'secondary' : 'outline'} className="text-xs">{String(a.risk)}</Badge>
+                <Badge variant={ String(a.risk).includes('congest') ? 'secondary' : 'outline'} className="text-xs">{humanRisk(String(a.risk))}</Badge>
               </div>
             ))}
           </div>

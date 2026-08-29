@@ -485,12 +485,12 @@ export default function NexusDashboard() {
 
           <SystemStatusCard
             name="CITOS PPT"
-            metric={`${containers?.total_containers ?? 0} containers • ${containers?.blocks_affected?.join(', ') || '4 blocks'}`}
+            metric={`${containers?.total_containers ?? 0} / 140 TEU yard`}
             value={containers?.total_containers ?? 0}
             max={140}
             status={containerStatus}
-            detail={containers ? `${containers.dg_containers} DG • ${containers.data_age_minutes < 10 ? `${containers.data_age_minutes.toFixed(1)}m fresh` : `${containers.data_age_minutes.toFixed(0)}m stale — risk!`} • MV PACIFIC STAR` : undefined}
-            tooltip="Green <10m fresh, amber stale. DG = dangerous goods. Data from CITOS PPT."
+            detail={containers ? `${containers.dg_containers} DG · ${containers.blocks_affected?.join(', ') || '4 blocks'} · ${containers.data_age_minutes < 10 ? `${containers.data_age_minutes.toFixed(1)}m fresh` : `${containers.data_age_minutes.toFixed(0)}m stale`}` : undefined}
+            tooltip="Yard utilization: containers / 140 TEU capacity. Green <10m fresh data, amber stale."
           />
           <SystemStatusCard
             name="OptETruck"
