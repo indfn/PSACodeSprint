@@ -5,7 +5,7 @@ Per-run seeding ensures variation between runs within the same scenario.
 
 Usage:
     from app.mocks.scenarios import set_scenario, get_scenario, generate_scenario_data
-    set_scenario("stale", seed=time.time_ns())
+    set_scenario("nominal", seed=time.time_ns())
     data = generate_scenario_data("pb-12-itt")
 """
 
@@ -66,6 +66,16 @@ class PB12Scenario:
 
 
 PB12_SCENARIOS: dict[str, PB12Scenario] = {
+    "nominal": PB12Scenario(
+        id="nominal",
+        name="Nominal",
+        description="Clean data, all systems healthy. Standard 80/40 split.",
+        container_count=Dist(120, 15, 100, 140),
+        available_trucks=Dist(40, 4, 34, 46),
+        feeder_occupancy_teu=Dist(620, 80, 500, 750),
+        confidence_initial=Dist(0.92, 0.02, 0.88, 0.95),
+        mutations=[],
+    ),
     "deviation": PB12Scenario(
         id="deviation",
         name="Feeder Deviation",
@@ -263,7 +273,7 @@ def generate_pb12_data(scenario_id: str | None = None) -> dict[str, Any]:
 
     scenarios = PB12_SCENARIOS
     if sid not in scenarios:
-        sid = "stale"
+        sid = "nominal"
     sc = scenarios[sid]
 
     # Containers
@@ -355,7 +365,7 @@ def generate_pb01_data(scenario_id: str | None = None) -> dict[str, Any]:
 
     scenarios = PB01_SCENARIOS
     if sid not in scenarios:
-        sid = "stale"
+        sid = "nominal"
     sc = scenarios[sid]
 
     # Vessel
@@ -418,4 +428,4 @@ def list_scenarios(problem_id: str) -> list[dict[str, str]]:
             {"id": sc.id, "name": sc.name, "description": sc.description}
             for sc in PB01_SCENARIOS.values()
         ]
-    return [{"id": "stale", "name": "Stale Data", "description": "Default scenario"}]
+    return [{"id": "nominal", "name": "Nominal", "description": "Default scenario"}]

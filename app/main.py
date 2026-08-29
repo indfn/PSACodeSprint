@@ -515,13 +515,13 @@ async def reset_all():
 async def run_demo(payload: dict | None = None):
     """Trigger demo run (SSE-first): connects SSE before starting agent.
 
-    Accepts optional `scenario` field: "deviation", "stale", "escalation".
+    Accepts optional `scenario` field: "nominal", "deviation", "stale", "escalation".
     When provided, mock data is randomized within scenario distributions.
     """
     # Extract scenario before building event
-    scenario_id = "stale"
+    scenario_id = "nominal"
     if payload:
-        scenario_id = payload.get("scenario", "stale")
+        scenario_id = payload.get("scenario", "nominal")
         # Switch problem if requested
         requested_problem = payload.get("problem_id")
         if requested_problem:
@@ -907,7 +907,7 @@ async def simulate_webhook(problem_id: str):
     _now = datetime.now(timezone.utc)
     from app.mocks.scenarios import set_scenario
     from app.mocks.data import get_container_data
-    set_scenario(stem, "stale", seed=int(time.time_ns()))
+    set_scenario(stem, "nominal", seed=int(time.time_ns()))
     container_data = get_container_data()
 
     event_data = {
