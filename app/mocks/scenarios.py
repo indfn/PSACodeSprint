@@ -68,7 +68,7 @@ class PB12Scenario:
 PB12_SCENARIOS: dict[str, PB12Scenario] = {
     "nominal": PB12Scenario(
         id="nominal",
-        name="Nominal",
+        name="Normal",
         description="Clean data, all systems healthy. Standard 80/40 split.",
         container_count=Dist(120, 15, 100, 140),
         available_trucks=Dist(40, 4, 34, 46),
@@ -78,7 +78,7 @@ PB12_SCENARIOS: dict[str, PB12Scenario] = {
     ),
     "deviation": PB12Scenario(
         id="deviation",
-        name="Feeder Deviation",
+        name="Feeder Berth Conflict",
         description="Feeder berth conflict detected during monitor check.",
         container_count=Dist(140, 10, 120, 155),
         available_trucks=Dist(22, 4, 16, 28),
@@ -88,7 +88,7 @@ PB12_SCENARIOS: dict[str, PB12Scenario] = {
     ),
     "stale": PB12Scenario(
         id="stale",
-        name="Stale Data",
+        name="Stale/Missing Data",
         description="PPT CITOS data is 25+ minutes old. Guardrails fire.",
         container_count=Dist(100, 15, 80, 120),
         available_trucks=Dist(32, 5, 25, 40),
@@ -99,7 +99,7 @@ PB12_SCENARIOS: dict[str, PB12Scenario] = {
     ),
     "escalation": PB12Scenario(
         id="escalation",
-        name="Escalation",
+        name="Low Trucks",
         description="Low confidence + low trucks. Triggers HITL-5 escalation.",
         container_count=Dist(150, 12, 130, 165),
         available_trucks=Dist(18, 4, 12, 24),
@@ -428,4 +428,4 @@ def list_scenarios(problem_id: str) -> list[dict[str, str]]:
             {"id": sc.id, "name": sc.name, "description": sc.description}
             for sc in PB01_SCENARIOS.values()
         ]
-    return [{"id": "nominal", "name": "Nominal", "description": "Default scenario"}]
+    return [{"id": "nominal", "name": "Normal", "description": "Default scenario"}]

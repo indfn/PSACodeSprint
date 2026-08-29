@@ -38,10 +38,10 @@ import {
 } from '@/api/nexus';
 
 const FALLBACK_SCENARIOS = [
-  { id: 'nominal', name: 'Nominal' },
-  { id: 'deviation', name: 'Feeder Deviation' },
-  { id: 'stale', name: 'Stale Data' },
-  { id: 'escalation', name: 'Escalation' },
+  { id: 'nominal', name: 'Normal' },
+  { id: 'deviation', name: 'Feeder Berth Conflict' },
+  { id: 'stale', name: 'Stale/Missing Data' },
+  { id: 'escalation', name: 'Low Trucks' },
 ];
 
 const PROBLEMS = [
