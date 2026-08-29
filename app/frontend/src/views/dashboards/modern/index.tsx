@@ -22,6 +22,8 @@ import {
   getFeederData,
   getQcData,
   resetMocks,
+  resetAll,
+  resetRun,
   injectEdgeCase,
   getScenarios,
   getActiveRun,
@@ -339,8 +341,7 @@ export default function NexusDashboard() {
   }, []);
 
   async function handleReset() {
-    await resetMocks();
-    sessionStorage.removeItem('nexus_init_data');
+    const curRunId = runId;
     setRunId(null);
     setEvents([]);
     setHitlGate(null);
@@ -351,6 +352,13 @@ export default function NexusDashboard() {
     setTrucks(null);
     setFeeder(null);
     setQc(null);
+    setCostData({ roadCost: 0, seaHandling: 0, total: 0, baseline: 0, alternatives: [] });
+    sessionStorage.removeItem('nexus_init_data');
+    try {
+      if (curRunId) await resetRun(curRunId);
+      else await resetAll();
+    } catch { /* fallback: ensure mocks clean even if run reset fails */ }
+    try { await resetMocks(); } catch { /* ignore */ }
   }
 
   async function handleEdgeCase(caseType: string) {

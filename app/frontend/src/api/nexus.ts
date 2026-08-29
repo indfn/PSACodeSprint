@@ -236,6 +236,14 @@ export async function resetMocks() {
   return apiFetch<{ status: string }>('/agent/reset-mocks', { method: 'POST' });
 }
 
+export async function resetRun(runId: string) {
+  return apiFetch<{ status: string }>(`/agent/reset/${encodeURIComponent(runId)}`, { method: 'POST' });
+}
+
+export async function resetAll() {
+  return apiFetch<{ status: string }>('/agent/reset', { method: 'POST' });
+}
+
 export async function getScenarios() {
   const res = await apiFetch<{ problem_id: string; scenarios: Scenario[] }>('/agent/scenarios');
   return res.scenarios;

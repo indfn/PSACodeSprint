@@ -467,15 +467,48 @@ async def reset_mocks():
 
 @app.post("/agent/reset/{run_id}", tags=["Agent"])
 async def reset_run(run_id: str):
-    """Clear a single run's SSE buffer and runs entry."""
+    """Clear a single run's SSE buffer, cancel HITL timeouts, and remove from registry."""
     try:
         from app.agent.sse import broadcaster
         broadcaster.clear(run_id)
     except Exception:
         pass
-    runs.pop(run_id, None)
-    # Also try to clear graph checkpoint (MemorySaver doesn't have delete, but we can reset via pop)
+    try:
+        from app.hitl.timeout_scheduler import cancel_all_timeouts
+        cancel_all_timeouts()
+    except Exception:
+        pass
+    entry = runs.pop(run_id, None)
+    if entry:
+        pid = entry.get("problem_id")
+        if pid and problem_statuses.get(pid) == "running":
+            problem_statuses[pid] = "idle"
     return {"status": "reset", "run_id": run_id}
+
+
+@app.post("/agent/reset", tags=["Agent"])
+async def reset_all():
+    """Full demo reset — clears all runs, SSE buffers, HITL timeouts, mock overrides, and problem statuses."""
+    try:
+        from app.agent.sse import broadcaster
+        for rid in list(runs.keys()):
+            broadcaster.clear(rid)
+    except Exception:
+        pass
+    try:
+        from app.hitl.timeout_scheduler import cancel_all_timeouts
+        cancel_all_timeouts()
+    except Exception:
+        pass
+    try:
+        from app.tools.edge_cases import reset_edge_cases
+        reset_edge_cases()
+    except Exception:
+        pass
+    runs.clear()
+    for k in list(problem_statuses.keys()):
+        problem_statuses[k] = "idle"
+    return {"status": "reset", "message": "All runs and mocks cleared"}
 
 
 @app.post("/agent/run-demo", tags=["Agent"])
