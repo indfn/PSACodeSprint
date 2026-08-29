@@ -41,7 +41,9 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
             for h in hist_fast:
                 hg = h.get("gate_id") if isinstance(h, dict) else getattr(h, "gate_id", None)
                 if hg and str(hg).lower().replace("-", "_") == gid.lower().replace("-", "_"):
-                    return True
+                    dec = h.get("decision") if isinstance(h, dict) else getattr(h, "decision", "")
+                    # Only count approved gates — rejected gates should not advance sequence
+                    return str(dec).lower() in ("approve", "approved")
             return False
         def _was_rejected(gid: str) -> bool:
             for h in reversed(hist_fast):
@@ -502,7 +504,9 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
                 for h in hist:
                     hg = h.get("gate_id") if isinstance(h, dict) else getattr(h, "gate_id", None)
                     if hg and str(hg).lower().replace("-", "_") == gid.lower().replace("-", "_"):
-                        return True
+                        dec = h.get("decision") if isinstance(h, dict) else getattr(h, "decision", "")
+                        # Only count approved gates as "has" — rejected gates should not advance sequence
+                        return str(dec).lower() in ("approve", "approved")
                 return False
 
             def _rej(gid: str) -> bool:

@@ -399,6 +399,12 @@ export default function NexusDashboard() {
   const feederStatus = !feeder ? 'amber' :
     feeder.berth_status.includes('berthed') ? 'green' :
     feeder.berth_status === 'conflict' ? 'red' : 'amber';
+  const feederBerthLabel = !feeder ? '' :
+    feeder.berth_status === 'berthed_at_PPT_B12' ? 'Berthed at PPT B12' :
+    feeder.berth_status === 'berthed' ? 'Berthed' :
+    feeder.berth_status === 'conflict' ? 'Conflict' :
+    feeder.berth_status === 'available' ? 'Available' :
+    feeder.berth_status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
   return (
     <div className="space-y-3">
@@ -581,7 +587,7 @@ export default function NexusDashboard() {
             value={feeder?.current_occupancy_teu ?? 0}
             max={feeder?.capacity_teu ?? 1}
             status={feederStatus}
-            detail={feeder ? `${feeder.berth_status} • ${feeder.departure_window?.earliest?.slice(11,16)}–${feeder.departure_window?.latest?.slice(11,16)} • hold $${feeder.hold_cost_per_hour}/hr` : undefined}
+            detail={feeder ? `${feederBerthLabel} • ${feeder.departure_window?.earliest?.slice(11,16)}–${feeder.departure_window?.latest?.slice(11,16)} • hold $${feeder.hold_cost_per_hour}/hr` : undefined}
             tooltip="Berthed vs conflict (red). Late departure misses Port Klang tidal window → $5k missed connection."
           />
           <SystemStatusCard

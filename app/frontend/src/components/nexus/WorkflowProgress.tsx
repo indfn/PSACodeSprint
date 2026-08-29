@@ -30,7 +30,7 @@ function getCurrentStageIndex(hitlGateId: string | null, events: Array<{message:
   if (hitlGateId === 'HITL-2') return 5;
   if (hitlGateId === 'HITL-3') return 7;
   if (hitlGateId === 'HITL-4') return 9;
-  if (hitlGateId === 'HITL-5') return 10;
+  // HITL-5 is emergency escalation — don't advance progress, fall through to event-based logic
   const lastMsg = events[events.length - 1]?.message || '';
   if (lastMsg.includes('HITL-1') || lastMsg.includes('split')) return 3;
   if (lastMsg.includes('dispatch')) return 4;

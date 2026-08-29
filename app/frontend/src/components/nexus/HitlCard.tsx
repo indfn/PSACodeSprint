@@ -220,10 +220,12 @@ export default function HitlCard({ gate, runId, onResponded, onNextGate }: HitlC
       )}
 
       {/* Confidence / risk / margin */}
-      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1"><Shield size={12} className={risk !== null && risk > 0.7 ? 'text-red-500' : risk !== null && risk > 0.4 ? 'text-amber-500' : 'text-emerald-500'}/>{risk!==null?`${(risk*100).toFixed(0)}% risk`:'—'}</span>
-        <span>{conf!==null?`${(conf*100).toFixed(0)}% conf`:'—'}</span>
-        {margin && <span className="flex items-center gap-1"><Clock size={12}/>{Math.round(margin/60)}h {margin%60}m</span>}
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1"><Shield size={12} className={risk !== null && risk > 0.7 ? 'text-red-500' : risk !== null && risk > 0.4 ? 'text-amber-500' : 'text-emerald-500'}/>{risk!==null?`${(risk*100).toFixed(0)}% risk`:'—'}</span>
+          <span>{conf!==null?`${(conf*100).toFixed(0)}% conf`:'—'}</span>
+        </div>
+        {margin ? <span className="flex items-center gap-1"><Clock size={12}/>{Math.round(margin/60)}h {margin%60}m margin</span> : null}
       </div>
 
       {/* Reason */}
