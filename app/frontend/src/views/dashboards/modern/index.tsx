@@ -14,6 +14,7 @@ import AgentOutput, { AgentEvent } from '@/components/nexus/AgentOutput';
 import HitlCard, { HitlGateInfo } from '@/components/nexus/HitlCard';
 import CostBreakdown from '@/components/nexus/CostBreakdown';
 import WorkflowProgress from '@/components/nexus/WorkflowProgress';
+import EventCard from '@/components/nexus/EventCard';
 import { useSSE, SSEEvent } from '@/hooks/use-sse';
 import {
   getContainerData,
@@ -75,6 +76,7 @@ export default function NexusDashboard() {
   const [riskScore, setRiskScore] = useState<number | null>(null);
   const [edgeLoading, setEdgeLoading] = useState<string | null>(null);
   const [simulating, setSimulating] = useState(false);
+  const [webhookEvent, setWebhookEvent] = useState<{ id: string; data: Record<string, unknown> } | null>(null);
 
   // Poll active-run to sync across all instances
   const pollActiveRun = useCallback(async () => {
@@ -114,6 +116,7 @@ export default function NexusDashboard() {
           setHitlGate(null);
           setConfidence(null);
           setRiskScore(null);
+          setWebhookEvent(null);
         }, 5000);
       } else if (active.status === 'idle' && runId) {
         // No active run and we had one — clear
@@ -122,6 +125,7 @@ export default function NexusDashboard() {
         setHitlGate(null);
         setConfidence(null);
         setRiskScore(null);
+        setWebhookEvent(null);
       }
     } catch {
       // Registry not available, ignore
@@ -340,6 +344,7 @@ export default function NexusDashboard() {
         setHitlGate(null);
         setConfidence(null);
         setRiskScore(null);
+        setWebhookEvent({ id: res.run_id, data: res.hitl_card || {} });
         resetMocks().catch(() => {});
         initializeSession()
           .then((init) => {
@@ -366,6 +371,7 @@ export default function NexusDashboard() {
     setHitlGate(null);
     setConfidence(null);
     setRiskScore(null);
+    setWebhookEvent(null);
   }
 
   async function handleEdgeCase(caseType: string) {
@@ -486,24 +492,39 @@ export default function NexusDashboard() {
 
       {/* Main content — always renders the same layout */}
       <div className="grid grid-cols-12 gap-4">
-        {/* Left column: HITL + Agent output */}
+        {/* Left column: Event/HITL card + Agent output */}
         <div className="col-span-12 lg:col-span-8 space-y-4">
-          <HitlCard
-            gate={hitlGate}
-            runId={runId || ''}
-            onResponded={() => setHitlGate(null)}
-            onNextGate={(next) => {
-              if (next) {
-                setHitlGate(next);
-                if (typeof (next.data as Record<string, unknown>).confidence === 'number') setConfidence((next.data as Record<string, unknown>).confidence as number);
-                if (typeof (next.data as Record<string, unknown>).risk_score === 'number') setRiskScore((next.data as Record<string, unknown>).risk_score as number);
-                applyCostFromPayload(next.data);
-              } else {
-                setHitlGate(null);
-                setEvents((prev) => [...prev, { timestamp: new Date().toISOString(), message: 'HITL approved — proceeding' }]);
-              }
-            }}
-          />
+          {!runId ? (
+            /* Idle: show EventCard */
+            <EventCard eventId={null} eventData={null} />
+          ) : hitlGate ? (
+            /* HITL gate active: show approval card */
+            <HitlCard
+              gate={hitlGate}
+              runId={runId}
+              onResponded={() => setHitlGate(null)}
+              onNextGate={(next) => {
+                if (next) {
+                  setHitlGate(next);
+                  if (typeof (next.data as Record<string, unknown>).confidence === 'number') setConfidence((next.data as Record<string, unknown>).confidence as number);
+                  if (typeof (next.data as Record<string, unknown>).risk_score === 'number') setRiskScore((next.data as Record<string, unknown>).risk_score as number);
+                  applyCostFromPayload(next.data);
+                } else {
+                  setHitlGate(null);
+                  setEvents((prev) => [...prev, { timestamp: new Date().toISOString(), message: 'HITL approved — proceeding' }]);
+                }
+              }}
+            />
+          ) : events.length === 0 ? (
+            /* Just started, no events yet: show webhook event received */
+            <EventCard eventId={webhookEvent?.id || null} eventData={webhookEvent?.data || null} />
+          ) : (
+            /* Running but no HITL gate: ingest/processing stage */
+            <div className="rounded-xl border bg-card p-4 flex items-center gap-2 text-muted-foreground">
+              <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+              <span className="text-sm">Processing… waiting for agent to reach HITL gate</span>
+            </div>
+          )}
 
           <AgentOutput events={events} />
         </div>

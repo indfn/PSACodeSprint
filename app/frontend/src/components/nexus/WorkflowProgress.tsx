@@ -1,6 +1,6 @@
 import { Check, Clock, Circle } from 'lucide-react';
 
-export type WorkflowStage = 'ingest' | 'split' | 'hitl1' | 'dispatch' | 'hitl2' | 'hold' | 'hitl3' | 'sequence' | 'hitl4' | 'monitor' | 'complete';
+export type WorkflowStage = 'event' | 'ingest' | 'split' | 'hitl1' | 'dispatch' | 'hitl2' | 'hold' | 'hitl3' | 'sequence' | 'hitl4' | 'monitor' | 'complete';
 
 interface StageDef {
   id: WorkflowStage;
@@ -9,6 +9,7 @@ interface StageDef {
 }
 
 const STAGES: StageDef[] = [
+  { id: 'event', label: 'Event', short: 'Event' },
   { id: 'ingest', label: 'Ingest', short: 'Ingest' },
   { id: 'split', label: 'Compute Split', short: 'Split' },
   { id: 'hitl1', label: 'Split Approval', short: 'HITL-1' },
@@ -24,25 +25,30 @@ const STAGES: StageDef[] = [
 
 function getCurrentStageIndex(hitlGateId: string | null, events: Array<{message:string}>, status: string): number {
   if (status === 'completed') return STAGES.length - 1;
-  if (hitlGateId === 'HITL-1') return 2;
-  if (hitlGateId === 'HITL-2') return 4;
-  if (hitlGateId === 'HITL-3') return 6;
-  if (hitlGateId === 'HITL-4') return 8;
-  if (hitlGateId === 'HITL-5') return 9;
+  if (status === 'idle' || (!hitlGateId && events.length === 0)) return 0; // waiting at Event
+  if (hitlGateId === 'HITL-1') return 3;
+  if (hitlGateId === 'HITL-2') return 5;
+  if (hitlGateId === 'HITL-3') return 7;
+  if (hitlGateId === 'HITL-4') return 9;
+  if (hitlGateId === 'HITL-5') return 10;
   const lastMsg = events[events.length - 1]?.message || '';
-  if (lastMsg.includes('HITL-1') || lastMsg.includes('split')) return 2;
-  if (lastMsg.includes('dispatch')) return 3;
-  if (lastMsg.includes('HITL-2')) return 4;
-  if (lastMsg.includes('hold')) return 5;
-  if (lastMsg.includes('HITL-3')) return 6;
-  if (lastMsg.includes('Tuas') || lastMsg.includes('sequence')) return 7;
-  if (lastMsg.includes('HITL-4')) return 8;
-  if (lastMsg.includes('monitor') || lastMsg.includes('Deviation')) return 9;
+  if (lastMsg.includes('HITL-1') || lastMsg.includes('split')) return 3;
+  if (lastMsg.includes('dispatch')) return 4;
+  if (lastMsg.includes('HITL-2')) return 5;
+  if (lastMsg.includes('hold')) return 6;
+  if (lastMsg.includes('HITL-3')) return 7;
+  if (lastMsg.includes('Tuas') || lastMsg.includes('sequence')) return 8;
+  if (lastMsg.includes('HITL-4')) return 9;
+  if (lastMsg.includes('monitor') || lastMsg.includes('Deviation')) return 10;
   if (status === 'running' && events.length > 0) {
-    if (events.some(e => e.message.includes('compute_itt'))) return 1;
-    if (events.some(e => e.message.includes('check_road') || e.message.includes('check_sea'))) return 0;
+    if (events.some(e => e.message.includes('compute_itt'))) return 2;
+    if (events.some(e => e.message.includes('check_road') || e.message.includes('check_sea'))) return 1;
   }
   return events.length === 0 ? 0 : 1;
+}
+
+export function getWorkflowStage(hitlGateId: string | null, events: Array<{message:string}>, status: string): WorkflowStage {
+  return STAGES[getCurrentStageIndex(hitlGateId, events, status)]?.id || 'event';
 }
 
 export default function WorkflowProgress({ hitlGateId, events, status }: { hitlGateId: string | null; events: Array<{message:string,timestamp:string}>; status?: string }) {
