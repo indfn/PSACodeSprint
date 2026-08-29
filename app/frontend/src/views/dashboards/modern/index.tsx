@@ -110,6 +110,7 @@ export default function NexusDashboard() {
           setTrucks(null);
           setFeeder(null);
           setQc(null);
+          setCostData({ roadCost: 0, seaHandling: 0, total: 0, baseline: 0, alternatives: [] });
         }, 5000);
       } else if (active.status === 'idle' && runId) {
         setRunId(null);
@@ -122,6 +123,7 @@ export default function NexusDashboard() {
         setTrucks(null);
         setFeeder(null);
         setQc(null);
+        setCostData({ roadCost: 0, seaHandling: 0, total: 0, baseline: 0, alternatives: [] });
       }
     } catch {
       // Registry not available, ignore
@@ -338,6 +340,11 @@ export default function NexusDashboard() {
     setHitlGate(null);
     setConfidence(null);
     setRiskScore(null);
+    setCostData({ roadCost: 0, seaHandling: 0, total: 0, baseline: 0, alternatives: [] });
+    setContainers(null);
+    setTrucks(null);
+    setFeeder(null);
+    setQc(null);
   }, []);
 
   async function handleReset() {
