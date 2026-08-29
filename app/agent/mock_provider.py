@@ -49,8 +49,15 @@ class _MockProvider:
                 if "error" not in out:
                     succeeded_tools.add(name)
 
-        # Check hitl approvals
+        # Check hitl approvals AND rejections
         approved = {h.get("gate_id") for h in hitl_history if isinstance(h, dict) and h.get("decision") == "approve"}
+        rejected = {h.get("gate_id") for h in hitl_history if isinstance(h, dict) and h.get("decision") == "reject"}
+        # Normalise rejection IDs for comparison
+        rejected_norm = {r.lower().replace("-", "_") for r in rejected}
+
+        def _is_rejected(gate_id: str) -> bool:
+            norm = gate_id.lower().replace("-", "_")
+            return norm in rejected_norm or gate_id in rejected
 
         # Build tool_calls deterministically following charter to-be workflow
         tool_calls = []
@@ -79,9 +86,10 @@ class _MockProvider:
                 tool_calls.append({"id": "call_T4", "type": "function", "function": {"name": "compute_itt_split", "arguments": json.dumps({"candidates": candidates, "road_capacity": road_cap, "sea_capacity": sea_cap, "tuas_vessel_departure": ctx.get("tuas_vessel_departure", "2026-08-19T20:00:00+08:00"), "constraints": ctx.get("constraints", {})})}})
 
         # If we've already approved HITL-1..3, then dispatch and Tuas
+        # BUT: if any gate was rejected, STOP — don't generate downstream tool calls
         if "HITL-1" in approved or "hitl_1" in approved:
             if "dispatch_road_itt" not in succeeded_tools and "dispatch_road_itt" in available:
-                if "HITL-2" in approved or "hitl_2" in approved:
+                if ("HITL-2" in approved or "hitl_2" in approved) and not _is_rejected("HITL-2"):
                     # Build container_ids from candidates for dispatch
                     candidates = ctx.get("candidates", {}) or {}
                     all_containers = candidates.get("containers", []) if isinstance(candidates, dict) else []
@@ -117,7 +125,7 @@ class _MockProvider:
                                 ids = [f"C{i:06d}" for i in range(80)]
                         tool_calls.append({"id": "call_dispatch", "type": "function", "function": {"name": "dispatch_road_itt", "arguments": json.dumps({"num_trucks": 20, "route": "PPT→West Coast Hwy→AYE→Tuas", "container_ids": ids})}})
             if "request_feeder_hold" not in succeeded_tools and "request_feeder_hold" in available:
-                if "HITL-3" in approved or "hitl_3" in approved:
+                if ("HITL-3" in approved or "hitl_3" in approved) and not _is_rejected("HITL-3"):
                     # Compute hold hours from context: how long until sea ITT containers arrive
                     # Default 1h if no data available
                     _hold_hours = 1.0
@@ -153,7 +161,8 @@ class _MockProvider:
         # Tuas loading sequence — call after all 3 HITL gates approved (don't wait for dispatch+hold)
         if "update_tuas_loading_sequence" not in succeeded_tools and "update_tuas_loading_sequence" in available:
             all_3_approved = "HITL-1" in approved and "HITL-2" in approved and "HITL-3" in approved
-            if all_3_approved and "HITL-4" not in approved and "hitl_4" not in approved:
+            any_rejected = _is_rejected("HITL-1") or _is_rejected("HITL-2") or _is_rejected("HITL-3")
+            if all_3_approved and not any_rejected and "HITL-4" not in approved and "hitl_4" not in approved:
                 def _split_ids():
                     candidates = ctx.get("candidates", {}) or {}
                     all_containers = candidates.get("containers", []) if isinstance(candidates, dict) else []

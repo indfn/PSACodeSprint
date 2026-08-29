@@ -125,8 +125,8 @@ class PB01Scenario:
     # Berth
     berth_occupancy: Dist = field(default_factory=lambda: Dist(0.7, 0.1, 0.4, 0.95))
     berth_count_available: Dist = field(default_factory=lambda: Dist(2, 1, 0, 3))
-    # QC
-    qc_available: Dist = field(default_factory=lambda: Dist(32, 3, 24, 40))
+    # QC — realistic: 60-75% available (rest on other berths/maintenance)
+    qc_available: Dist = field(default_factory=lambda: Dist(26, 3, 20, 32))
     qc_total: int = 40
     # Confidence
     confidence_initial: Dist = field(default_factory=lambda: Dist(0.90, 0.03, 0.85, 0.95))
@@ -142,7 +142,7 @@ PB01_SCENARIOS: dict[str, PB01Scenario] = {
         vessel_delay_hours=Dist(0.5, 0.3, 0, 1),
         berth_occupancy=Dist(0.6, 0.1, 0.4, 0.8),
         berth_count_available=Dist(2, 0.5, 1, 3),
-        qc_available=Dist(36, 2, 34, 40),
+        qc_available=Dist(26, 2, 22, 30),
         confidence_initial=Dist(0.93, 0.02, 0.90, 0.95),
         mutations=[],
     ),
@@ -153,7 +153,7 @@ PB01_SCENARIOS: dict[str, PB01Scenario] = {
         vessel_delay_hours=Dist(1, 0.5, 0, 2),
         berth_occupancy=Dist(0.9, 0.05, 0.85, 0.95),
         berth_count_available=Dist(0.5, 0.3, 0, 1),
-        qc_available=Dist(33, 3, 28, 38),
+        qc_available=Dist(24, 3, 18, 28),
         confidence_initial=Dist(0.82, 0.03, 0.78, 0.87),
         mutations=["berth_conflict"],
     ),
@@ -164,7 +164,7 @@ PB01_SCENARIOS: dict[str, PB01Scenario] = {
         vessel_delay_hours=Dist(5, 1.5, 3, 8),
         berth_occupancy=Dist(0.75, 0.1, 0.5, 0.9),
         berth_count_available=Dist(1.5, 0.5, 0, 2),
-        qc_available=Dist(30, 4, 24, 36),
+        qc_available=Dist(22, 3, 16, 28),
         confidence_initial=Dist(0.78, 0.04, 0.70, 0.85),
         mutations=["vessel_delay"],
     ),

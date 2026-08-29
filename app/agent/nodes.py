@@ -505,20 +505,29 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
                         return True
                 return False
 
+            def _rej(gid: str) -> bool:
+                for h in reversed(hist):
+                    hg = h.get("gate_id") if isinstance(h, dict) else getattr(h, "gate_id", None)
+                    if hg and str(hg).lower().replace("-", "_") == gid.lower().replace("-", "_"):
+                        dec = h.get("decision") if isinstance(h, dict) else getattr(h, "decision", "")
+                        return str(dec).lower() in ("reject", "rejected")
+                return False
+
             # Sequence: after split -> HITL-1, after HITL-1 -> HITL-2, after HITL-2 -> HITL-3, after Tuas -> HITL-4
-            if ctx.get("split_result") and not _has("HITL-1"):
+            # Skip gate if it was rejected — let agent re-reason via LLM
+            if ctx.get("split_result") and not _has("HITL-1") and not _rej("HITL-1"):
                 g = HITL_GATES.get("HITL-1") or HITL_GATES.get("hitl_1")
                 state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-1", "gate_name": "Approve ITT Split", "trigger": "split computed", "timeout_seconds": 1800, "timeout_action": "escalate"}
                 state["status"] = "waiting_hitl"
-            elif _has("HITL-1") and not _has("HITL-2"):
+            elif _has("HITL-1") and not _has("HITL-2") and not _rej("HITL-2"):
                 g = HITL_GATES.get("HITL-2") or HITL_GATES.get("hitl_2")
                 state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-2", "gate_name": "Approve Truck Dispatch", "trigger": "truck dispatch ready", "timeout_seconds": 900, "timeout_action": "cancel_dispatch"}
                 state["status"] = "waiting_hitl"
-            elif _has("HITL-2") and not _has("HITL-3"):
+            elif _has("HITL-2") and not _has("HITL-3") and not _rej("HITL-3"):
                 g = HITL_GATES.get("HITL-3") or HITL_GATES.get("hitl_3")
                 state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-3", "gate_name": "Approve Feeder Hold", "trigger": "feeder hold request ready", "timeout_seconds": 900, "timeout_action": "escalate"}
                 state["status"] = "waiting_hitl"
-            elif _has("HITL-3") and not _has("HITL-4"):
+            elif _has("HITL-3") and not _has("HITL-4") and not _rej("HITL-4"):
                 # Need Tuas sequence computed before HITL-4, but if not yet, let agent call T5 first
                 # Only set HITL-4 if tuas_sequence exists or we have dispatched
                 if ctx.get("tuas_sequence") or ctx.get("dispatched"):
