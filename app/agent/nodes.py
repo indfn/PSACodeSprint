@@ -43,9 +43,48 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
                 if hg and str(hg).lower().replace("-", "_") == gid.lower().replace("-", "_"):
                     return True
             return False
-        # Don't fast-path if already pending or escalated
+        def _was_rejected(gid: str) -> bool:
+            for h in reversed(hist_fast):
+                hg = h.get("gate_id") if isinstance(h, dict) else getattr(h, "gate_id", None)
+                if hg and str(hg).lower().replace("-", "_") == gid.lower().replace("-", "_"):
+                    dec = h.get("decision") if isinstance(h, dict) else getattr(h, "decision", "")
+                    return str(dec).lower() in ("reject", "rejected")
+            return False
+        # Don't fast-path if already pending, escalated, or previous gate was rejected
         if not state.get("hitl_pending") and not state.get("escalation"):
-            if ctx_fast.get("split_result") and not _has_fast("HITL-1"):
+            # Pre-populate context with estimated data so approval cards show real values
+            # (tools haven't run yet at this point, but the card needs data)
+            _ctx_pre = state.get("context", {}) or {}
+            if _ctx_pre.get("split_result") and not _ctx_pre.get("dispatch_result"):
+                _split = _ctx_pre.get("split_result", {})
+                _road_containers = _split.get("road_containers", 80) if isinstance(_split, dict) else 80
+                import math as _math
+                _road_trips = _split.get("road_trips", _math.ceil(_road_containers * 0.85)) if isinstance(_split, dict) else _math.ceil(_road_containers * 0.85)
+                _ctx_pre["dispatch_result"] = {
+                    "status": "dispatch_pending",
+                    "dispatch_id": "DISP-PENDING",
+                    "num_trucks": max(1, _road_containers // 4),
+                    "route": "PPT→West Coast Hwy→AYE→Tuas",
+                    "container_count": _road_containers,
+                    "total_trips": _road_trips,
+                    "eta": "2026-08-19T14:30:00+08:00",
+                    "cost": _road_trips * 150,
+                    "cost_per_trip": 150,
+                    "total_cost": _road_trips * 150,
+                }
+            if _ctx_pre.get("split_result") and not _ctx_pre.get("feeder_hold_result"):
+                _ctx_pre["feeder_hold_result"] = {
+                    "status": "hold_pending",
+                    "feeder_id": "FEEDER ATLANTIC-03",
+                    "hold_hours": 1.0,
+                    "hold_cost": 800,
+                    "hold_cost_per_hour": 800,
+                    "new_departure": "2026-08-19T17:30:00+08:00",
+                    "previous_departure": "2026-08-19T16:30:00+08:00",
+                    "tidal_risk": "safe",
+                    "operator_response": "pending",
+                }
+            if ctx_fast.get("split_result") and not _has_fast("HITL-1") and not _was_rejected("HITL-1"):
                 g = HITL_GATES.get("HITL-1")
                 state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-1", "gate_name": "Approve ITT Split", "trigger": "split computed", "timeout_seconds": 1800, "timeout_action": "escalate"}
                 state["status"] = "waiting_hitl"
@@ -55,7 +94,7 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
                 except Exception:
                     pass
                 return state
-            elif _has_fast("HITL-1") and not _has_fast("HITL-2"):
+            elif _has_fast("HITL-1") and not _has_fast("HITL-2") and not _was_rejected("HITL-2"):
                 g = HITL_GATES.get("HITL-2")
                 state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-2", "gate_name": "Approve Truck Dispatch", "trigger": "truck dispatch ready", "timeout_seconds": 900, "timeout_action": "cancel_dispatch"}
                 state["status"] = "waiting_hitl"
@@ -64,7 +103,7 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
                 except Exception:
                     pass
                 return state
-            elif _has_fast("HITL-2") and not _has_fast("HITL-3"):
+            elif _has_fast("HITL-2") and not _has_fast("HITL-3") and not _was_rejected("HITL-3"):
                 g = HITL_GATES.get("HITL-3")
                 state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-3", "gate_name": "Approve Feeder Hold", "trigger": "feeder hold request ready", "timeout_seconds": 900, "timeout_action": "escalate"}
                 state["status"] = "waiting_hitl"
@@ -73,7 +112,7 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
                 except Exception:
                     pass
                 return state
-            elif _has_fast("HITL-3") and not _has_fast("HITL-4"):
+            elif _has_fast("HITL-3") and not _has_fast("HITL-4") and not _was_rejected("HITL-4"):
                 if ctx_fast.get("tuas_sequence"):
                     g = HITL_GATES.get("HITL-4")
                     state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-4", "gate_name": "Approve Loading Sequence Update", "trigger": "Tuas QC sequence update ready", "timeout_seconds": 600, "timeout_action": "hold_sequence"}

@@ -519,7 +519,7 @@ export default function NexusDashboard() {
             max={qc?.qc_count ?? 40}
             status={
               !qc ? 'amber' :
-              qc.qc_status.every((q) => q.status === 'available') ? 'green' :
+              qc.qc_status.filter((q) => q.status === 'available').length >= qc.qc_count * 0.9 ? 'green' :
               qc.qc_status.some((q) => q.status === 'available') ? 'amber' : 'red'
             }
             detail={qc ? `Berth B-03 • FIFO loading • 30 min margin to departure` : undefined}

@@ -42,8 +42,28 @@ def route_after_agent(state: dict[str, Any]) -> str:
     # Also guard: need dispatched and tuas_sequence exists
     if has_hitl4 and ctx.get("dispatched") and not ctx.get("monitored"):
         return "monitor"
+    # If all gates approved, tools done, and monitoring complete → waiting for events
+    all_gates_done = has_hitl4 and ctx.get("dispatched") and ctx.get("monitored")
+    if all_gates_done and state.get("status") not in ("waiting_hitl", "escalated", "running"):
+        return "waiting"
     # Fallback: if not yet hitl4 but dispatched+hold+tuas pending, don't monitor yet — wait for HITL
     return END
+
+
+async def waiting_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Waiting-for-event node: workflow complete, ready for new events (edge cases, re-runs)."""
+    state["status"] = "completed"
+    try:
+        from app.agent.sse import broadcaster
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(broadcaster.publish(state.get("run_id", ""), "run_complete", {"status": "completed", "message": "Workflow complete. Ready for new events."}))
+        except RuntimeError:
+            pass
+    except Exception:
+        pass
+    return state
 
 
 def _has_hitl_history(state: dict[str, Any], gate_id: str) -> bool:
@@ -83,6 +103,7 @@ def build_graph():
     graph.add_node("tools", tool_node)
     graph.add_node("hitl", hitl_node)
     graph.add_node("monitor", monitor_node)
+    graph.add_node("waiting", waiting_node)
 
     # Edges
     graph.add_edge(START, "agent")
@@ -90,6 +111,7 @@ def build_graph():
         "tools": "tools",
         "hitl": "hitl",
         "monitor": "monitor",
+        "waiting": "waiting",
         END: END,
     })
     graph.add_edge("tools", "agent")

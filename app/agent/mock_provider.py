@@ -137,17 +137,10 @@ class _MockProvider:
                 ids = _delta_ids(20, 80)
                 tool_calls.append({"id": "call_dispatch_delta", "type": "function", "function": {"name": "dispatch_road_itt", "arguments": json.dumps({"num_trucks": 4, "route": "PPT→West Coast Hwy→AYE→Tuas", "container_ids": ids or [f"DELTA{i:03d}" for i in range(4)]})}})
 
-        # Tuas loading sequence
+        # Tuas loading sequence — call after all 3 HITL gates approved (don't wait for dispatch+hold)
         if "update_tuas_loading_sequence" not in succeeded_tools and "update_tuas_loading_sequence" in available:
-            has_dispatch = "dispatch_road_itt" in succeeded_tools
-            has_hold = "request_feeder_hold" in succeeded_tools
-            can_do_t5 = False
-            if "HITL-1" in approved and "HITL-2" in approved and "HITL-3" in approved:
-                if has_dispatch and has_hold:
-                    can_do_t5 = True
-                elif has_dispatch and "request_feeder_hold" not in available:
-                    can_do_t5 = True
-            if can_do_t5:
+            all_3_approved = "HITL-1" in approved and "HITL-2" in approved and "HITL-3" in approved
+            if all_3_approved and "HITL-4" not in approved and "hitl_4" not in approved:
                 def _split_ids():
                     candidates = ctx.get("candidates", {}) or {}
                     all_containers = candidates.get("containers", []) if isinstance(candidates, dict) else []
@@ -164,8 +157,7 @@ class _MockProvider:
                     except Exception:
                         return [f"R{i:03d}" for i in range(80)], [f"S{i:03d}" for i in range(40)]
                 road_ids, sea_ids = _split_ids()
-                if "HITL-4" not in approved and "hitl_4" not in approved:
-                    tool_calls.append({"id": "call_T5", "type": "function", "function": {"name": "update_tuas_loading_sequence", "arguments": json.dumps({"vessel_id": ctx.get("vessel_id", "MV PACIFIC STAR"), "itt_eta_road": "2026-08-19T14:30:00+08:00", "itt_eta_sea": "2026-08-19T16:30:00+08:00", "container_ids_road": road_ids, "container_ids_sea": sea_ids})}})
+                tool_calls.append({"id": "call_T5", "type": "function", "function": {"name": "update_tuas_loading_sequence", "arguments": json.dumps({"vessel_id": ctx.get("vessel_id", "MV PACIFIC STAR"), "itt_eta_road": "2026-08-19T14:30:00+08:00", "itt_eta_sea": "2026-08-19T16:30:00+08:00", "container_ids_road": road_ids, "container_ids_sea": sea_ids})}})
 
         # Second T5 after deviation (delta)
         if ctx.get("deviation_log") and "HITL-5" in approved:
