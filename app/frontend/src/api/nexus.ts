@@ -252,6 +252,34 @@ export async function initializeSession() {
   }>('/agent/initialize', { method: 'POST' });
 }
 
+// ---- Problem Registry (Waiting Stage) ----
+
+export interface RegistryProblem {
+  problem_id: string;
+  short_id: string;
+  name: string;
+  description: string;
+  status: 'idle' | 'running' | 'completed';
+}
+
+export async function getRegistry() {
+  return apiFetch<{ problems: RegistryProblem[]; active_problem: string }>('/agent/registry');
+}
+
+export async function simulateWebhook(problemId: string) {
+  return apiFetch<{ run_id: string; status?: string; hitl_card?: Record<string, unknown>; problem_id: string }>(
+    `/agent/simulate-webhook/${encodeURIComponent(problemId)}`,
+    { method: 'POST' }
+  );
+}
+
+export async function completeProblem(problemId: string) {
+  return apiFetch<{ status: string; problem_id: string }>(
+    `/agent/complete-problem/${encodeURIComponent(problemId)}`,
+    { method: 'POST' }
+  );
+}
+
 // ---- Admin ----
 
 export interface AdminConfig {

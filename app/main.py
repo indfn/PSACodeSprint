@@ -673,6 +673,144 @@ async def get_active_problem():
 
 
 # ---------------------------------------------------------------------------
+# Problem registry — waiting stage backend
+# ---------------------------------------------------------------------------
+
+# In-memory status for each problem: idle | running | completed
+# Persists across requests within the same server process.
+problem_statuses: dict[str, str] = {}
+
+
+@app.get("/agent/registry", tags=["Agent"])
+async def get_registry():
+    """Return all problems with their current status (idle/running/completed).
+
+    Drives the waiting stage UI: problem cards show status + simulate button.
+    """
+    from app.configs.problem_config import load_problem_config
+    from app.agent.problem_switcher import CANONICAL_STEMS
+
+    registry = []
+    for pid, stem in CANONICAL_STEMS.items():
+        try:
+            cfg = load_problem_config(stem)
+            name = cfg.problem.name if hasattr(cfg.problem, "name") else stem
+            desc = cfg.problem.description if hasattr(cfg.problem, "description") else ""
+        except Exception:
+            name = stem
+            desc = ""
+
+        status = problem_statuses.get(stem, "idle")
+        # Check if any run for this problem is still active
+        for r in runs.values():
+            rpid = (r.get("event") or {}).get("problem_id", "") or (r.get("state") or {}).get("problem_id", "")
+            if rpid == stem and r.get("status") in ("waiting_hitl", "running"):
+                status = "running"
+                break
+
+        registry.append({
+            "problem_id": stem,
+            "short_id": pid,
+            "name": name,
+            "description": desc,
+            "status": status,
+        })
+
+    return {"problems": registry, "active_problem": get_active_problem_id()}
+
+
+@app.post("/agent/simulate-webhook/{problem_id}", tags=["Agent"])
+async def simulate_webhook(problem_id: str):
+    """Trigger a simulated webhook event for a specific problem.
+
+    Switches to the problem, creates a mock ITTCoordinationEvent, and runs the agent.
+    Returns run_id + hitl_card for SSE streaming.
+    """
+    from datetime import datetime, timedelta, timezone
+    from app.agent.problem_switcher import switch_problem as _switch, _resolve_stem
+
+    stem = _resolve_stem(problem_id)
+    if stem not in {v for v in __import__("app.agent.problem_switcher", fromlist=["CANONICAL_STEMS"]).CANONICAL_STEMS.values()}:
+        raise HTTPException(status_code=404, detail=f"Unknown problem: {problem_id}")
+
+    # Switch to this problem
+    try:
+        _switch(stem)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Cannot load problem {stem}: {exc}")
+
+    # Mark running
+    problem_statuses[stem] = "running"
+
+    # Build mock event for this problem
+    _now = datetime.now(timezone.utc)
+    from app.mocks.scenarios import set_scenario
+    from app.mocks.data import get_container_data
+    set_scenario(stem, "nominal", seed=int(time.time_ns()))
+    container_data = get_container_data()
+
+    event_data = {
+        "event_type": "ITT_COORDINATION_REQUEST",
+        "timestamp": (_now - timedelta(minutes=5)).isoformat(),
+        "source": "CITOS_PPT",
+        "priority": "high",
+        "origin_terminal": "PPT",
+        "destination_terminal": "TUAS",
+        "vessel_id": "MV PACIFIC STAR",
+        "tuas_vessel_departure": (_now + timedelta(hours=12)).isoformat(),
+        "container_count": container_data["total_containers"],
+        "containers_ready": container_data["total_containers"],
+        "blocks_affected": container_data["blocks_affected"],
+        "dg_containers": container_data["dg_containers"],
+        "priority_containers": sum(1 for c in container_data["containers"] if c.get("priority") == "high"),
+        "requested_by": "PPT_Yard_Planner_Lim",
+        "notes": f"Simulated webhook — {container_data['total_containers']} containers PPT→Tuas",
+    }
+
+    try:
+        event = ITTCoordinationEvent(**event_data)
+    except Exception as exc:
+        problem_statuses[stem] = "idle"
+        raise HTTPException(status_code=422, detail=f"Invalid event: {exc}")
+
+    try:
+        from app.agent.run import run_agent
+        result = await run_agent(event)
+        run_id = result.get("run_id")
+        runs[run_id] = {
+            "run_id": run_id,
+            "event": event.model_dump(),
+            "status": result.get("status", "waiting_hitl"),
+            "hitl_card": result.get("hitl_card"),
+            "hitl_pending": result.get("hitl_pending"),
+            "state": result.get("state", {}),
+            "trace": result.get("trace", {}),
+            "problem_id": stem,
+        }
+        if len(runs) > MAX_RUNS:
+            runs.popitem(last=False)
+
+        return {
+            "run_id": run_id,
+            "status": result.get("status"),
+            "hitl_card": result.get("hitl_card"),
+            "problem_id": stem,
+        }
+    except Exception as exc:
+        problem_statuses[stem] = "idle"
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/agent/complete-problem/{problem_id}", tags=["Agent"])
+async def complete_problem(problem_id: str):
+    """Mark a problem as completed (called by frontend after run_complete + delay)."""
+    from app.agent.problem_switcher import _resolve_stem
+    stem = _resolve_stem(problem_id)
+    problem_statuses[stem] = "completed"
+    return {"status": "completed", "problem_id": stem}
+
+
+# ---------------------------------------------------------------------------
 # UI static mount — React SPA served from app/frontend/dist
 # ---------------------------------------------------------------------------
 

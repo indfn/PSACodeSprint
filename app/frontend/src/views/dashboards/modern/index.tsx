@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -8,34 +8,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Play, RotateCcw, Zap } from 'lucide-react';
+import { RotateCcw, Zap } from 'lucide-react';
 import SystemStatusCard from '@/components/nexus/SystemStatusCard';
 import AgentOutput, { AgentEvent } from '@/components/nexus/AgentOutput';
 import HitlCard, { HitlGateInfo } from '@/components/nexus/HitlCard';
 import CostBreakdown from '@/components/nexus/CostBreakdown';
 import WorkflowProgress from '@/components/nexus/WorkflowProgress';
+import WaitingStage from '@/components/nexus/WaitingStage';
 import { useSSE, SSEEvent } from '@/hooks/use-sse';
 import {
-  startDemo,
   getContainerData,
   getTruckData,
   getFeederData,
   getQcData,
   resetMocks,
   injectEdgeCase,
-  switchProblem,
   initializeSession,
   getScenarios,
+  completeProblem,
   type ContainerData,
   type TruckData,
   type FeederData,
   type QcData,
 } from '@/api/nexus';
-
-const PROBLEMS = [
-  { id: 'pb-12-itt', name: 'ITT Coordination' },
-  { id: 'pb-01-berth', name: 'Berth Reassignment' },
-];
 
 const FALLBACK_SCENARIOS = [
   { id: 'nominal', name: 'Nominal' },
@@ -44,8 +39,18 @@ const FALLBACK_SCENARIOS = [
   { id: 'escalation', name: 'Escalation' },
 ];
 
+const PROBLEM_NAMES: Record<string, string> = {
+  'pb-12-itt': 'ITT Coordination',
+  'pb-01-berth': 'Berth Reassignment',
+};
+
 export default function NexusDashboard() {
-  const [activeProblem, setActiveProblem] = useState(PROBLEMS[0].id);
+  // View state: 'waiting' = problem registry, 'dashboard' = active workflow
+  const [view, setView] = useState<'waiting' | 'dashboard'>(() => {
+    // If there's an active run in sessionStorage, go straight to dashboard
+    return sessionStorage.getItem('nexus_run_id') ? 'dashboard' : 'waiting';
+  });
+  const [activeProblem, setActiveProblem] = useState('pb-12-itt');
   const [scenarios, setScenarios] = useState(FALLBACK_SCENARIOS);
   const [scenario, setScenario] = useState(FALLBACK_SCENARIOS[0].id);
   const [runId, setRunId] = useState<string | null>(() => sessionStorage.getItem('nexus_run_id'));
@@ -68,8 +73,10 @@ export default function NexusDashboard() {
   const [confidence, setConfidence] = useState<number | null>(null);
   const [riskScore, setRiskScore] = useState<number | null>(null);
 
-  const [loading, setLoading] = useState(false);
   const [edgeLoading, setEdgeLoading] = useState<string | null>(null);
+
+  // Timer for auto-transition back to waiting after run_complete
+  const completeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Persist runId across page navigation
   useEffect(() => {
@@ -92,6 +99,7 @@ export default function NexusDashboard() {
 
   // Load initial data — cached in sessionStorage to survive page navigation
   useEffect(() => {
+    if (view !== 'dashboard') return;
     const cached = sessionStorage.getItem('nexus_init_data');
     if (cached) {
       try {
@@ -119,7 +127,7 @@ export default function NexusDashboard() {
         getFeederData().then(setFeeder).catch(() => {});
         getQcData().then(setQc).catch(() => {});
       });
-  }, []);
+  }, [view]);
 
   const applyCostFromPayload = useCallback((payload: Record<string, unknown>) => {
     try {
@@ -249,6 +257,20 @@ export default function NexusDashboard() {
 
         case 'run_complete':
           setEvents((prev) => [...prev, { timestamp: ts, message: 'Run complete.' }]);
+          // Mark problem as completed on backend, then auto-transition to waiting after 5s
+          if (activeProblem) {
+            completeProblem(activeProblem).catch(() => {});
+          }
+          if (completeTimerRef.current) clearTimeout(completeTimerRef.current);
+          completeTimerRef.current = setTimeout(() => {
+            setView('waiting');
+            setRunId(null);
+            setEvents([]);
+            setHitlGate(null);
+            setConfidence(null);
+            setRiskScore(null);
+            sessionStorage.removeItem('nexus_run_id');
+          }, 5000);
           break;
 
         case 'system_status':
@@ -268,48 +290,33 @@ export default function NexusDashboard() {
           ]);
       }
     },
-    [applyCostFromPayload]
+    [applyCostFromPayload, activeProblem]
   );
 
   useSSE(runId, handleSSEEvent);
 
-  async function handleStartDemo() {
-    setLoading(true);
+  // Called by WaitingStage when user clicks "Simulate Webhook"
+  const handleRunStarted = useCallback((newRunId: string, problemId: string) => {
+    setRunId(newRunId);
+    setActiveProblem(problemId);
     setEvents([]);
     setHitlGate(null);
     setConfidence(null);
     setRiskScore(null);
-    try {
-      const res = await startDemo(scenario, activeProblem);
-      setRunId(res.run_id);
-      const hitlCard = res.hitl_card as Record<string, unknown> | undefined;
-      if (hitlCard) {
-        const gateId = (hitlCard.gate_id as string) || (hitlCard.gateId as string) || 'HITL-1';
-        const gateName = (hitlCard.gate_name as string) || (hitlCard.gateName as string) || 'Approval Required';
-        const cardInner = (hitlCard.approval_card as Record<string, unknown>) || hitlCard;
-        // Extract approval card if nested (backend nests under hitl_card.approval_card in SSE but flat in HTTP)
-        // HTTP hitl_card is already the card itself (gate_id + cost_breakdown etc), not wrapped
-        const dataForCard = (cardInner as Record<string, unknown>) || hitlCard;
-        if (typeof hitlCard.confidence === 'number') setConfidence(hitlCard.confidence as number);
-        if (typeof hitlCard.risk_score === 'number') setRiskScore(hitlCard.risk_score as number);
-        applyCostFromPayload(hitlCard);
-        applyCostFromPayload(dataForCard);
-        setHitlGate({ gate_id: gateId, gate_name: gateName, data: dataForCard });
-      }
-      setEvents((prev) => [
-        ...prev,
-        {
-          timestamp: new Date().toISOString(),
-          message: `Demo started. Run ID: ${res.run_id}${res.hitl_card ? ' — HITL required' : ''}`,
-        },
-      ]);
-    } catch (err) {
-      console.error('Failed to start demo:', err);
-      setEvents((prev) => [...prev, { timestamp: new Date().toISOString(), message: `Start failed: ${err}` }]);
-    } finally {
-      setLoading(false);
-    }
-  }
+    setView('dashboard');
+    // Reset mocks for this problem
+    resetMocks().catch(() => {});
+    // Load fresh data
+    initializeSession()
+      .then((init) => {
+        sessionStorage.setItem('nexus_init_data', JSON.stringify(init));
+        setContainers(init.containers);
+        setTrucks(init.trucks);
+        setFeeder(init.feeder);
+        setQc(init.qc);
+      })
+      .catch(() => {});
+  }, []);
 
   async function handleReset() {
     await resetMocks();
@@ -320,21 +327,7 @@ export default function NexusDashboard() {
     setHitlGate(null);
     setConfidence(null);
     setRiskScore(null);
-    // Re-initialize with fresh random data
-    try {
-      const init = await initializeSession();
-      sessionStorage.setItem('nexus_init_data', JSON.stringify(init));
-      if (init.problem_id) setActiveProblem(init.problem_id);
-      setContainers(init.containers);
-      setTrucks(init.trucks);
-      setFeeder(init.feeder);
-      setQc(init.qc);
-    } catch {
-      getContainerData().then(setContainers).catch(() => {});
-      getTruckData().then(setTrucks).catch(() => {});
-      getFeederData().then(setFeeder).catch(() => {});
-      getQcData().then(setQc).catch(() => {});
-    }
+    setView('waiting');
   }
 
   async function handleEdgeCase(caseType: string) {
@@ -356,6 +349,12 @@ export default function NexusDashboard() {
     }
   }
 
+  // ---- WAITING VIEW ----
+  if (view === 'waiting') {
+    return <WaitingStage onRunStarted={handleRunStarted} />;
+  }
+
+  // ---- DASHBOARD VIEW ----
   const containerStatus =
     !containers ? 'amber' :
     containers.total_containers > 0
@@ -375,25 +374,9 @@ export default function NexusDashboard() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold tracking-tight">Nexus Dashboard</h1>
-          <Select value={activeProblem} onValueChange={(v) => {
-            if (v && v !== activeProblem) {
-              setActiveProblem(v);
-              switchProblem(v).catch(() => {});
-            }
-          }}>
-            <SelectTrigger className="h-8 w-[180px]">
-              <SelectValue placeholder="Select problem">
-                {PROBLEMS.find((p) => p.id === activeProblem)?.name}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {PROBLEMS.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Badge variant="secondary" className="text-xs">
+            {PROBLEM_NAMES[activeProblem] || activeProblem}
+          </Badge>
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="text-[10px]">
@@ -407,15 +390,6 @@ export default function NexusDashboard() {
 
       {/* Action bar */}
       <div className="flex flex-wrap items-center gap-2">
-        <Button
-          size="sm"
-          disabled={loading}
-          onClick={handleStartDemo}
-          className="gap-1.5"
-        >
-          <Play size={14} />
-          {loading ? 'Starting...' : 'Start Demo'}
-        </Button>
         <Select value={scenario} onValueChange={(v) => v && setScenario(v)}>
           <SelectTrigger className="h-8 w-[130px]">
             <SelectValue placeholder="Scenario">
@@ -444,7 +418,7 @@ export default function NexusDashboard() {
         <div className="h-4 w-px bg-border" />
         <Button size="sm" variant="ghost" onClick={handleReset} className="gap-1.5">
           <RotateCcw size={14} />
-          Reset
+          Back to Registry
         </Button>
         {runId && (
           <Badge variant="secondary" className="text-[10px]">
