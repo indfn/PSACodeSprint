@@ -5,7 +5,7 @@ Per-run seeding ensures variation between runs within the same scenario.
 
 Usage:
     from app.mocks.scenarios import set_scenario, get_scenario, generate_scenario_data
-    set_scenario("nominal", seed=time.time_ns())
+    set_scenario("stale", seed=time.time_ns())
     data = generate_scenario_data("pb-12-itt")
 """
 
@@ -66,24 +66,14 @@ class PB12Scenario:
 
 
 PB12_SCENARIOS: dict[str, PB12Scenario] = {
-    "nominal": PB12Scenario(
-        id="nominal",
-        name="Nominal",
-        description="Clean data, all systems healthy. Standard 80/40 split.",
-        container_count=Dist(120, 15, 100, 140),
-        available_trucks=Dist(40, 4, 34, 46),
-        feeder_occupancy_teu=Dist(620, 80, 500, 750),
-        confidence_initial=Dist(0.92, 0.02, 0.88, 0.95),
-        mutations=[],
-    ),
     "deviation": PB12Scenario(
         id="deviation",
         name="Feeder Deviation",
         description="Feeder berth conflict detected during monitor check.",
-        container_count=Dist(120, 8, 110, 130),
-        available_trucks=Dist(36, 4, 30, 42),
-        feeder_occupancy_teu=Dist(620, 50, 550, 700),
-        confidence_initial=Dist(0.86, 0.03, 0.82, 0.90),
+        container_count=Dist(140, 10, 120, 155),
+        available_trucks=Dist(22, 4, 16, 28),
+        feeder_occupancy_teu=Dist(680, 50, 600, 760),
+        confidence_initial=Dist(0.75, 0.04, 0.68, 0.82),
         mutations=["feeder_berth_conflict"],
     ),
     "stale": PB12Scenario(
@@ -101,10 +91,10 @@ PB12_SCENARIOS: dict[str, PB12Scenario] = {
         id="escalation",
         name="Escalation",
         description="Low confidence + low trucks. Triggers HITL-5 escalation.",
-        container_count=Dist(135, 12, 120, 150),
-        available_trucks=Dist(28, 5, 20, 36),
-        feeder_occupancy_teu=Dist(700, 60, 600, 800),
-        confidence_initial=Dist(0.68, 0.05, 0.60, 0.78),
+        container_count=Dist(150, 12, 130, 165),
+        available_trucks=Dist(18, 4, 12, 24),
+        feeder_occupancy_teu=Dist(720, 60, 620, 800),
+        confidence_initial=Dist(0.62, 0.05, 0.52, 0.72),
         mutations=["low_trucks"],
     ),
 }
@@ -273,7 +263,7 @@ def generate_pb12_data(scenario_id: str | None = None) -> dict[str, Any]:
 
     scenarios = PB12_SCENARIOS
     if sid not in scenarios:
-        sid = "nominal"
+        sid = "stale"
     sc = scenarios[sid]
 
     # Containers
@@ -365,7 +355,7 @@ def generate_pb01_data(scenario_id: str | None = None) -> dict[str, Any]:
 
     scenarios = PB01_SCENARIOS
     if sid not in scenarios:
-        sid = "nominal"
+        sid = "stale"
     sc = scenarios[sid]
 
     # Vessel
@@ -428,4 +418,4 @@ def list_scenarios(problem_id: str) -> list[dict[str, str]]:
             {"id": sc.id, "name": sc.name, "description": sc.description}
             for sc in PB01_SCENARIOS.values()
         ]
-    return [{"id": "nominal", "name": "Nominal", "description": "Default scenario"}]
+    return [{"id": "stale", "name": "Stale Data", "description": "Default scenario"}]

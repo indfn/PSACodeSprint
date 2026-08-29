@@ -515,13 +515,13 @@ async def reset_all():
 async def run_demo(payload: dict | None = None):
     """Trigger demo run (SSE-first): connects SSE before starting agent.
 
-    Accepts optional `scenario` field: "nominal", "deviation", "stale", "escalation".
+    Accepts optional `scenario` field: "deviation", "stale", "escalation".
     When provided, mock data is randomized within scenario distributions.
     """
     # Extract scenario before building event
-    scenario_id = "nominal"
+    scenario_id = "stale"
     if payload:
-        scenario_id = payload.get("scenario", "nominal")
+        scenario_id = payload.get("scenario", "stale")
         # Switch problem if requested
         requested_problem = payload.get("problem_id")
         if requested_problem:
@@ -836,23 +836,10 @@ async def run_event(payload: dict):
 
     # Set scenario distribution for this run
     import time
-    from app.mocks.scenarios import set_scenario, PB12_SCENARIOS, PB01_SCENARIOS
+    from app.mocks.scenarios import set_scenario
     from app.agent.problem_switcher import get_active_problem_id
     pid = get_active_problem_id()
     set_scenario(pid, scenario_id, seed=int(time.time_ns()))
-
-    # Auto-inject scenario mutations (feeder_berth_conflict, stale_data, etc.)
-    try:
-        from app.tools.edge_cases import inject_feeder_berth_conflict, inject_stale_data
-        sc = (PB12_SCENARIOS if pid.startswith("pb-12") else PB01_SCENARIOS).get(scenario_id)
-        if sc and hasattr(sc, 'mutations'):
-            for mut in sc.mutations:
-                if mut == "feeder_berth_conflict":
-                    inject_feeder_berth_conflict(run_id="")
-                elif mut == "stale_data":
-                    inject_stale_data(getattr(sc, 'stale_minutes', 25), run_id="")
-    except Exception:
-        pass
 
     try:
         event = ITTCoordinationEvent(**event_data)
@@ -920,7 +907,7 @@ async def simulate_webhook(problem_id: str):
     _now = datetime.now(timezone.utc)
     from app.mocks.scenarios import set_scenario
     from app.mocks.data import get_container_data
-    set_scenario(stem, "nominal", seed=int(time.time_ns()))
+    set_scenario(stem, "stale", seed=int(time.time_ns()))
     container_data = get_container_data()
 
     event_data = {

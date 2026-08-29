@@ -38,8 +38,7 @@ import {
 } from '@/api/nexus';
 
 const FALLBACK_SCENARIOS = [
-  { id: 'nominal', name: 'Nominal' },
-  { id: 'deviation', name: 'Deviation' },
+  { id: 'deviation', name: 'Feeder Deviation' },
   { id: 'stale', name: 'Stale Data' },
   { id: 'escalation', name: 'Escalation' },
 ];
