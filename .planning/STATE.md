@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-08-27)
 
 **Core Value:** Build PSA Nexus — a generalizable agentic platform (Cluster C2, 7 problems) demonstrated via PB-12 (ITT Coordination, $8K/incident) and proven switchable to a sibling problem (e.g. PB-01 Berth Delay) on the same LangGraph core.
-**Current focus:** Phase 07.1 — Integrated Verification (next to execute)
+**Current focus:** Demo flow repair + planning sync (2026-08-29) → then Phase 07.1 Integrated Verification
 
 ## Current Position
 
 Phase: 07.1 of 10 (Integrated Verification — next to execute)
 Plans: 11 detailed plans created (Phases 1–3 research + Phases 4–8 build + 6.5 wiring + 6.7 admin API + 07.1 Integrated Verification, 68 sub-phases)
-Status: Phases 1–7 complete. Phase 7 executed 2026-08-28 — industrial brutalist tactical telemetry console (3111 lines, 5 files). Scenario system with 4 PB-12 + 4 PB-01 profiles. 183 tests pass.
-Last activity: 2026-08-28 — Phase 7 complete (style.css 1638, app.js 908, index.html 255, admin.html 77, admin.js 233)
+Status: Phases 1–6.7 complete. Phase 7 rebuilt on React + shadcn/ui (replaced vanilla brutalist 2026-08-29). Frontend at `app/frontend/` (Vite + React 19 + Tailwind v4). Demo is now two-step: Simulate Webhook → EventCard → Run(scenario). Status cards show "awaiting ingest" until agent tool_results arrive via SSE. 183 tests pass.
+Last activity: 2026-08-29 — Demo flow repair: fix run-event 500 (`import time`), SSE-driven status cards with per-card `awaiting={!data}`, EventCard→Run with problemId, awaiting UX
 
 Progress: █████████░ 82% (9/11 phases complete, 2 planned)
 
@@ -53,7 +53,7 @@ Progress: █████████░ 82% (9/11 phases complete, 2 planned)
 | Admin API | ✅ Done | `app/admin/` auth (admin/admin123, HMAC cookie) + GET/POST /api/admin/config + POST /api/admin/api-key (write-only) — Phase 6.7 |
 | Escalation triggers | ✅ Done | `app/agent/escalation.py` 7 triggers `<0.85/>1.5h/>$10k/>30m/<60%/>15m/planner_conflict`, confidence 0.92→0.78→0.90 — Phase 6.6 |
 | Monitoring loop | ✅ Done | `app/agent/monitor.py` re-query T3 → detect berth conflict → re-compute 80/40→100/20 + HITL-5 emergency, `e2e` deviation PASSED 37s — Phase 6.10 |
-| Web UI / SSE | ✅ Done (2026-08-28) | `app/ui/` — 3111 lines (style.css 1638, app.js 908, index.html 255, admin.html 77, admin.js 233). Industrial brutalist CRT, 3 tabs, HITL card system, SSE streaming, edge injection, notifications, scenario dropdown, admin page |
+| Web UI / SSE | ✅ Done (2026-08-28, rebuilt 2026-08-29) | `app/frontend/` — React 19 + Vite 8 + shadcn/ui + Tailwind v4 (shadcn-dashboard template). Sidebar layout; Dashboard shows EventCard + HitlCard + AgentOutput left, CostBreakdown + 4 SystemStatusCards right. SSE via `use-sse.ts` (16 event types). Two-step flow: Simulate → EventCard → Run. Status cards `awaiting` until SSE tool_result. |
 | Docker / deploy | ❌ Not started | — Phase 8 (pinned deps + local docker-compose only, 8.3 Railway/Render DISABLED) |
 | Demo video / deck | ❌ Not started | — Phase 8 (Nexus deck per rubric, sibling switch demo) |
 
@@ -75,7 +75,7 @@ Progress: █████████░ 82% (9/11 phases complete, 2 planned)
 | 6. Agent Core — Nexus Brain | ✅ Complete (2026-08-28) | 12 — e2e 5 green (42s happy/37s deviation), truncation + HITL-5 pending fix |
 | 6.5. Integration Wiring & Cleanup | ✅ Complete (2026-08-28) | 6 — 14 gaps fixed, 24 new tests, 165 pass/3 skip, prototype deleted, tool_adapter relocated |
 | 6.7. Global LLM Config + Admin API | ✅ Complete (2026-08-28) | 5 — global llm.yaml, admin auth + config API, 172 tests pass |
-| 7. Web UI — Nexus Dashboard | ✅ Complete (2026-08-28) | 11 — 3111 lines, industrial brutalist CRT, scenario system, HITL card, SSE, edge injection, admin |
+| 7. Web UI — Nexus Dashboard | ✅ Complete (2026-08-28, rebuilt React 2026-08-29) | React shadcn stack; two-step webhook flow; awaiting ingest status cards; HITL per-gate rendering |
 | 07.1 Integrated Verification (INSERTED) | ○ Planned → depends on Phase 7 | 8 |
 | 8. Polish & Deploy — Nexus Launch | ○ Planned → depends on 07.1 | 7 (**8.3 DISABLED local-only demo**) |
 
@@ -159,7 +159,8 @@ Deep sweep flagged 5 HIGH + several MEDIUM gaps previously missed (review was ch
 
 - ~~Execute Phase 6: Agent Core — Nexus Brain (12 sub-phases) — DONE 2026-08-28~~
 - ~~Execute Phase 6.7: Global LLM Config + Admin API (5 sub-phases) — DONE 2026-08-28~~
-- ~~Execute Phase 7: Web UI — Nexus Dashboard (11 sub-phases) — DONE 2026-08-28~~
+- ~~Execute Phase 7: Web UI — Nexus Dashboard (11 sub-phases) — DONE 2026-08-28, rebuilt React 2026-08-29~~
+- Demo flow repair (2026-08-29): fix run-event 500, SSE-driven status cards, awaiting ingest — DONE
 - Execute Phase 07.1: Integrated Verification — gate before deploy (8 sub-phases)
 - Execute Phase 8: Polish & Deploy — Nexus Launch (7 sub-phases, depends on 07.1)
 

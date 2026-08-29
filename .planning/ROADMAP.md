@@ -465,7 +465,7 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 
 ---
 
-### Phase 6.5: Integration Wiring & Cleanup
+### Phase 6.5: Integration Wiring & Cleanup ✅ Complete (2026-08-28)
 **Goal:** Fix all missing connections — requirements, startup validation, HITL timeouts, SSE events, config consistency, dead code cleanup — so the system actually runs end-to-end without silent failures.
 **Depends on:** Phase 6
 **Requirements:** T-18, A-17, D-08 + startup validation, timeout scheduler, config consistency
@@ -480,7 +480,7 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
   8. `prototype/` deleted, `__init__.py` re-exports, `tool_adapter.py` relocated
   9. LangSmith tracing wired (optional, activates if `LANGSMITH_API_KEY` set)
   10. All existing tests pass + new tests for startup, timeout, SSE coverage
-**Status:** ○ NOT STARTED
+**Status:** ✅ COMPLETE (2026-08-28) — lifespan validation, HITL timeout scheduler, SSE confidence_update, prototype deletion, 24 integration tests (165 pass)
 
 #### Sub-phases
 
@@ -608,12 +608,12 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 
 ---
 
-### Phase 7: Web UI — PSA Nexus Tactical Console
-**Goal:** Build the PSA Nexus dashboard — tactical telemetry operations console with real-time SSE streaming, step-by-step agent trace, run history, HITL approval cards, edge injection controls, and problem switching. Industrial brutalist dark theme. Vanilla HTML/CSS/JS. All old UI bugs eliminated.
+### Phase 7: Web UI — PSA Nexus Dashboard (React)
+**Goal:** PSA Nexus dashboard — React + shadcn/ui + Vite, sidebar layout, two-step demo flow (Simulate Webhook → EventCard → Run), SSE streaming, HITL per-gate cards, status cards that show "awaiting ingest" until agent tool_results arrive.
 **Depends on:** Phase 6.7
 **Requirements:** U-01 through U-12
 **Success Criteria** (what must be TRUE):
-  1. Dashboard loads with tactical telemetry aesthetic — dark CRT, monospace data, visible grid borders, red accent
+  1. Dashboard loads with shadcn dashboard template — sidebar nav, clean cards, dark/light theme
   2. SSE streams agent events in real time with replay buffer and `Last-Event-ID` support
   3. HITL cards appear one at a time, approve/reject/modify all work inline (no popups, no stacking, no hanging)
   4. Rejection uses inline text field (no browser `prompt()`), modify expands with editable fields
@@ -626,28 +626,23 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
   11. Admin page accessible via `/admin` link (not a tab)
   12. No `prompt()`, `alert()`, `confirm()` anywhere in the UI
   13. 183+ tests still pass (no backend regressions)
-**Status:** ✅ COMPLETE (2026-08-28) — 3111 lines (style.css 1638, app.js 908, index.html 255, admin.html 77, admin.js 233)
+**Status:** ✅ COMPLETE (2026-08-28, rebuilt React 2026-08-29) — `app/frontend/` Vite + React 19 + Tailwind v4 + shadcn/ui; two-step flow Simulate→EventCard→Run(scenario); status cards `awaiting={!data}` until SSE tool_result; per-gate HitlCard; EventCard with Run button
 
-#### Design System — Tactical Telemetry
-- **Archetype:** Tactical Telemetry & CRT Terminal (dark mode, monospace, ASCII framing)
-- **Background:** `#0A0A0A` | **Surface:** `#141414` | **Border:** `#2A2A2A`
-- **Text primary:** `#EAEAEA` | **Text secondary:** `#888888` | **Text muted:** `#555555`
-- **Accent:** `#E61919` (aviation red — only accent) | **Status green:** `#4AF626` (single use)
-- **Font:** JetBrains Mono (data) + IBM Plex Mono (labels/meta) — all micro-type UPPERCASE
-- **Effects:** Subtle CRT scanlines + SVG noise grain (both `pointer-events: none`)
-- **Layout:** CSS Grid, visible 1px borders, `border-radius: 0`, no gradients/shadows/blur
+#### Design System — shadcn Dashboard
+- **Stack:** Vite 8 + React 19 + Tailwind CSS v4 + shadcn/ui + Base UI
+- **Layout:** Sidebar navigation (Dashboard, Agent Trace, History, Settings), header with problem switcher
+- **Theme:** Light/dark toggle, CSS variables for tokens
 
 #### Sub-phases
 
-##### 7.1: CSS Design System + HTML Shell
-**What:** Establish complete design system as CSS custom properties, build HTML skeleton with three tabs, header, and navigation.
+##### 7.1: Frontend Scaffold (React + shadcn)
+**What:** Scaffold `app/frontend/` from shadcn-dashboard template (Vite + React 19 + Tailwind v4). Sidebar layout, routing, theme provider.
 **Duration:** ~2 hours
 **Deliverables:**
-- `app/ui/style.css` — CSS custom properties for all tokens, CRT effects (scanlines + grain), grid layouts, typography, ASCII decorative elements, focus-visible rings, `prefers-reduced-motion` support
-- `app/ui/index.html` — semantic HTML: `<header>` (logo, switcher, confidence, bell, admin), `<nav>` (3 tab buttons), `<main>` (3 tab panels), edge sidebar, notification dropdown
-- Google Fonts CDN: JetBrains Mono + IBM Plex Mono
+- `app/frontend/` — Vite scaffold, shadcn/ui components, `src/routes/Router.tsx` (4 routes), `src/layouts/full/` (sidebar + header), dark/light theme
+- `app/frontend/vite.config.ts` — proxy `/api` and `/agent` to localhost:8000
 **Depends on:** Phase 6.7
-**Verification:** Page loads in browser, all three tabs switch, design tokens apply, CRT effects visible but subtle, fonts load
+**Verification:** `npm run dev` loads dashboard, sidebar nav works, theme toggle works
 
 ##### 7.2: Header + Navigation + Tab Switching
 **What:** Functional header with problem switcher, live confidence/risk, notification bell, admin link, tab switching.
@@ -743,6 +738,8 @@ Full pipeline for the PSA Code Sprint: Agentic AI in Action competition. Phases 
 - ASCII decorative borders on all panels
 **Depends on:** 7.1–7.10
 **Verification:** No `prompt()`/`alert()`/`confirm()`, no console errors, responsive on mobile, keyboard nav works
+
+> **Note (2026-08-29):** Sub-phases 7.2–7.11 above still describe the original vanilla `app/ui/` plan. Actual build uses React: `app/frontend/src/views/dashboards/modern/`, `app/frontend/src/components/nexus/` (EventCard, HitlCard, CostBreakdown, SystemStatusCard, WorkflowProgress, AgentOutput), `app/frontend/src/hooks/use-sse.ts`, `app/frontend/src/api/nexus.ts`. Two-step flow: `createEvent` → EventCard → `runEvent`. Status cards use `awaiting={!data}` + SSE tool_result population. Problem selector via `Select` + `switchProblem()`.
 
 ---
 
@@ -947,6 +944,6 @@ Phases execute in order: 1 → 2 → 3 → 4 → 5 → 6 → 6.5 → 6.7 → 7 �
 | 6. Agent Core (LangGraph) | ✅ Complete | 2026-08-28 |
 | 6.5. Integration Wiring & Cleanup | ✅ Complete | 2026-08-28 |
 | 6.7. Global LLM Config + Admin API | ✅ Complete | 2026-08-28 |
-| 7. Web UI & Integration | ○ Not Started | — |
+| 7. Web UI & Integration | ✅ Complete (rebuilt React 2026-08-29) | 2026-08-29 |
 | 07.1 Integrated Verification (INSERTED) | ○ Not Started | — |
 | 8. Polish & Deploy | ○ Not Started | — |
