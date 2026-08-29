@@ -554,6 +554,7 @@ async def run_demo(payload: dict | None = None):
             "state": result.get("state", {}),
             "trace": result.get("trace", {}),
             "scenario": scenario_id,
+            "problem_id": get_active_problem_id(),
         }
         if len(runs) > MAX_RUNS:
             runs.popitem(last=False)
@@ -727,10 +728,10 @@ async def simulate_webhook(problem_id: str):
     Returns run_id + hitl_card for SSE streaming.
     """
     from datetime import datetime, timedelta, timezone
-    from app.agent.problem_switcher import switch_problem as _switch, _resolve_stem
+    from app.agent.problem_switcher import switch_problem as _switch, _resolve_stem, CANONICAL_STEMS
 
     stem = _resolve_stem(problem_id)
-    if stem not in {v for v in __import__("app.agent.problem_switcher", fromlist=["CANONICAL_STEMS"]).CANONICAL_STEMS.values()}:
+    if stem not in CANONICAL_STEMS.values():
         raise HTTPException(status_code=404, detail=f"Unknown problem: {problem_id}")
 
     # Switch to this problem
