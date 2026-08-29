@@ -474,13 +474,15 @@ export default function NexusDashboard() {
         </div>
 
         {/* Right column: Cost + Status cards */}
-        <div className="col-span-12 lg:col-span-4 space-y-3">
+        <div className="col-span-12 lg:col-span-4 space-y-1.5">
           <CostBreakdown
             roadCost={costData.roadCost}
             seaHandling={costData.seaHandling}
             total={costData.total}
             baseline={costData.baseline}
             alternatives={costData.alternatives}
+            hitlGateId={hitlGate?.gate_id || null}
+            hitlData={hitlGate?.data || null}
           />
 
           <SystemStatusCard

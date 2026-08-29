@@ -73,10 +73,52 @@ def build_approval_card(gate: dict[str, Any] | Any, state: dict[str, Any]) -> di
         "problem_id": state.get("problem_id", state.get("run_id", "")),
     }
 
-    # Add emergency fields if deviation exists
-    if state.get("deviation_log"):
-        card["deviation"] = state["deviation_log"][-1] if isinstance(state["deviation_log"], list) else state["deviation_log"]
+    # Gate-specific data from context
+    gid_norm = gate_id.lower().replace("-", "_")
+    if gid_norm in ("hitl_2",):
+        dispatch = context.get("dispatch_result", {}) or {}
+        if isinstance(dispatch, dict):
+            card["dispatch"] = {
+                "dispatch_id": dispatch.get("dispatch_id", ""),
+                "num_trucks": dispatch.get("num_trucks", 0),
+                "route": dispatch.get("route", ""),
+                "container_count": dispatch.get("container_count", 0),
+                "total_trips": dispatch.get("total_trips", 0),
+                "eta": dispatch.get("eta", ""),
+                "dispatch_cost": dispatch.get("cost", 0),
+            }
+    elif gid_norm in ("hitl_3",):
+        hold = context.get("feeder_hold_result", {}) or {}
+        if isinstance(hold, dict):
+            card["feeder_hold"] = {
+                "feeder_id": hold.get("feeder_id", ""),
+                "hold_hours": hold.get("hold_hours", 0),
+                "hold_cost": hold.get("hold_cost", 0),
+                "hold_cost_per_hour": hold.get("hold_cost_per_hour", 800),
+                "new_departure": hold.get("new_departure", ""),
+                "previous_departure": hold.get("previous_departure", ""),
+                "tidal_risk": hold.get("tidal_risk", "safe"),
+                "operator_response": hold.get("operator_response", ""),
+            }
+    elif gid_norm in ("hitl_4",):
+        seq = context.get("tuas_sequence", {}) or {}
+        if isinstance(seq, dict):
+            card["tuas_sequence"] = {
+                "vessel_id": seq.get("vessel_id", ""),
+                "updated_loading_sequence": seq.get("updated_loading_sequence", ""),
+                "qc_adjustments": seq.get("qc_adjustments", []),
+                "estimated_loading_completion": seq.get("estimated_loading_completion", ""),
+                "margin_before_departure_minutes": seq.get("margin_before_departure_minutes", 0),
+            }
+    elif gid_norm in ("hitl_5",):
+        devs = state.get("deviation_log", [])
+        dev = devs[-1] if isinstance(devs, list) and devs else {}
+        card["deviation"] = dev
         card["is_emergency"] = True
+
+    # Add emergency fields if deviation exists (for any gate)
+    if not card.get("is_emergency") and state.get("deviation_log"):
+        card["deviation"] = state["deviation_log"][-1] if isinstance(state["deviation_log"], list) else state["deviation_log"]
 
     return card
 
