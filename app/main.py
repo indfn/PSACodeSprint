@@ -802,6 +802,7 @@ async def run_event(payload: dict):
             pass
 
     # Set scenario distribution for this run
+    import time
     from app.mocks.scenarios import set_scenario
     from app.agent.problem_switcher import get_active_problem_id
     pid = get_active_problem_id()

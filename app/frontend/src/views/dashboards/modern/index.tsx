@@ -23,7 +23,6 @@ import {
   getQcData,
   resetMocks,
   injectEdgeCase,
-  initializeSession,
   getScenarios,
   getActiveRun,
   getActiveProblem,
@@ -85,25 +84,12 @@ export default function NexusDashboard() {
     try {
       const active = await getActiveRun();
       if (active.run_id && active.status !== 'completed') {
-        // There's an active run — connect to it
         if (runId !== active.run_id) {
           setRunId(active.run_id);
           if (active.problem_id) setActiveProblem(active.problem_id);
           setEvents([]);
           setHitlGate(null);
-          // Load fresh data for this problem
-          resetMocks().catch(() => {});
-          initializeSession()
-            .then((init) => {
-              sessionStorage.setItem('nexus_init_data', JSON.stringify(init));
-              setContainers(init.containers);
-              setTrucks(init.trucks);
-              setFeeder(init.feeder);
-              setQc(init.qc);
-            })
-            .catch(() => {});
         }
-        // If there's a hitl_card from the registry, use it
         if (active.hitl_card) {
           const gateId = (active.hitl_card.gate_id as string) || (active.hitl_card.gateId as string) || '';
           const gateName = (active.hitl_card.gate_name as string) || (active.hitl_card.gateName as string) || 'Approval Required';
@@ -111,7 +97,6 @@ export default function NexusDashboard() {
           setHitlGate({ gate_id: gateId, gate_name: gateName, data: cardData as Record<string, unknown> });
         }
       } else if (active.status === 'completed' && runId) {
-        // Run just completed — clear after brief delay
         setTimeout(() => {
           setRunId(null);
           setEvents([]);
@@ -119,15 +104,22 @@ export default function NexusDashboard() {
           setConfidence(null);
           setRiskScore(null);
           setWebhookEvent(null);
+          setContainers(null);
+          setTrucks(null);
+          setFeeder(null);
+          setQc(null);
         }, 5000);
       } else if (active.status === 'idle' && runId) {
-        // No active run and we had one — clear
         setRunId(null);
         setEvents([]);
         setHitlGate(null);
         setConfidence(null);
         setRiskScore(null);
         setWebhookEvent(null);
+        setContainers(null);
+        setTrucks(null);
+        setFeeder(null);
+        setQc(null);
       }
     } catch {
       // Registry not available, ignore
@@ -157,36 +149,8 @@ export default function NexusDashboard() {
     }).catch(() => {});
   }, [activeProblem]);
 
-  // Load initial data
-  useEffect(() => {
-    const cached = sessionStorage.getItem('nexus_init_data');
-    if (cached) {
-      try {
-        const init = JSON.parse(cached);
-        if (init.problem_id) setActiveProblem(init.problem_id);
-        setContainers(init.containers);
-        setTrucks(init.trucks);
-        setFeeder(init.feeder);
-        setQc(init.qc);
-        return;
-      } catch { /* ignore */ }
-    }
-    initializeSession()
-      .then((init) => {
-        sessionStorage.setItem('nexus_init_data', JSON.stringify(init));
-        if (init.problem_id) setActiveProblem(init.problem_id);
-        setContainers(init.containers);
-        setTrucks(init.trucks);
-        setFeeder(init.feeder);
-        setQc(init.qc);
-      })
-      .catch(() => {
-        getContainerData().then(setContainers).catch(() => {});
-        getTruckData().then(setTrucks).catch(() => {});
-        getFeederData().then(setFeeder).catch(() => {});
-        getQcData().then(setQc).catch(() => {});
-      });
-  }, []);
+  // Status cards populate progressively via SSE tool_result events
+  // (get_itt_candidates → CITOS, check_road → OptETruck, check_sea → Feeder, compute_split → QC)
 
   const applyCostFromPayload = useCallback((payload: Record<string, unknown>) => {
     try {
@@ -288,6 +252,16 @@ export default function NexusDashboard() {
           applyCostFromPayload(data);
           if (typeof (data.risk_score as number) === 'number') setRiskScore(data.risk_score as number);
           if (typeof (out.risk_score as number) === 'number') setRiskScore(out.risk_score as number);
+          // Populate status cards as agent ingests data
+          if (tool === 'get_itt_candidates') {
+            getContainerData().then(setContainers).catch(() => {});
+          } else if (tool === 'check_road_itt_capacity') {
+            getTruckData().then(setTrucks).catch(() => {});
+          } else if (tool === 'check_sea_itt_capacity') {
+            getFeederData().then(setFeeder).catch(() => {});
+          } else if (tool === 'compute_itt_split' || tool === 'update_tuas_loading_sequence') {
+            getQcData().then(setQc).catch(() => {});
+          }
           break;
         }
 
@@ -362,16 +336,6 @@ export default function NexusDashboard() {
     setHitlGate(null);
     setConfidence(null);
     setRiskScore(null);
-    resetMocks().catch(() => {});
-    initializeSession()
-      .then((init) => {
-        sessionStorage.setItem('nexus_init_data', JSON.stringify(init));
-        setContainers(init.containers);
-        setTrucks(init.trucks);
-        setFeeder(init.feeder);
-        setQc(init.qc);
-      })
-      .catch(() => {});
   }, []);
 
   async function handleReset() {
@@ -383,6 +347,10 @@ export default function NexusDashboard() {
     setConfidence(null);
     setRiskScore(null);
     setWebhookEvent(null);
+    setContainers(null);
+    setTrucks(null);
+    setFeeder(null);
+    setQc(null);
   }
 
   async function handleEdgeCase(caseType: string) {
@@ -518,6 +486,7 @@ export default function NexusDashboard() {
               eventId={webhookEvent?.id || null}
               eventData={webhookEvent?.data || null}
               scenario={scenario}
+              problemId={activeProblem}
               onRunStarted={handleRunStarted}
             />
           ) : hitlGate ? (
@@ -544,6 +513,7 @@ export default function NexusDashboard() {
               eventId={webhookEvent?.id || null}
               eventData={webhookEvent?.data || null}
               scenario={scenario}
+              problemId={activeProblem}
               onRunStarted={handleRunStarted}
             />
           ) : (
@@ -571,6 +541,7 @@ export default function NexusDashboard() {
 
           <SystemStatusCard
             name="CITOS PPT"
+            awaiting={!containers}
             metric={`${containers?.total_containers ?? 0} / 140 TEU yard`}
             value={containers?.total_containers ?? 0}
             max={140}
@@ -580,6 +551,7 @@ export default function NexusDashboard() {
           />
           <SystemStatusCard
             name="OptETruck"
+            awaiting={!trucks}
             metric={`${trucks?.available_trucks ?? 0} / ${trucks?.total_fleet ?? 0} trucks`}
             value={trucks?.available_trucks ?? 0}
             max={trucks?.total_fleet ?? 1}
@@ -589,6 +561,7 @@ export default function NexusDashboard() {
           />
           <SystemStatusCard
             name="Feeder"
+            awaiting={!feeder}
             metric={`${feeder?.current_occupancy_teu ?? 0} / ${feeder?.capacity_teu ?? 1} TEU`}
             value={feeder?.current_occupancy_teu ?? 0}
             max={feeder?.capacity_teu ?? 1}
@@ -598,7 +571,8 @@ export default function NexusDashboard() {
           />
           <SystemStatusCard
             name="Tuas QC"
-            metric={qc ? `${qc.qc_status.filter((q) => q.status === 'available').length}/${qc.qc_count} cranes` : 'Loading...'}
+            awaiting={!qc}
+            metric={qc ? `${qc.qc_status.filter((q) => q.status === 'available').length}/${qc.qc_count} cranes` : 'Awaiting ingest'}
             value={qc ? qc.qc_status.filter((q) => q.status === 'available').length : 0}
             max={qc?.qc_count ?? 40}
             status={

@@ -7,10 +7,11 @@ interface EventCardProps {
   eventId: string | null;
   eventData: Record<string, unknown> | null;
   scenario: string;
+  problemId: string;
   onRunStarted: (runId: string) => void;
 }
 
-export default function EventCard({ eventId, eventData, scenario, onRunStarted }: EventCardProps) {
+export default function EventCard({ eventId, eventData, scenario, problemId, onRunStarted }: EventCardProps) {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,7 +44,7 @@ export default function EventCard({ eventId, eventData, scenario, onRunStarted }
     setRunning(true);
     setError(null);
     try {
-      const res = await runEvent(eventData, scenario, '');
+      const res = await runEvent(eventData, scenario, problemId);
       if (res.run_id) {
         onRunStarted(res.run_id);
       }
