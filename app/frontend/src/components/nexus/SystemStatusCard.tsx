@@ -34,7 +34,7 @@ export default function SystemStatusCard({ name, metric, value, max, status, det
         </div>
       </CardHeader>
       <CardContent>
-        <p className="text-xs text-muted-foreground mb-1">{metric} <span className="text-[10px]">({statusLabel[status]})</span></p>
+        <p className="text-xs text-muted-foreground mb-1">{metric}</p>
         {detail && <p className="text-xs text-muted-foreground mb-2">{detail}</p>}
         <Progress value={pct} className="h-1.5" />
       </CardContent>

@@ -72,12 +72,8 @@ export default function AgentOutput({ events }: AgentOutputProps) {
     <div className="rounded-xl bg-muted/50 p-4">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-xs font-semibold text-muted-foreground">Agent Output</h3>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">{events.length} events</span>
-          <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={() => setNewestFirst(v=>!v)}><ArrowDownUp size={12}/>{newestFirst ? 'Newest first' : 'Oldest first'}</Button>
-        </div>
+        <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={() => setNewestFirst(v=>!v)}><ArrowDownUp size={12}/>{newestFirst ? 'Newest' : 'Oldest'}</Button>
       </div>
-      <p className="text-xs text-muted-foreground mb-2">High-level narrative — full tool JSON is in <span className="font-medium">Agent Trace</span>.</p>
       <ScrollArea className="h-[400px]">
         <div ref={scrollRef} className="space-y-1 text-xs">
           {events.length === 0 && <p className="text-muted-foreground">Waiting for agent events — click Start Demo.</p>}

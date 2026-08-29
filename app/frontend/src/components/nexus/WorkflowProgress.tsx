@@ -52,7 +52,6 @@ export default function WorkflowProgress({ hitlGateId, events, status }: { hitlG
     <div className="rounded-xl border bg-card p-3">
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-semibold text-muted-foreground">Workflow Progress</span>
-        <span className="text-xs text-muted-foreground">{current + 1} / {STAGES.length}</span>
       </div>
       <div className="flex items-center gap-1 overflow-x-auto">
         {STAGES.map((s, idx) => {
@@ -72,7 +71,6 @@ export default function WorkflowProgress({ hitlGateId, events, status }: { hitlG
           );
         })}
       </div>
-      <p className="text-xs text-muted-foreground mt-2">Current: <span className="font-medium text-foreground">{STAGES[current]?.label}</span>{hitlGateId ? ` — awaiting ${hitlGateId}` : ''}</p>
     </div>
   );
 }

@@ -54,13 +54,11 @@ export default function CostBreakdown({ roadCost, seaHandling, total, baseline, 
               <span className={savings>=0?'text-emerald-600 font-medium':'text-red-600 font-medium'}>{savings>=0?'Save': 'Over'} ${Math.abs(savings).toLocaleString()} ({Math.abs(pct).toFixed(1)}%)</span>
               <Badge variant={savings>=0?'secondary':'destructive'} className="text-xs ml-auto">{savings>=0?'↓ cheaper':'↑ pricier'}</Badge>
             </div>
-            <p className="text-xs text-muted-foreground">Baseline: {Math.round(baseline/150)} trips × $150 if 100% road. Optimised uses feeder (scheduled, $0 charter).</p>
           </div>
         )}
 
         {parsedAlts.length > 0 && (
           <div className="space-y-1">
-            <p className="text-xs font-semibold">Alternatives (what reject shows next)</p>
             <div className="rounded-md border overflow-hidden">
               <div className="grid grid-cols-[1fr_1fr_1fr_80px] gap-px bg-border text-xs">
                 <div className="bg-muted p-1.5 font-medium">Road / Sea</div><div className="bg-muted p-1.5 font-medium">Cost</div><div className="bg-muted p-1.5 font-medium">Split</div><div className="bg-muted p-1.5 font-medium">Risk</div>
@@ -74,7 +72,6 @@ export default function CostBreakdown({ roadCost, seaHandling, total, baseline, 
                 ))}
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">Reject → agent re-proposes with these. Escalate if none viable.</p>
           </div>
         )}
         {alternatives.length>0 && parsedAlts.length===0 && (

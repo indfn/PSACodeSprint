@@ -3,8 +3,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useState, useEffect } from 'react';
 import { hitlRespond } from '@/api/nexus';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { Clock, Shield, TrendingUp, AlertTriangle, CheckCircle2, XCircle, Edit3 } from 'lucide-react';
+import { Clock, Shield, AlertTriangle, CheckCircle2, XCircle, Edit3 } from 'lucide-react';
 
 export interface HitlGateInfo {
   gate_id: string;
@@ -122,8 +121,7 @@ export default function HitlCard({ gate, runId, onResponded, onNextGate }: HitlC
           <div className="rounded-lg border p-2">
             <p className="text-xs text-muted-foreground">Sea</p>
             <p className="text-sm font-bold">{seaC} cont</p>
-            <p className="text-xs text-muted-foreground">{seaCost === 0 ? '$0 charter (scheduled)' : fmtMoney(seaCost) + ' handling'}</p>
-            <p className="text-xs font-medium">{fmtMoney(seaCost)} handling</p>
+            <p className="text-xs text-muted-foreground">{seaCost === 0 ? 'Charter $0 (scheduled)' : fmtMoney(seaCost)}</p>
           </div>
           <div className="rounded-lg border-2 border-primary p-2 bg-primary/5">
             <p className="text-xs text-muted-foreground">Total</p>
@@ -135,23 +133,17 @@ export default function HitlCard({ gate, runId, onResponded, onNextGate }: HitlC
       )}
 
       {baseline>0 && (
-        <div className="flex items-center gap-2 text-xs rounded-md bg-amber-50 dark:bg-amber-950/30 p-2 border border-amber-200 dark:border-amber-900">
-          <AlertTriangle size={14} className="text-amber-600"/>
-          <span><strong>Baseline</strong> = all-road {vs?.baseline_all_road_trips as number} trips × $150 = {fmtMoney(baseline)}. Savings vs optimised is transport only; charter ROI $8,000/incident is separate.</span>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <AlertTriangle size={12} className="text-amber-500"/>
+          Baseline: {vs?.baseline_all_road_trips as number} all-road trips = {fmtMoney(baseline)}
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-2 text-xs">
-        <div className="flex items-center gap-1.5"><Shield size={12} className={risk !== null && risk > 0.7 ? 'text-red-500' : risk !== null && risk > 0.4 ? 'text-amber-500' : 'text-emerald-500'}/>Risk {(risk!==null?(risk*100).toFixed(0):'—')}%</div>
-        <div className="flex items-center gap-1.5"><TrendingUp size={12} className={conf !== null && conf < 0.85 ? 'text-amber-500' : 'text-emerald-500'}/>Confidence {(conf!==null?(conf*100).toFixed(0):'—')}%</div>
-        <div className="flex items-center gap-1.5"><Clock size={12}/>Margin {margin ? `${Math.round(margin/60)}h ${margin%60}m` : '—'}</div>
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1"><Shield size={12} className={risk !== null && risk > 0.7 ? 'text-red-500' : risk !== null && risk > 0.4 ? 'text-amber-500' : 'text-emerald-500'}/>{risk!==null?`${(risk*100).toFixed(0)}% risk`:'—'}</span>
+        <span className="flex items-center gap-1">{conf!==null?`${(conf*100).toFixed(0)}% conf`:'—'}</span>
+        {margin && <span className="flex items-center gap-1"><Clock size={12}/>{Math.round(margin/60)}h {margin%60}m</span>}
       </div>
-      {(conf !== null || risk !== null) && (
-        <div className="space-y-1">
-          {conf !== null && <div><div className="flex justify-between text-xs"><span>Confidence</span><span>{(conf*100).toFixed(0)}%</span></div><Progress value={conf*100} className="h-1.5" /></div>}
-          {risk !== null && <div><div className="flex justify-between text-xs"><span>Risk</span><span>{(risk*100).toFixed(0)}%</span></div><Progress value={risk*100} className="h-1.5" /></div>}
-        </div>
-      )}
 
       {alts.length>0 && (
         <div className="space-y-2">
@@ -167,7 +159,6 @@ export default function HitlCard({ gate, runId, onResponded, onNextGate }: HitlC
               </div>
             ))}
           </div>
-          <p className="text-xs text-muted-foreground">Reject with alternatives → agent re-proposes with those. Reject with no alternatives → escalates to Duty Manager (HITL-5).</p>
         </div>
       )}
 
@@ -188,7 +179,6 @@ export default function HitlCard({ gate, runId, onResponded, onNextGate }: HitlC
         <Button size="sm" variant="outline" disabled={loading} onClick={()=> setShowModify(v=>!v)} className="h-7 text-xs gap-1"><Edit3 size={12}/>{showModify?'Cancel':'Modify'}</Button>
         {showModify ? <Button size="sm" disabled={loading || !modRoad} onClick={()=>handleDecision('modify')} className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white">Submit Modify</Button> : <Button size="sm" disabled={loading} onClick={()=>handleDecision('approve')} className="h-7 text-xs gap-1 ml-auto"><CheckCircle2 size={12}/>Approve</Button>}
       </div>
-      <p className="text-xs text-muted-foreground">Approve → next stage. Reject → alternatives or escalate. Modify → re-computes split with your road count.</p>
     </div>
   );
 }
