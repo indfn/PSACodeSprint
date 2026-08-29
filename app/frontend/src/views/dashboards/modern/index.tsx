@@ -26,6 +26,7 @@ import {
   initializeSession,
   getScenarios,
   getActiveRun,
+  getActiveProblem,
   createEvent,
   switchProblem,
   completeProblem,
@@ -138,6 +139,13 @@ export default function NexusDashboard() {
     const interval = setInterval(pollActiveRun, 3000);
     return () => clearInterval(interval);
   }, [pollActiveRun]);
+
+  // Sync active problem from backend on mount
+  useEffect(() => {
+    getActiveProblem()
+      .then((p) => { if (p.problem_id) setActiveProblem(p.problem_id); })
+      .catch(() => {});
+  }, []);
 
   // Load scenarios for active problem
   useEffect(() => {
