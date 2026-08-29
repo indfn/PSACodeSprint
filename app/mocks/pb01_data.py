@@ -86,7 +86,7 @@ def get_qc_data(berth_id: str = "B-03") -> dict:
     if rng is not None and sc is not None:
         qc_available = sc.qc_available.sample_int(rng)
     else:
-        qc_available = 32
+        qc_available = 26
 
     total = 40
     qc_status = []

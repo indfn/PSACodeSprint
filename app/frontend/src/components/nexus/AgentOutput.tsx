@@ -39,6 +39,7 @@ function humanize(msg: string): { text: string; kind: 'ingest'|'tool'|'hitl'|'su
   if (msg.includes('Escalation')) return { text: msg, kind: 'warn' };
   if (msg.includes('Deviation')) return { text: msg, kind: 'warn' };
   if (msg.includes('Agent reasoning')) return { text: 'Agent is reasoning…', kind: 'info' };
+  if (msg.startsWith('✓')) return { text: msg, kind: 'success' };
   if (msg.includes('Demo started')) return { text: msg, kind: 'info' };
   if (msg.includes('Run complete')) return { text: 'Workflow complete — all stages done. Check History for full trace.', kind: 'success' };
   return { text: msg, kind: 'info' };
@@ -55,7 +56,7 @@ const kindStyle: Record<string, string> = {
 
 export default function AgentOutput({ events }: AgentOutputProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [newestFirst, setNewestFirst] = useState(false);
+  const [newestFirst, setNewestFirst] = useState(true);
   const ordered = newestFirst ? [...events].reverse() : events;
 
   useEffect(() => {

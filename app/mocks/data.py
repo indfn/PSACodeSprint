@@ -201,7 +201,7 @@ def get_container_data(vessel_id: str = "MV PACIFIC STAR", run_id: str = "") -> 
 # ---------------------------------------------------------------------------
 
 TRUCK_DATA = {
-    "available_trucks": 50,
+    "available_trucks": 40,
     "total_fleet": 55,
     "transit_time_minutes": 90,
     "road_conditions": {

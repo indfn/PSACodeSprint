@@ -22,6 +22,7 @@ const EVENT_TYPES = [
   'agent_thinking',
   'tool_call',
   'tool_result',
+  'tool_confirmation',
 ];
 
 export function connectSSE(

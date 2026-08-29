@@ -763,15 +763,44 @@ async def tool_node(state: dict[str, Any]) -> dict[str, Any]:
                     pass
             elif name == "update_tuas_loading_sequence":
                 ctx["tuas_sequence"] = serialised["output"]
+                try:
+                    from app.agent.sse import broadcaster
+                    _tout = serialised["output"]
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(broadcaster.publish(state.get("run_id", ""), "tool_confirmation", {"tool": "update_tuas_loading_sequence", "message": f"Tuas QC sequence updated for {_tout.get('vessel_id', '?')}, margin {_tout.get('margin_before_departure_minutes', '?')}min", "status": "updated"}))
+                    except RuntimeError:
+                        pass
+                except Exception:
+                    pass
             elif name == "dispatch_road_itt":
                 ctx["dispatched"] = True
                 ctx["dispatch_result"] = serialised["output"]
-                # delta dispatch detection
                 if "delta" in str(serialised["output"]).lower() or ctx.get("deviation_log"):
                     ctx["delta_dispatched"] = True
+                try:
+                    from app.agent.sse import broadcaster
+                    _dout = serialised["output"]
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(broadcaster.publish(state.get("run_id", ""), "tool_confirmation", {"tool": "dispatch_road_itt", "message": f"Dispatched {_dout.get('num_trucks', '?')} trucks, {_dout.get('total_trips', '?')} trips, ETA {_dout.get('eta', '?')}", "status": "dispatched"}))
+                    except RuntimeError:
+                        pass
+                except Exception:
+                    pass
             elif name == "request_feeder_hold":
                 ctx["feeder_hold_result"] = serialised["output"]
                 ctx["feeder_hold_hours"] = serialised["output"].get("hold_hours", args.get("hold_hours", 0))
+                try:
+                    from app.agent.sse import broadcaster
+                    _hout = serialised["output"]
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(broadcaster.publish(state.get("run_id", ""), "tool_confirmation", {"tool": "request_feeder_hold", "message": f"Feeder hold {_hout.get('hold_hours', '?')}h requested, tidal risk: {_hout.get('tidal_risk', '?')}, operator: {_hout.get('operator_response', '?')}", "status": _hout.get("status", "pending")}))
+                    except RuntimeError:
+                        pass
+                except Exception:
+                    pass
             elif name == "notify_parties":
                 # notification log
                 pass

@@ -224,6 +224,12 @@ export default function NexusDashboard() {
           break;
         }
 
+        case 'tool_confirmation': {
+          const msg = (data.message as string) || `${data.tool}: ${data.status}`;
+          setEvents((prev) => [...prev, { timestamp: ts, message: `✓ ${msg}` }]);
+          break;
+        }
+
         case 'agent_thinking':
           setEvents((prev) => [...prev, { timestamp: ts, message: `Agent reasoning: ${((data.messages as unknown) || data.step || JSON.stringify(data)).toString().slice(0,200)}` }]);
           break;

@@ -50,8 +50,8 @@ class PB12Scenario:
     container_count: Dist = field(default_factory=lambda: Dist(120, 15, 80, 150))
     dg_count: Dist = field(default_factory=lambda: Dist(3, 1, 1, 5))
     priority_ratio: Dist = field(default_factory=lambda: Dist(0.375, 0.05, 0.25, 0.5))
-    # Truck distributions
-    available_trucks: Dist = field(default_factory=lambda: Dist(48, 5, 20, 55))
+    # Truck distributions — realistic: 65-80% available (rest in maintenance/off-shift)
+    available_trucks: Dist = field(default_factory=lambda: Dist(40, 5, 30, 48))
     total_fleet: int = 55
     transit_time_min: Dist = field(default_factory=lambda: Dist(90, 10, 60, 120))
     # Feeder distributions
@@ -71,7 +71,7 @@ PB12_SCENARIOS: dict[str, PB12Scenario] = {
         name="Nominal",
         description="Clean data, all systems healthy. Standard 80/40 split.",
         container_count=Dist(120, 15, 100, 140),
-        available_trucks=Dist(48, 5, 40, 55),
+        available_trucks=Dist(40, 4, 34, 46),
         feeder_occupancy_teu=Dist(620, 80, 500, 750),
         confidence_initial=Dist(0.92, 0.02, 0.88, 0.95),
         mutations=[],
@@ -81,7 +81,7 @@ PB12_SCENARIOS: dict[str, PB12Scenario] = {
         name="Feeder Deviation",
         description="Feeder berth conflict detected during monitor check.",
         container_count=Dist(120, 8, 110, 130),
-        available_trucks=Dist(42, 5, 35, 50),
+        available_trucks=Dist(36, 4, 30, 42),
         feeder_occupancy_teu=Dist(620, 50, 550, 700),
         confidence_initial=Dist(0.86, 0.03, 0.82, 0.90),
         mutations=["feeder_berth_conflict"],
@@ -91,7 +91,7 @@ PB12_SCENARIOS: dict[str, PB12Scenario] = {
         name="Stale Data",
         description="PPT CITOS data is 25+ minutes old. Guardrails fire.",
         container_count=Dist(100, 15, 80, 120),
-        available_trucks=Dist(35, 8, 25, 45),
+        available_trucks=Dist(32, 5, 25, 40),
         feeder_occupancy_teu=Dist(550, 80, 400, 650),
         confidence_initial=Dist(0.80, 0.03, 0.75, 0.85),
         mutations=["stale_data"],
@@ -102,7 +102,7 @@ PB12_SCENARIOS: dict[str, PB12Scenario] = {
         name="Escalation",
         description="Low confidence + low trucks. Triggers HITL-5 escalation.",
         container_count=Dist(135, 12, 120, 150),
-        available_trucks=Dist(30, 8, 20, 40),
+        available_trucks=Dist(28, 5, 20, 36),
         feeder_occupancy_teu=Dist(700, 60, 600, 800),
         confidence_initial=Dist(0.68, 0.05, 0.60, 0.78),
         mutations=["low_trucks"],

@@ -118,7 +118,20 @@ class _MockProvider:
                         tool_calls.append({"id": "call_dispatch", "type": "function", "function": {"name": "dispatch_road_itt", "arguments": json.dumps({"num_trucks": 20, "route": "PPT→West Coast Hwy→AYE→Tuas", "container_ids": ids})}})
             if "request_feeder_hold" not in succeeded_tools and "request_feeder_hold" in available:
                 if "HITL-3" in approved or "hitl_3" in approved:
-                    tool_calls.append({"id": "call_hold", "type": "function", "function": {"name": "request_feeder_hold", "arguments": json.dumps({"feeder_id": "FEEDER ATLANTIC-03", "hold_hours": 1.0})}})
+                    # Compute hold hours from context: how long until sea ITT containers arrive
+                    # Default 1h if no data available
+                    _hold_hours = 1.0
+                    try:
+                        _split = ctx.get("split_result", {}) or {}
+                        _sea_eta_str = _split.get("sea_eta", "2026-08-19T16:30:00+08:00")
+                        from datetime import datetime as _dt
+                        _sea_eta = _dt.fromisoformat(_sea_eta_str.replace("Z", "+00:00"))
+                        _latest_dep = _dt.fromisoformat("2026-08-19T16:00:00+08:00")
+                        _diff_h = (_sea_eta - _latest_dep).total_seconds() / 3600
+                        _hold_hours = max(0.5, min(4.0, round(_diff_h, 1)))
+                    except Exception:
+                        _hold_hours = 1.0
+                    tool_calls.append({"id": "call_hold", "type": "function", "function": {"name": "request_feeder_hold", "arguments": json.dumps({"feeder_id": "FEEDER ATLANTIC-03", "hold_hours": _hold_hours})}})
 
         # Delta dispatch after deviation + HITL-5 approved
         if ctx.get("deviation_log") and ("HITL-5" in approved or "hitl_5" in approved) and "dispatch_road_itt" in succeeded_tools and not ctx.get("delta_dispatched"):

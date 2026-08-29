@@ -71,10 +71,10 @@ class TestRoadITTCapacity:
         r06 = await tool.call(terminal="PPT", time_window_start="2026-08-19T06:30:00+08:00", time_window_end="2026-08-19T08:30:00+08:00", _run_id="r06")
         r09 = await tool.call(terminal="PPT", time_window_start="2026-08-19T09:30:00+08:00", time_window_end="2026-08-19T11:30:00+08:00", _run_id="r09")
         r13 = await tool.call(terminal="PPT", time_window_start="2026-08-19T13:00:00+08:00", time_window_end="2026-08-19T15:00:00+08:00", _run_id="r13")
-        # _fleet_for_hour: 6-9am=45, 9-12=50, 12-15=50
+        # _fleet_for_hour: 6-9am=45, 9-12=40, 12-15=40
         assert r06.output["available_trucks"] == 45
-        assert r09.output["available_trucks"] == 50
-        assert r13.output["available_trucks"] == 50
+        assert r09.output["available_trucks"] == 40
+        assert r13.output["available_trucks"] == 40
         assert len({r06.output["available_trucks"], r09.output["available_trucks"], r13.output["available_trucks"]}) > 1
 
     @pytest.mark.asyncio

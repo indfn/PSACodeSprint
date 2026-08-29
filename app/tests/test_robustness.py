@@ -59,7 +59,7 @@ class TestS1Nominal:
         t2 = RoadITTCapacityTool()
         r2 = asyncio.run(t2.call(terminal="PPT", time_window_start="2026-08-19T11:00:00+08:00", time_window_end="2026-08-19T18:00:00+08:00", _run_id=run_id))
         assert r2.output["status"] == "success"
-        assert r2.output["available_trucks"] == 50
+        assert r2.output["available_trucks"] == 40
         assert r2.output["transit_time_minutes"] in (90, 110)
         assert r2.metadata.get("fallback_used") is not True
         assert r2.output.get("fallback_used") is not True
