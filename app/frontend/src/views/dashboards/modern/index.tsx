@@ -8,13 +8,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { RotateCcw, Zap, Radio } from 'lucide-react';
+import { RotateCcw, Zap, Play } from 'lucide-react';
 import SystemStatusCard from '@/components/nexus/SystemStatusCard';
 import AgentOutput, { AgentEvent } from '@/components/nexus/AgentOutput';
 import HitlCard, { HitlGateInfo } from '@/components/nexus/HitlCard';
 import CostBreakdown from '@/components/nexus/CostBreakdown';
 import WorkflowProgress from '@/components/nexus/WorkflowProgress';
-import ProblemBar from '@/components/nexus/ProblemBar';
 import { useSSE, SSEEvent } from '@/hooks/use-sse';
 import {
   getContainerData,
@@ -26,6 +25,7 @@ import {
   initializeSession,
   getScenarios,
   getActiveRun,
+  simulateWebhook,
   completeProblem,
   type ContainerData,
   type TruckData,
@@ -38,6 +38,11 @@ const FALLBACK_SCENARIOS = [
   { id: 'deviation', name: 'Deviation' },
   { id: 'stale', name: 'Stale Data' },
   { id: 'escalation', name: 'Escalation' },
+];
+
+const PROBLEMS = [
+  { id: 'pb-12-itt', name: 'ITT Coordination' },
+  { id: 'pb-01-berth', name: 'Berth Reassignment' },
 ];
 
 const PROBLEM_NAMES: Record<string, string> = {
@@ -69,6 +74,7 @@ export default function NexusDashboard() {
   const [confidence, setConfidence] = useState<number | null>(null);
   const [riskScore, setRiskScore] = useState<number | null>(null);
   const [edgeLoading, setEdgeLoading] = useState<string | null>(null);
+  const [simulating, setSimulating] = useState(false);
 
   // Poll active-run to sync across all instances
   const pollActiveRun = useCallback(async () => {
@@ -324,25 +330,33 @@ export default function NexusDashboard() {
 
   useSSE(runId, handleSSEEvent);
 
-  // Called by ProblemBar when user clicks Start
-  const handleRunStarted = useCallback((newRunId: string, problemId: string) => {
-    setRunId(newRunId);
-    setActiveProblem(problemId);
-    setEvents([]);
-    setHitlGate(null);
-    setConfidence(null);
-    setRiskScore(null);
-    resetMocks().catch(() => {});
-    initializeSession()
-      .then((init) => {
-        sessionStorage.setItem('nexus_init_data', JSON.stringify(init));
-        setContainers(init.containers);
-        setTrucks(init.trucks);
-        setFeeder(init.feeder);
-        setQc(init.qc);
-      })
-      .catch(() => {});
-  }, []);
+  async function handleSimulate() {
+    setSimulating(true);
+    try {
+      const res = await simulateWebhook(activeProblem);
+      if (res.run_id) {
+        setRunId(res.run_id);
+        setEvents([]);
+        setHitlGate(null);
+        setConfidence(null);
+        setRiskScore(null);
+        resetMocks().catch(() => {});
+        initializeSession()
+          .then((init) => {
+            sessionStorage.setItem('nexus_init_data', JSON.stringify(init));
+            setContainers(init.containers);
+            setTrucks(init.trucks);
+            setFeeder(init.feeder);
+            setQc(init.qc);
+          })
+          .catch(() => {});
+      }
+    } catch (err) {
+      console.error('Simulate failed:', err);
+    } finally {
+      setSimulating(false);
+    }
+  }
 
   async function handleReset() {
     await resetMocks();
@@ -373,7 +387,6 @@ export default function NexusDashboard() {
     }
   }
 
-  const isIdle = !runId;
   const containerStatus =
     !containers ? 'amber' :
     containers.total_containers > 0
@@ -389,9 +402,6 @@ export default function NexusDashboard() {
 
   return (
     <div className="space-y-3">
-      {/* ProblemBar — always visible at top */}
-      <ProblemBar onRunStarted={handleRunStarted} activeRunProblemId={runId ? activeProblem : null} />
-
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -412,6 +422,20 @@ export default function NexusDashboard() {
 
       {/* Action bar */}
       <div className="flex flex-wrap items-center gap-2">
+        <Select value={activeProblem} onValueChange={(v) => v && setActiveProblem(v)}>
+          <SelectTrigger className="h-8 w-[160px]">
+            <SelectValue placeholder="Problem">
+              {PROBLEMS.find((p) => p.id === activeProblem)?.name}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {PROBLEMS.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select value={scenario} onValueChange={(v) => v && setScenario(v)}>
           <SelectTrigger className="h-8 w-[130px]">
             <SelectValue placeholder="Scenario">
@@ -426,11 +450,20 @@ export default function NexusDashboard() {
             ))}
           </SelectContent>
         </Select>
+        <Button
+          size="sm"
+          disabled={simulating || !!runId}
+          onClick={handleSimulate}
+          className="gap-1.5"
+        >
+          <Play size={14} />
+          {simulating ? 'Starting...' : 'Simulate Webhook'}
+        </Button>
         <div className="h-4 w-px bg-border" />
         <Button
           size="sm"
           variant="outline"
-          disabled={!!edgeLoading || isIdle}
+          disabled={!!edgeLoading || !runId}
           onClick={() => handleEdgeCase('berth_conflict')}
           className="gap-1.5"
         >
@@ -455,41 +488,22 @@ export default function NexusDashboard() {
       <div className="grid grid-cols-12 gap-4">
         {/* Left column: HITL + Agent output */}
         <div className="col-span-12 lg:col-span-8 space-y-4">
-          {isIdle ? (
-            /* Idle state: "Waiting for event" placeholder */
-            <div className="rounded-xl border bg-card px-4 py-8 flex flex-col items-center justify-center text-center space-y-3 min-h-[180px]">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Radio size={16} className="animate-pulse" />
-                <span className="text-sm font-medium">Waiting for event</span>
-              </div>
-              <p className="text-xs text-muted-foreground max-w-[280px]">
-                Select a problem from the bar above and click <span className="font-medium">Start</span> to simulate a webhook event.
-              </p>
-              <div className="flex items-center gap-4 text-[10px] text-muted-foreground pt-2">
-                <span>All instances share this state</span>
-                <span>·</span>
-                <span>One active run at a time</span>
-              </div>
-            </div>
-          ) : (
-            /* Running state: live HITL card */
-            <HitlCard
-              gate={hitlGate}
-              runId={runId || ''}
-              onResponded={() => setHitlGate(null)}
-              onNextGate={(next) => {
-                if (next) {
-                  setHitlGate(next);
-                  if (typeof (next.data as Record<string, unknown>).confidence === 'number') setConfidence((next.data as Record<string, unknown>).confidence as number);
-                  if (typeof (next.data as Record<string, unknown>).risk_score === 'number') setRiskScore((next.data as Record<string, unknown>).risk_score as number);
-                  applyCostFromPayload(next.data);
-                } else {
-                  setHitlGate(null);
-                  setEvents((prev) => [...prev, { timestamp: new Date().toISOString(), message: 'HITL approved — proceeding' }]);
-                }
-              }}
-            />
-          )}
+          <HitlCard
+            gate={hitlGate}
+            runId={runId || ''}
+            onResponded={() => setHitlGate(null)}
+            onNextGate={(next) => {
+              if (next) {
+                setHitlGate(next);
+                if (typeof (next.data as Record<string, unknown>).confidence === 'number') setConfidence((next.data as Record<string, unknown>).confidence as number);
+                if (typeof (next.data as Record<string, unknown>).risk_score === 'number') setRiskScore((next.data as Record<string, unknown>).risk_score as number);
+                applyCostFromPayload(next.data);
+              } else {
+                setHitlGate(null);
+                setEvents((prev) => [...prev, { timestamp: new Date().toISOString(), message: 'HITL approved — proceeding' }]);
+              }
+            }}
+          />
 
           <AgentOutput events={events} />
         </div>
