@@ -836,10 +836,23 @@ async def run_event(payload: dict):
 
     # Set scenario distribution for this run
     import time
-    from app.mocks.scenarios import set_scenario
+    from app.mocks.scenarios import set_scenario, PB12_SCENARIOS, PB01_SCENARIOS
     from app.agent.problem_switcher import get_active_problem_id
     pid = get_active_problem_id()
     set_scenario(pid, scenario_id, seed=int(time.time_ns()))
+
+    # Auto-inject scenario mutations (feeder_berth_conflict, stale_data, etc.)
+    try:
+        from app.tools.edge_cases import inject_feeder_berth_conflict, inject_stale_data
+        sc = (PB12_SCENARIOS if pid.startswith("pb-12") else PB01_SCENARIOS).get(scenario_id)
+        if sc and hasattr(sc, 'mutations'):
+            for mut in sc.mutations:
+                if mut == "feeder_berth_conflict":
+                    inject_feeder_berth_conflict(run_id="")
+                elif mut == "stale_data":
+                    inject_stale_data(getattr(sc, 'stale_minutes', 25), run_id="")
+    except Exception:
+        pass
 
     try:
         event = ITTCoordinationEvent(**event_data)
