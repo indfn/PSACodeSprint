@@ -23,15 +23,30 @@ const STAGES: StageDef[] = [
   { id: 'complete', label: 'Complete', short: 'Done' },
 ];
 
-function getCurrentStageIndex(hitlGateId: string | null, events: Array<{message:string}>, status: string): number {
+function getCurrentStageIndex(hitlGateId: string | null, events: Array<{message:string}>, status: string, hitlData?: Record<string, unknown> | null): number {
   if (status === 'completed') return STAGES.length - 1;
   if (status === 'idle' || (!hitlGateId && events.length === 0)) return 0; // waiting at Event
+  const lastMsg = events[events.length - 1]?.message || '';
   if (hitlGateId === 'HITL-1') return 3;
   if (hitlGateId === 'HITL-2') return 5;
   if (hitlGateId === 'HITL-3') return 7;
   if (hitlGateId === 'HITL-4') return 9;
-  // HITL-5 is emergency escalation — don't advance progress, fall through to event-based logic
-  const lastMsg = events[events.length - 1]?.message || '';
+  if (hitlGateId === 'HITL-5') {
+    const stage = (hitlData?.triggered_at_stage as string) || '';
+    if (stage.includes('Monitor')) return 10;
+    if (stage.includes('After HITL-4')) return 9;
+    if (stage.includes('After HITL-3')) return 7;
+    if (stage.includes('After HITL-2')) return 5;
+    if (stage.includes('After HITL-1')) return 3;
+    if (stage.includes('Split')) return 2;
+    // Fallback to lastMsg inference
+    if (lastMsg.includes('monitor') || lastMsg.includes('Deviation')) return 10;
+    if (lastMsg.includes('HITL-4')) return 9;
+    if (lastMsg.includes('HITL-3')) return 7;
+    if (lastMsg.includes('HITL-2')) return 5;
+    if (lastMsg.includes('HITL-1')) return 3;
+    return 2;
+  }
   if (lastMsg.includes('HITL-1') || lastMsg.includes('split')) return 3;
   if (lastMsg.includes('dispatch')) return 4;
   if (lastMsg.includes('HITL-2')) return 5;
@@ -47,12 +62,12 @@ function getCurrentStageIndex(hitlGateId: string | null, events: Array<{message:
   return events.length === 0 ? 0 : 1;
 }
 
-export function getWorkflowStage(hitlGateId: string | null, events: Array<{message:string}>, status: string): WorkflowStage {
-  return STAGES[getCurrentStageIndex(hitlGateId, events, status)]?.id || 'event';
+export function getWorkflowStage(hitlGateId: string | null, events: Array<{message:string}>, status: string, hitlData?: Record<string, unknown> | null): WorkflowStage {
+  return STAGES[getCurrentStageIndex(hitlGateId, events, status, hitlData)]?.id || 'event';
 }
 
-export default function WorkflowProgress({ hitlGateId, events, status }: { hitlGateId: string | null; events: Array<{message:string,timestamp:string}>; status?: string }) {
-  const current = getCurrentStageIndex(hitlGateId, events, status || '');
+export default function WorkflowProgress({ hitlGateId, hitlData, events, status }: { hitlGateId: string | null; hitlData?: Record<string, unknown> | null; events: Array<{message:string,timestamp:string}>; status?: string }) {
+  const current = getCurrentStageIndex(hitlGateId, events, status || '', hitlData || null);
 
   return (
     <div className="rounded-xl border bg-card p-3">

@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { HelpCircle, TrendingDown, TrendingUp, Ship, Truck, Anchor, Container } from 'lucide-react';
+import { HelpCircle, TrendingDown, TrendingUp, Ship, Truck, Anchor, Container, AlertTriangle } from 'lucide-react';
 
 interface Alternative { road_containers: number; sea_containers: number; total_transport_cost: number; road_breakdown: string; risk: string; road_cost: number; sea_terminal_handling_cost: number; }
 
@@ -133,14 +133,59 @@ export default function CostBreakdown({ roadCost, seaHandling, total, baseline, 
           )}
           <div className="flex justify-between items-center border-t pt-2 text-xs text-muted-foreground">
             <span>Completion: {seq.estimated_loading_completion ? fmtTime(String(seq.estimated_loading_completion)) : '—'}</span>
-            <span>Margin: {String(seq.margin_before_departure_minutes)}m</span>
+            <span>Departure in {String(seq.margin_before_departure_minutes)}m</span>
           </div>
         </CardContent>
       </Card>
     );
   }
 
-  // Default: HITL-1 / HITL-5 / no gate — cost split view
+  // HITL-5: Emergency re-split impact
+  if (gid === 'hitl_5' || (gid === '' && d.is_emergency)) {
+    const prev = (d.previous_split as Record<string, unknown>) || null;
+    const nw = (d.new_split as Record<string, unknown>) || null;
+    const prevCost = (prev?.total_transport_cost as number) ?? 0;
+    const newCost = (nw?.total_transport_cost as number) ?? 0;
+    const delta = newCost - prevCost;
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium flex items-center gap-2 text-red-600"><AlertTriangle size={14}/>Emergency Re-Split Impact</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {prev && nw ? (
+            <div className="grid grid-cols-3 gap-2 text-xs text-center">
+              <div className="rounded-lg border border-red-200 dark:border-red-900 p-2">
+                <p className="text-muted-foreground">Previous</p>
+                <p className="font-bold">{String(prev.road_containers ?? '?')}R / {String(prev.sea_containers ?? '?')}S</p>
+                <p className="text-muted-foreground">{fmtMoney(prevCost)}</p>
+              </div>
+              <div className="rounded-lg border-2 border-red-400 dark:border-red-700 p-2 bg-red-50/50 dark:bg-red-950/30">
+                <p className="text-red-600 font-medium">New</p>
+                <p className="font-bold">{String(nw.road_containers ?? '?')}R / {String(nw.sea_containers ?? '?')}S</p>
+                <p className="text-muted-foreground">{fmtMoney(newCost)}</p>
+              </div>
+              <div className="rounded-lg border p-2">
+                <p className="text-muted-foreground">Delta</p>
+                <p className={`font-bold ${delta > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{delta > 0 ? '+' : ''}{fmtMoney(delta)}</p>
+                <p className="text-muted-foreground">{delta > 0 ? '↑ cost' : '↓ savings'}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="text-xs text-muted-foreground">Emergency re-split data unavailable.</div>
+          )}
+          {String(d.reason || '') && (
+            <p className="text-xs text-muted-foreground"><span className="font-medium">Reason:</span> {String(d.reason)}</p>
+          )}
+          {String(d.delta_trucks || '') && (
+            <p className="text-xs text-muted-foreground"><span className="font-medium">Trucks:</span> {String(d.delta_trucks)}</p>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Default: HITL-1 / no gate — cost split view
   return (
     <Card>
       <CardHeader className="pb-2">

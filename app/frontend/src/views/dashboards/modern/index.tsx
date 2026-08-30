@@ -12,6 +12,7 @@ import { RotateCcw, Zap, Play } from 'lucide-react';
 import SystemStatusCard from '@/components/nexus/SystemStatusCard';
 import AgentOutput, { AgentEvent } from '@/components/nexus/AgentOutput';
 import HitlCard, { HitlGateInfo } from '@/components/nexus/HitlCard';
+import EscalationPopup from '@/components/nexus/EscalationPopup';
 import CostBreakdown from '@/components/nexus/CostBreakdown';
 import WorkflowProgress from '@/components/nexus/WorkflowProgress';
 import EventCard from '@/components/nexus/EventCard';
@@ -28,6 +29,7 @@ import {
   getScenarios,
   getActiveRun,
   getActiveProblem,
+  getRegistry,
   createEvent,
   switchProblem,
   completeProblem,
@@ -35,6 +37,7 @@ import {
   type TruckData,
   type FeederData,
   type QcData,
+  type RegistryProblem,
 } from '@/api/nexus';
 
 const FALLBACK_SCENARIOS = [
@@ -44,18 +47,14 @@ const FALLBACK_SCENARIOS = [
   { id: 'escalation', name: 'Low Trucks' },
 ];
 
-const PROBLEMS = [
-  { id: 'pb-12-itt', name: 'ITT Coordination' },
-  { id: 'pb-01-berth', name: 'Berth Reassignment' },
+const FALLBACK_PROBLEMS: RegistryProblem[] = [
+  { problem_id: 'pb-12-itt', name: 'ITT Coordination', description: '', status: 'idle', short_id: 'pb-12' },
+  { problem_id: 'pb-01-berth', name: 'Berth Reassignment', description: '', status: 'idle', short_id: 'pb-01' },
 ];
-
-const PROBLEM_NAMES: Record<string, string> = {
-  'pb-12-itt': 'ITT Coordination',
-  'pb-01-berth': 'Berth Reassignment',
-};
 
 export default function NexusDashboard() {
   const [activeProblem, setActiveProblem] = useState('pb-12-itt');
+  const [problems, setProblems] = useState<RegistryProblem[]>(FALLBACK_PROBLEMS);
   const [scenarios, setScenarios] = useState(FALLBACK_SCENARIOS);
   const [scenario, setScenario] = useState(FALLBACK_SCENARIOS[0].id);
   const [runId, setRunId] = useState<string | null>(null);
@@ -143,6 +142,17 @@ export default function NexusDashboard() {
       .catch(() => {});
   }, []);
 
+  // Fetch all problems from registry on mount
+  useEffect(() => {
+    getRegistry()
+      .then((res) => {
+        if (res.problems && res.problems.length) {
+          setProblems(res.problems);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Load scenarios for active problem
   useEffect(() => {
     getScenarios().then((list) => {
@@ -189,13 +199,39 @@ export default function NexusDashboard() {
 
       switch (event.event) {
         case 'trace_entry': {
-          const msg = (data.message as string) || (data.action as string) || (data.node ? `${data.node}:${data.action}` : JSON.stringify(data));
-          const resultMsg = (data.result as Record<string, unknown>)?.tool ? ` tool=${(data.result as Record<string, unknown>).tool}` : '';
+          // Skip show_card trace entries — hitl_card SSE handles those
+          if (data.node === 'hitl' && data.action === 'show_card') break;
+          const resObj = data.result as Record<string, unknown> | undefined;
+          // Build rich message from trace data
+          let msg = '';
+          if (data.node === 'agent' && data.action === 'reason') {
+            const tc = resObj?.tool_calls as Array<{name: string}> | undefined;
+            const content = (resObj?.content as string) || '';
+            if (tc && tc.length > 0) {
+              msg = `Agent reasoning → calling ${tc.map((t) => t.name).join(', ')}`;
+            } else if (content) {
+              msg = `Agent: ${content.slice(0, 120)}`;
+            } else {
+              msg = 'Agent reasoning…';
+            }
+          } else if (data.node === 'tool' && data.action === 'call_tool') {
+            const toolName = resObj?.tool || 'tool';
+            msg = `→ ${toolName}`;
+          } else if (data.node === 'tool' && data.action === 'result') {
+            const toolName = resObj?.tool || 'tool';
+            msg = `← ${toolName} completed`;
+          } else if (data.node === 'hitl') {
+            msg = data.action === 'approve' ? 'HITL approved' : data.action === 'reject' ? 'HITL rejected' : `HITL ${data.action}`;
+          } else if (data.node === 'monitor') {
+            msg = `Monitor: ${data.action}`;
+          } else {
+            msg = (data.message as string) || (data.action as string) || `${data.node}:${data.action}`;
+          }
+          const resultMsg = resObj?.tool ? ` tool=${resObj.tool}` : '';
           setEvents((prev) => [...prev, { timestamp: ts, message: `${msg}${resultMsg}` }]);
           if (typeof data.risk_score === 'number') setRiskScore(data.risk_score);
-          if (typeof (data.result as Record<string, unknown>)?.risk_score === 'number') setRiskScore((data.result as Record<string, unknown>).risk_score as number);
+          if (typeof resObj?.risk_score === 'number') setRiskScore(resObj.risk_score as number);
           if (typeof data.confidence === 'number') setConfidence(data.confidence);
-          const resObj = data.result as Record<string, unknown> | undefined;
           if (resObj && typeof resObj.confidence === 'number') setConfidence(resObj.confidence as number);
           applyCostFromPayload(data);
           if (resObj) applyCostFromPayload(resObj);
@@ -256,13 +292,19 @@ export default function NexusDashboard() {
           applyCostFromPayload(data);
           if (typeof (data.risk_score as number) === 'number') setRiskScore(data.risk_score as number);
           if (typeof (out.risk_score as number) === 'number') setRiskScore(out.risk_score as number);
-          // Populate status cards as agent ingests data
+          // Populate status cards directly from tool output (not refetch, to avoid RNG desync)
           if (tool === 'get_itt_candidates') {
-            getContainerData().then(setContainers).catch(() => {});
+            const c = out as unknown as ContainerData;
+            if (c.total_containers || c.total_teu) setContainers(c);
+            else getContainerData().then(setContainers).catch(() => {});
           } else if (tool === 'check_road_itt_capacity') {
-            getTruckData().then(setTrucks).catch(() => {});
+            const t = out as unknown as TruckData;
+            if (t.available_trucks !== undefined) setTrucks(t);
+            else getTruckData().then(setTrucks).catch(() => {});
           } else if (tool === 'check_sea_itt_capacity') {
-            getFeederData().then(setFeeder).catch(() => {});
+            const f = out as unknown as FeederData;
+            if (f.feeder_id) setFeeder(f);
+            else getFeederData().then(setFeeder).catch(() => {});
           } else if (tool === 'compute_itt_split' || tool === 'update_tuas_loading_sequence') {
             getQcData().then(setQc).catch(() => {});
           }
@@ -413,15 +455,15 @@ export default function NexusDashboard() {
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold tracking-tight">Nexus Dashboard</h1>
           <Badge variant="secondary" className="text-xs">
-            {PROBLEM_NAMES[activeProblem] || activeProblem}
+            {problems.find((p) => p.problem_id === activeProblem)?.name || activeProblem}
           </Badge>
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="text-[10px]">
             Confidence: {confidence !== null ? `${Math.round((confidence > 1 ? confidence : confidence * 100))}%` : '—'}
           </Badge>
-          <Badge variant="outline" className="text-[10px]">
-            Risk: {riskScore !== null ? (riskScore >= 0.7 ? 'High' : riskScore >= 0.4 ? 'Medium' : 'Low') : '—'}
+          <Badge variant={riskScore !== null && riskScore > 0.35 ? 'destructive' : riskScore !== null && riskScore > 0.15 ? 'secondary' : 'outline'} className="text-[10px]">
+            Risk: {riskScore !== null ? (riskScore > 0.35 ? 'High' : riskScore > 0.15 ? 'Medium' : 'Low') : '—'}
           </Badge>
         </div>
       </div>
@@ -436,12 +478,12 @@ export default function NexusDashboard() {
         }}>
           <SelectTrigger className="h-8 w-[160px]">
             <SelectValue>
-              {PROBLEMS.find((p) => p.id === activeProblem)?.name || activeProblem}
+              {problems.find((p) => p.problem_id === activeProblem)?.name || activeProblem}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {PROBLEMS.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
+            {problems.map((p) => (
+              <SelectItem key={p.problem_id} value={p.problem_id}>
                 {p.name}
               </SelectItem>
             ))}
@@ -495,7 +537,7 @@ export default function NexusDashboard() {
         )}
       </div>
 
-      <WorkflowProgress hitlGateId={hitlGate?.gate_id || null} events={events} status={events.some(e=>e.message.includes('Run complete'))?'completed': hitlGate?'running' : events.length?'running':'idle'} />
+      <WorkflowProgress hitlGateId={hitlGate?.gate_id || null} hitlData={hitlGate?.data || null} events={events} status={events.some(e=>e.message.includes('Run complete'))?'completed': hitlGate?'running' : events.length?'running':'idle'} />
 
       {/* Main content — always renders the same layout */}
       <div className="grid grid-cols-12 gap-4">
@@ -511,6 +553,19 @@ export default function NexusDashboard() {
               onRunStarted={handleRunStarted}
             />
           ) : hitlGate ? (
+            hitlGate.gate_id === 'HITL-5' ? (
+              <EscalationPopup gate={hitlGate} runId={runId} onResolved={() => setHitlGate(null)} onNextGate={(next) => {
+                if (next) {
+                  setHitlGate(next);
+                  if (typeof (next.data as Record<string, unknown>).confidence === 'number') setConfidence((next.data as Record<string, unknown>).confidence as number);
+                  if (typeof (next.data as Record<string, unknown>).risk_score === 'number') setRiskScore((next.data as Record<string, unknown>).risk_score as number);
+                  applyCostFromPayload(next.data);
+                } else {
+                  setHitlGate(null);
+                  setEvents((prev) => [...prev, { timestamp: new Date().toISOString(), message: 'Escalation resolved — proceeding' }]);
+                }
+              }} />
+            ) : (
             /* HITL gate active: show approval card */
             <HitlCard
               gate={hitlGate}
@@ -528,6 +583,7 @@ export default function NexusDashboard() {
                 }
               }}
             />
+          )
           ) : events.length === 0 ? (
             /* Just started, no events yet: show webhook event received */
             <EventCard
@@ -563,12 +619,12 @@ export default function NexusDashboard() {
           <SystemStatusCard
             name="CITOS PPT"
             awaiting={!containers}
-            metric={`${containers?.total_containers ?? 0} / 140 TEU yard`}
-            value={containers?.total_containers ?? 0}
-            max={140}
+            metric={containers ? `Total ${containers.total_teu} TEU for Transfer` : '—'}
+            value={containers?.total_teu ?? 0}
+            max={containers?.total_teu ?? 1}
             status={containerStatus}
-            detail={containers ? `${containers.dg_containers} DG · ${containers.blocks_affected?.join(', ') || '4 blocks'} · ${containers.data_age_minutes < 10 ? `${containers.data_age_minutes.toFixed(1)}m fresh` : `${containers.data_age_minutes.toFixed(0)}m stale`}` : undefined}
-            tooltip="Yard utilization: containers / 140 TEU capacity. Green <10m fresh data, amber stale."
+            detail={containers ? `${containers.container_breakdown?.['40ft_feu'] ?? 0} · 40ft Containers\n${containers.container_breakdown?.['20ft_teu'] ?? 0} · 20ft Containers` : undefined}
+            tooltip={containers ? `ITT need: ${containers.container_breakdown?.['40ft_feu'] ?? 0}×40ft (×2 TEU) + ${containers.container_breakdown?.['20ft_teu'] ?? 0}×20ft = ${containers.total_teu} TEU · ${containers.dg_containers} DG · ${containers.blocks_affected?.join(', ') || '4 blocks'} · ${containers.data_age_minutes < 10 ? `${containers.data_age_minutes.toFixed(1)}m fresh` : `${containers.data_age_minutes.toFixed(0)}m stale`}` : 'ITT candidates from CITOS PPT'}
           />
           <SystemStatusCard
             name="OptETruck"
@@ -601,7 +657,7 @@ export default function NexusDashboard() {
               qc.qc_status.filter((q) => q.status === 'available').length >= qc.qc_count * 0.9 ? 'green' :
               qc.qc_status.some((q) => q.status === 'available') ? 'amber' : 'red'
             }
-            detail={qc ? `Berth B-03 • FIFO loading • 30 min margin to departure` : undefined}
+            detail={qc ? `Berth B-03 • FIFO loading • 30 min to departure` : undefined}
             tooltip="40 QCs at Tuas mega port. Sequence updated per ITT ETAs (road 14:30, sea 16:30)."
           />
         </div>

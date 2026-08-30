@@ -244,10 +244,18 @@ def get_truck_data(terminal: str = "PPT") -> dict:
         sc = PB12_SCENARIOS[_active_scenario_id]
         data["available_trucks"] = sc.available_trucks.sample_int(_rng)
         data["transit_time_minutes"] = sc.transit_time_min.sample_int(_rng)
-        # Recompute derived values
-        data["baseline_trips_all_120_containers"] = 80  # reference only
-        data["baseline_road_cost_all_120"] = 80 * COST_PARAMS["road_cost_per_trip"]
-        data["capacity_ratio"] = round(data["available_trucks"] / 80, 2)
+        # Compute baseline from queried container data, not hardcoded 80
+        try:
+            _cd = get_container_data()
+            _cb = _cd.get("container_breakdown", {})
+            _baseline_trips = int(_cb.get("40ft_feu", 0)) + int(_cb.get("20ft_teu", 0)) // 2
+            if _baseline_trips == 0:
+                _baseline_trips = data["available_trucks"]  # fallback
+        except Exception:
+            _baseline_trips = data["available_trucks"]
+        data["baseline_trips_all_120_containers"] = _baseline_trips
+        data["baseline_road_cost_all_120"] = _baseline_trips * COST_PARAMS["road_cost_per_trip"]
+        data["capacity_ratio"] = round(data["available_trucks"] / max(1, _baseline_trips), 2)
 
     return data
 
@@ -404,11 +412,17 @@ def compute_itt_split_default() -> dict:
     sea_handling_per = COST_PARAMS["sea_terminal_handling"]
 
     # Compute optimal split
+    # 40ft = 1 trip each, 20ft = 2 containers per trip
     total_trips_100pct_road = fortyft + twentyft // 2
-    max_road_trips = min(total_trips_100pct_road, available_trucks * 2)
-    road_containers = min(total_containers, max_road_trips)
+    # Max road containers limited by available trucks (each truck ~2 trips in time window)
+    max_road_containers = min(total_containers, available_trucks * 2)
+    # Split: prioritize 40ft first (1 trip each), then 20ft (2 per trip)
+    road_containers_40ft = min(fortyft, max_road_containers)
+    remaining_containers = max(0, max_road_containers - road_containers_40ft)
+    road_containers_20ft = min(twentyft, remaining_containers)
+    road_containers = road_containers_40ft + road_containers_20ft
     sea_containers = total_containers - road_containers
-    road_trips = fortyft + min(twentyft, road_containers - fortyft) // 2
+    road_trips = road_containers_40ft + (road_containers_20ft + 1) // 2  # ceiling division for odd 20ft
     road_cost = road_trips * cost_per_trip
     sea_handling = sea_containers * sea_handling_per
     total_cost = road_cost + sea_handling
@@ -420,7 +434,7 @@ def compute_itt_split_default() -> dict:
         "status": "success",
         "optimal_split": {
             "road_containers": road_containers,
-            "road_breakdown": f"{fortyft}x 40ft ({fortyft} trips) + {min(twentyft, road_containers - fortyft)}x 20ft ({(min(twentyft, road_containers - fortyft)) // 2} trips)",
+            "road_breakdown": f"{road_containers_40ft}x 40ft ({road_containers_40ft} trips) + {road_containers_20ft}x 20ft ({road_containers_20ft // 2} trips)",
             "road_trips": road_trips,
             "road_cost": road_cost,
             "sea_containers": sea_containers,

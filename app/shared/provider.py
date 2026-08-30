@@ -372,10 +372,11 @@ class GeminiProvider(LLMProvider):
         max_tokens: int = 4096,
     ) -> LLMResponse:
         from google import genai
+        from google.genai import types
 
         client = genai.Client(api_key=self.api_key)
 
-        # Convert messages to Gemini format
+        # Convert messages to Gemini format using types.Content
         contents = []
         system_instruction = None
         for msg in messages:
@@ -383,29 +384,29 @@ class GeminiProvider(LLMProvider):
                 system_instruction = msg["content"]
                 continue
             role = "model" if msg["role"] == "assistant" else "user"
-            contents.append({"role": role, "parts": [msg["content"]]})
+            contents.append(types.Content(role=role, parts=[types.Part(text=msg["content"])]))
 
-        # Convert tools to Gemini format (flat list) — handle OpenAI, flat, and already-adapted
+        # Convert tools to Gemini format using types.FunctionDeclaration
         gemini_tools = []
         if tools:
             function_declarations = []
             for tool in tools:
                 if "function" in tool:
                     fn = tool["function"]
-                    function_declarations.append({
-                        "name": fn["name"],
-                        "description": fn.get("description", ""),
-                        "parameters": fn.get("parameters", {}),
-                    })
+                    function_declarations.append(types.FunctionDeclaration(
+                        name=fn["name"],
+                        description=fn.get("description", ""),
+                        parameters=fn.get("parameters", {}),
+                    ))
                 elif "name" in tool:
-                    function_declarations.append({
-                        "name": tool["name"],
-                        "description": tool.get("description", ""),
-                        "parameters": tool.get("parameters", tool.get("input_schema", {})),
-                    })
+                    function_declarations.append(types.FunctionDeclaration(
+                        name=tool["name"],
+                        description=tool.get("description", ""),
+                        parameters=tool.get("parameters", tool.get("input_schema", {})),
+                    ))
                 else:
                     continue
-            gemini_tools = [{"function_declarations": function_declarations}]
+            gemini_tools = [types.Tool(function_declarations=function_declarations)]
 
         config = genai.types.GenerateContentConfig(
             temperature=temperature,
@@ -436,6 +437,15 @@ class GeminiProvider(LLMProvider):
                             "arguments": json.dumps(part.function_call.args or {}),
                         },
                     })
+
+        logger.info(
+            "GeminiProvider response: content_len=%d, tool_calls=%d, stop_reason=%s",
+            len(content) if content else 0,
+            len(tool_calls),
+            getattr(response, "stop_reason", "unknown"),
+        )
+        if not tool_calls and content:
+            logger.info("GeminiProvider content preview: %s", content[:500])
 
         return LLMResponse(
             content=content,

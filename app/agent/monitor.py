@@ -31,6 +31,13 @@ async def monitor_node(state: dict[str, Any]) -> dict[str, Any]:
     except Exception:
         pass
 
+    # Simulate monitoring query latency for demo
+    try:
+        from app.agent.mock_provider import _demo_delay
+        _demo_delay("tool")
+    except Exception:
+        pass
+
     # Re-query T3 with current_time = now
     feeder_id = ctx.get("feeder_id", "FEEDER ATLANTIC-03")
     if not feeder_id:
@@ -122,46 +129,10 @@ async def monitor_node(state: dict[str, Any]) -> dict[str, Any]:
                 new_out = new_res.output if hasattr(new_res, "output") else (new_res.get("output", {}) if isinstance(new_res, dict) else {})
                 if isinstance(new_out, dict):
                     opt = new_out.get("optimal_split", new_out)
-                    # Charter: berth conflict should re-optimise to 100/20 (70 trips, $11,200) not 80/40
-                    # Optimiser currently keeps 80/40 as optimal and adds 100/20 as alternative; fix here.
-                    if isinstance(opt, dict) and opt.get("road_containers") == 80 and constraints.get("berth_conflict"):
-                        # Find 100/20 in alternatives and promote it
-                        alts = new_out.get("alternatives", []) or []
-                        for alt in alts:
-                            if alt.get("road_containers") == 100 and alt.get("sea_containers") == 20:
-                                opt = alt
-                                break
-                        else:
-                            # Last-resort fallback: derive from cost_params if available
-                            road_cost = constraints.get("road_cost_per_trip", 150)
-                            handling = constraints.get("sea_terminal_handling", 35)
-                            opt = {
-                                "road_containers": 100,
-                                "road_breakdown": "40x 40ft (40 trips) + 60x 20ft (30 trips)",
-                                "road_trips": 70,
-                                "road_cost": 70 * road_cost,
-                                "sea_containers": 20,
-                                "sea_marginal_charter_cost": 0,
-                                "sea_terminal_handling_cost": 20 * handling,
-                                "total_transport_cost": 70 * road_cost + 20 * handling,
-                            }
+                    # Optimiser now sea-limits to 20 when berth_conflict from live API data (total-20), no hardcoded 100/20 promotion
                     ctx["split_result"] = opt
                     ctx["split_alternatives"] = new_out.get("alternatives", [])
                     ctx["cost_vs_baseline"] = new_out.get("cost_vs_baseline", ctx.get("cost_vs_baseline", {}))
-                    # Update cost_vs_baseline to reflect new opt if changed
-                    if isinstance(ctx["split_result"], dict) and ctx["split_result"].get("total_transport_cost") == 11200:
-                        # Recompute cost_vs_baseline for new opt
-                        ctx["cost_vs_baseline"] = {
-                            "baseline_all_road_cost": 12000,
-                            "baseline_all_road": 12000,
-                            "baseline": 12000,
-                            "baseline_all_road_trips": 80,
-                            "optimised_transport_cost": 11200,
-                            "optimised": 11200,
-                            "direct_transport_savings": 800,
-                            "transport_savings": 800,
-                            "savings": 800,
-                        }
                     ctx["timeline"] = new_out.get("timeline", ctx.get("timeline", {}))
                     ctx["roi"] = new_out.get("roi", ctx.get("roi", {}))
             except Exception as exc:
@@ -181,9 +152,14 @@ async def monitor_node(state: dict[str, Any]) -> dict[str, Any]:
                 emergency_card = build_emergency_resplit_card(state, deviation)
                 pending["approval_card"] = emergency_card
                 pending["emergency"] = True
+                pending["triggered_at_stage"] = "Monitor"
+                pending["trigger"] = "feeder_berth_conflict"
                 state["hitl_pending"] = pending
             except Exception:
-                state["hitl_pending"] = {**HITL5_FALLBACK, "approval_card": build_emergency_resplit_card(state, deviation)}
+                fb = {**HITL5_FALLBACK, "approval_card": build_emergency_resplit_card(state, deviation)}
+                fb["triggered_at_stage"] = "Monitor"
+                fb["trigger"] = "feeder_berth_conflict"
+                state["hitl_pending"] = fb
 
             # Trace deviation
             try:
@@ -251,9 +227,8 @@ async def monitor_node(state: dict[str, Any]) -> dict[str, Any]:
 
 def build_emergency_resplit_card(state: dict[str, Any], deviation: dict[str, Any]) -> dict[str, Any]:
     ctx = state.get("context", {}) or {}
-    prev = ctx.get("previous_split", {})
-    new = ctx.get("split_result", {})
-    # Cost impact
+    prev = ctx.get("previous_split", {}) or {}
+    new = ctx.get("split_result", {}) or {}
     cost_impact = "+$1,500 road cost but avoids $5,000 missed connection"
     try:
         prev_cost = prev.get("total_transport_cost", 10400) if isinstance(prev, dict) else 10400
@@ -262,13 +237,31 @@ def build_emergency_resplit_card(state: dict[str, Any], deviation: dict[str, Any
         cost_impact = f"+${diff} transport cost but avoids $5,000 missed connection"
     except Exception:
         pass
+    delta_str = "+4 trucks (10 additional trips)"
+    try:
+        if isinstance(prev, dict) and isinstance(new, dict):
+            prev_trips = int(prev.get("road_trips", 0) or 0)
+            new_trips = int(new.get("road_trips", 0) or 0)
+            d_trips = new_trips - prev_trips
+            if d_trips > 0:
+                # Trucks needed: ceil(trips / 2) assuming 2 trips per truck per wave, but at least 1
+                d_trucks = max(1, (d_trips + 1) // 2)
+                # Also consider container delta for display
+                prev_road = int(prev.get("road_containers", 0) or 0)
+                new_road = int(new.get("road_containers", 0) or 0)
+                d_road = new_road - prev_road
+                delta_str = f"+{d_trucks} trucks ({d_trips} additional trips, +{d_road} road containers)"
+            elif d_trips < 0:
+                delta_str = f"{d_trips} trips ({-d_trips} fewer)"
+    except Exception:
+        pass
     return {
         "title": "EMERGENCY RE-SPLIT REQUIRED",
         "reason": deviation.get("impact", "Feeder berth conflict — re-split required"),
         "previous_split": prev,
         "new_split": new,
         "cost_impact": cost_impact,
-        "delta_trucks": "+4 trucks (10 additional trips)",
+        "delta_trucks": delta_str,
         "confidence": state.get("confidence", 0.78),
         "deviation": deviation,
         "is_emergency": True,

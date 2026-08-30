@@ -48,7 +48,7 @@ def check_cost_exceeded(state: dict[str, Any], threshold_dollars: float = 10000)
         return False
 
 
-def check_data_stale(state: dict[str, Any], threshold_minutes: float = 30) -> bool:
+def check_data_stale(state: dict[str, Any], threshold_minutes: float = 20) -> bool:
     # Only check explicit data_age_minutes in tool outputs and injected stale flags.
     # Do NOT compare synthetic charter timestamps (2026-08-19) to real now (2026-08-27) — would always be stale.
     tool_results = state.get("tool_results", {}) or {}
@@ -132,17 +132,8 @@ def check_planner_conflict(state: dict[str, Any]) -> bool:
         return True
     if ctx.get("planner_recommendations_conflict") is True:
         return True
-    # Check hitl_history for conflicting decisions on same gate
-    history = state.get("hitl_history", []) or []
-    # If same gate has both approve and reject, conflict
-    seen: dict[str, set] = {}
-    for h in history:
-        gid = h.get("gate_id") if isinstance(h, dict) else getattr(h, "gate_id", None)
-        dec = h.get("decision") if isinstance(h, dict) else getattr(h, "decision", None)
-        if gid:
-            seen.setdefault(gid, set()).add(str(dec).lower())
-            if len(seen[gid]) > 1:
-                return True
+    # NOTE: Removed HITL history conflict check — reject followed by approve is a valid
+    # workflow (operator rejected, agent re-proposed, operator approved). Not a conflict.
     return False
 
 
@@ -150,7 +141,7 @@ TRIGGERS: dict[str, Callable[[dict[str, Any]], bool]] = {
     "low_confidence": lambda s: check_low_confidence(s, threshold=0.85),
     "feeder_hold_exceeded": lambda s: check_feeder_hold(s, threshold_hours=1.5),
     "cost_exceeded": lambda s: check_cost_exceeded(s, threshold_dollars=10000),
-    "data_stale": lambda s: check_data_stale(s, threshold_minutes=30),
+    "data_stale": lambda s: check_data_stale(s, threshold_minutes=20),
     "road_capacity_low": lambda s: check_road_capacity(s, threshold_ratio=0.6),
     "feeder_unresponsive": lambda s: check_feeder_unresponsive(s, threshold_minutes=15),
     "planner_conflict": check_planner_conflict,

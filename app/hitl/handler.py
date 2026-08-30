@@ -43,7 +43,17 @@ async def handle_hitl_response(
     gate_id = gate.get("gate_id", "HITL-1")
     gate_name = gate.get("gate_name", gate_id)
     timeout_action = gate.get("timeout_action", "escalate")
-
+    is_hitl5 = str(gate_id).lower().replace("-", "_") in ("hitl_5",)
+    reason_raw = decision.get("reason", "") if isinstance(decision, dict) else ""
+    if is_hitl5:
+        if not isinstance(reason_raw, str) or len(reason_raw.strip()) < 10:
+            try:
+                from app.agent.trace import log_trace as _lt
+                _lt(state, "hitl", "hitl5_validation_failed", {"gate_id": gate_id, "reason_len": len(reason_raw.strip()) if isinstance(reason_raw, str) else 0}, duration_ms=0)
+            except Exception:
+                pass
+            state["messages"].append({"role": "user", "content": f"HITL-5 requires at least 10 characters explaining what happened, impact, and what agent should do next. Got {len(reason_raw.strip()) if isinstance(reason_raw, str) else 0} chars. Please provide detailed instruction."})
+            return state
     # Normalise decision field
     d_raw = decision.get("decision") if isinstance(decision, dict) else str(decision)
     d = str(d_raw).lower() if d_raw is not None else ""
@@ -86,6 +96,23 @@ async def handle_hitl_response(
     except Exception:
         log_trace = lambda *a, **k: {}  # type: ignore
 
+    def _publish_resolved(decision_str: str) -> None:
+        """Publish hitl_resolved SSE event so frontend clears the HITL card."""
+        try:
+            from app.agent.sse import broadcaster
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(broadcaster.publish(
+                    state.get("run_id", ""),
+                    "hitl_resolved",
+                    {"gate_id": gate_id, "gate_name": gate_name, "decision": decision_str},
+                ))
+            except RuntimeError:
+                pass
+        except Exception:
+            pass
+
     if d == "approve":
         _append_history("approve")
         state["hitl_pending"] = None
@@ -116,47 +143,38 @@ async def handle_hitl_response(
             ctx = state.setdefault("context", {})
             ctx["dispatch_approved"] = True
 
+        _publish_resolved("approve")
         return state
 
     elif d == "reject":
         _append_history("reject")
         reason = decision.get("reason", "") if isinstance(decision, dict) else ""
         structured_log("hitl_reject", run_id=state.get("run_id", ""), step=gate_id, gate_id=gate_id, reason=reason)
-        alternatives = (state.get("context", {}) or {}).get("split_alternatives", []) or []
-        # Also check split_result alternatives?
-        if alternatives:
-            # Charter: present alternatives to agent via messages so it re-reasons
-            state["messages"].append({
-                "role": "user",
-                "content": f"HITL {gate_id} REJECTED: {reason}. Alternatives: {json.dumps(alternatives, default=str)[:3000]}. Propose next steps or re-optimise.",
-            })
-            state["hitl_pending"] = None
-            state["status"] = "running"
-            log_trace(state, "hitl", "reject_with_alternatives", {"gate_id": gate_id, "reason": reason, "alternatives": alternatives[:2]}, duration_ms=0)
-        else:
-            # No alternatives → escalate to Duty Manager (HITL-5)
-            escalate_gate = None
-            try:
-                escalate_gate = HITL_GATES.get("HITL-5") or HITL_GATES.get("hitl_5")
-                if escalate_gate and hasattr(escalate_gate, "to_dict"):
-                    escalate_gate = escalate_gate.to_dict()
-            except Exception:
-                escalate_gate = dict(HITL5_FALLBACK)
-            state["escalation"] = {"trigger": "hitl_rejection_no_alternatives", "gate_id": gate_id, "severity": "high", "reason": reason, "timestamp": _now_iso()}
-            state["hitl_pending"] = escalate_gate
-            state["status"] = "escalated"
-            log_trace(state, "hitl", "reject_escalate", {"gate_id": gate_id, "reason": reason, "escalation": "HITL-5"}, duration_ms=0)
-            # SSE escalate
+
+        # Gate principle: reject holds the workflow until approved.
+        # Notify agent of rejection so it re-reasons and proposes alternatives at the SAME gate.
+        state["messages"].append({
+            "role": "user",
+            "content": f"HITL {gate_id} REJECTED: {reason or 'No reason given'}. Re-propose with different parameters. The operator will not approve until the issue is addressed.",
+        })
+        state["hitl_pending"] = None  # Clear so agent can re-run and set same gate again
+        state["status"] = "running"
+        log_trace(state, "hitl", "reject_hold", {"gate_id": gate_id, "reason": reason}, duration_ms=0)
+
+        # Publish escalation SSE if reason indicates a serious issue (for dashboard visibility)
+        if reason and any(kw in reason.lower() for kw in ["conflict", "capacity", "stale", "safety", "danger"]):
             try:
                 from app.agent.sse import broadcaster
                 import asyncio
                 try:
                     loop = asyncio.get_running_loop()
-                    loop.create_task(broadcaster.publish(state.get("run_id", ""), "escalation", {"trigger": "hitl_rejection_no_alternatives", "gate_id": gate_id}))
+                    loop.create_task(broadcaster.publish(state.get("run_id", ""), "escalation", {"trigger": f"operator_rejected_{gate_id}", "gate_id": gate_id, "reason": reason}))
                 except RuntimeError:
                     pass
             except Exception:
                 pass
+
+        _publish_resolved("reject")
         return state
 
     elif d == "modify":
@@ -168,6 +186,7 @@ async def handle_hitl_response(
             log_trace(state, "hitl", "modify_validation_failed", {"gate_id": gate_id, "error": err}, duration_ms=0)
             state["hitl_pending"] = None
             state["status"] = "running"
+            _publish_resolved("modify")
             return state
         structured_log("hitl_modify", run_id=state.get("run_id", ""), step=gate_id, modifications=modifications)
         # Validate vs guardrails
@@ -181,11 +200,9 @@ async def handle_hitl_response(
             err = validation.get("error", "validation failed")
             state["messages"].append({"role": "user", "content": f"MODIFY validation failed: {err}. Re-propose a valid split."})
             log_trace(state, "hitl", "modify_validation_failed", {"gate_id": gate_id, "error": err}, duration_ms=0)
-            # Keep hitl_pending = same gate so operator can retry? For now, clear and let agent re-reason
-            # But charter says re-present same gate with error — we keep hitl_pending
-            # To avoid infinite loop in graph, we set status running and let agent node handle next
             state["hitl_pending"] = None
             state["status"] = "running"
+            _publish_resolved("modify")
             return state
 
         # Re-run Tool 4 with modified params — A-09: inside graph's async context, await directly
@@ -228,6 +245,7 @@ async def handle_hitl_response(
         state["hitl_pending"] = None
         state["status"] = "running"
         _append_history("modify")
+        _publish_resolved("modify")
         return state
 
     elif d == "timeout":
@@ -255,6 +273,9 @@ async def handle_hitl_response(
             except Exception:
                 esc_gate = dict(HITL5_FALLBACK)
             state["escalation"] = {"trigger": "hitl_timeout", "gate_id": gate_id, "timeout_action": "escalate", "timestamp": _now_iso()}
+            if isinstance(esc_gate, dict):
+                esc_gate["triggered_at_stage"] = gate_id
+                esc_gate["trigger"] = "hitl_timeout"
             state["hitl_pending"] = esc_gate
             state["status"] = "escalated"
             log_trace(state, "hitl", "timeout_escalate", {"gate_id": gate_id}, duration_ms=0)
@@ -281,6 +302,7 @@ async def handle_hitl_response(
         # Second-level: if Duty Manager also silent 30 min → halt entirely
         # This is handled by HITL-5 timeout itself (halt). For other gates that escalate,
         # the escalation creates HITL-5 which will itself timeout to halt if not responded.
+        _publish_resolved("timeout")
         return state
 
     else:

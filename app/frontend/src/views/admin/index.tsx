@@ -4,11 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Shield, Key, Server, LogOut } from 'lucide-react';
+import { Shield, Key, Server, LogOut, Check } from 'lucide-react';
 import {
   adminLogin,
   adminGetConfig,
   adminInjectApiKey,
+  adminUpdateConfig,
   type AdminConfig,
 } from '@/api/nexus';
 
@@ -24,6 +25,21 @@ export default function AdminPage() {
   // Config
   const [config, setConfig] = useState<AdminConfig | null>(null);
 
+  // Editable LLM config
+  const [llm, setLlm] = useState({
+    provider: '',
+    model: '',
+    base_url: '',
+    api_type: 'openai',
+    api_key_env: '',
+    fallback_provider: '',
+    fallback_model: '',
+    fallback_base_url: '',
+    fallback_api_key_env: '',
+  });
+  const [saveMsg, setSaveMsg] = useState('');
+  const [saveTimeout, setSaveTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+
   // API key injection
   const [keyProvider, setKeyProvider] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -36,6 +52,19 @@ export default function AdminPage() {
       const data = await adminGetConfig();
       setConfig(data);
       setLoggedIn(true);
+      if (data.llm) {
+        setLlm({
+          provider: data.llm.provider || '',
+          model: data.llm.model || '',
+          base_url: data.llm.base_url || '',
+          api_type: data.llm.api_type || 'openai',
+          api_key_env: data.llm.api_key_env || '',
+          fallback_provider: data.llm.fallback_provider || '',
+          fallback_model: data.llm.fallback_model || '',
+          fallback_base_url: data.llm.fallback_base_url || '',
+          fallback_api_key_env: data.llm.fallback_api_key_env || '',
+        });
+      }
       if (!keyProvider && data.llm?.provider) {
         setKeyProvider(data.llm.provider);
       }
@@ -58,6 +87,19 @@ export default function AdminPage() {
       setLoggedIn(true);
       const data = await adminGetConfig();
       setConfig(data);
+      if (data.llm) {
+        setLlm({
+          provider: data.llm.provider || '',
+          model: data.llm.model || '',
+          base_url: data.llm.base_url || '',
+          api_type: data.llm.api_type || 'openai',
+          api_key_env: data.llm.api_key_env || '',
+          fallback_provider: data.llm.fallback_provider || '',
+          fallback_model: data.llm.fallback_model || '',
+          fallback_base_url: data.llm.fallback_base_url || '',
+          fallback_api_key_env: data.llm.fallback_api_key_env || '',
+        });
+      }
       if (!keyProvider && data.llm?.provider) {
         setKeyProvider(data.llm.provider);
       }
@@ -77,6 +119,23 @@ export default function AdminPage() {
     setConfig(null);
     setUsername('');
     setPassword('');
+  }
+
+  function handleLlmChange(field: string, value: string) {
+    setLlm((prev) => ({ ...prev, [field]: value }));
+    // Debounce auto-save
+    if (saveTimeout) clearTimeout(saveTimeout);
+    const timeout = setTimeout(async () => {
+      try {
+        await adminUpdateConfig({ [field]: value });
+        setSaveMsg('Saved');
+        setTimeout(() => setSaveMsg(''), 2000);
+      } catch {
+        setSaveMsg('Save failed');
+        setTimeout(() => setSaveMsg(''), 3000);
+      }
+    }, 500);
+    setSaveTimeout(timeout);
   }
 
   async function handleInjectKey(e: React.FormEvent) {
@@ -160,7 +219,6 @@ export default function AdminPage() {
     );
   }
 
-  const llm = config?.llm;
   const readiness = config?.provider_readiness;
   const keyStatus = config?.api_key_status || {};
 
@@ -241,61 +299,138 @@ export default function AdminPage() {
         </CardContent>
       </Card>
 
-      {/* Current Config */}
+      {/* LLM Config Editor */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-xs">Current LLM Config</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-xs">LLM Configuration</CardTitle>
+            {saveMsg && (
+              <span className={`text-[10px] flex items-center gap-1 ${saveMsg === 'Saved' ? 'text-emerald-500' : 'text-destructive'}`}>
+                {saveMsg === 'Saved' && <Check size={10} />}
+                {saveMsg}
+              </span>
+            )}
+          </div>
         </CardHeader>
-        <CardContent className="space-y-2">
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div>
-              <span className="text-muted-foreground">Provider</span>
-              <p className="font-medium">{llm?.provider || '--'}</p>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Model</span>
-              <p className="font-medium">{llm?.model || '--'}</p>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Base URL</span>
-              <p className="font-medium truncate">{llm?.base_url || '--'}</p>
-            </div>
-            <div>
-              <span className="text-muted-foreground">API Type</span>
-              <p className="font-medium">{llm?.api_type || '--'}</p>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Key Env Var</span>
-              <p className="font-medium">{llm?.api_key_env || '--'}</p>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Active Problem</span>
-              <p className="font-medium">{config?.active_problem?.id || '--'}</p>
+        <CardContent className="space-y-4">
+          {/* Primary Config */}
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">Primary</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-[10px]">Provider</Label>
+                <select
+                  value={llm.provider}
+                  onChange={(e) => handleLlmChange('provider', e.target.value)}
+                  className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+                >
+                  <option value="anthropic">Anthropic</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="ollama">Ollama</option>
+                  <option value="vllm">vLLM</option>
+                  <option value="lmstudio">LM Studio</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px]">Model</Label>
+                <Input
+                  value={llm.model}
+                  onChange={(e) => handleLlmChange('model', e.target.value)}
+                  placeholder="claude-sonnet-4-20250514"
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px]">Base URL</Label>
+                <Input
+                  value={llm.base_url}
+                  onChange={(e) => handleLlmChange('base_url', e.target.value)}
+                  placeholder="https://api.anthropic.com (leave empty for default)"
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px]">API Type</Label>
+                <select
+                  value={llm.api_type}
+                  onChange={(e) => handleLlmChange('api_type', e.target.value)}
+                  className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+                >
+                  <option value="openai">OpenAI</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="google">Google</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px]">API Key Env Var</Label>
+                <Input
+                  value={llm.api_key_env}
+                  onChange={(e) => handleLlmChange('api_key_env', e.target.value)}
+                  placeholder="ANTHROPIC_API_KEY"
+                  className="h-8 text-xs"
+                />
+              </div>
             </div>
           </div>
 
-          {llm?.fallback_provider && (
-            <div className="border-t pt-2 mt-2">
-              <p className="text-xs font-medium text-muted-foreground mb-1">Fallback</p>
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                <div>
-                  <span className="text-muted-foreground">Provider</span>
-                  <p className="font-medium">{llm.fallback_provider}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Model</span>
-                  <p className="font-medium">{llm.fallback_model || '--'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Base URL</span>
-                  <p className="font-medium truncate">{llm.fallback_base_url || '--'}</p>
-                </div>
+          {/* Fallback Config */}
+          <div className="border-t pt-3 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">Fallback</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-[10px]">Provider</Label>
+                <select
+                  value={llm.fallback_provider}
+                  onChange={(e) => handleLlmChange('fallback_provider', e.target.value)}
+                  className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+                >
+                  <option value="">None</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="ollama">Ollama</option>
+                  <option value="vllm">vLLM</option>
+                  <option value="lmstudio">LM Studio</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px]">Model</Label>
+                <Input
+                  value={llm.fallback_model}
+                  onChange={(e) => handleLlmChange('fallback_model', e.target.value)}
+                  placeholder="gpt-4o"
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px]">Base URL</Label>
+                <Input
+                  value={llm.fallback_base_url}
+                  onChange={(e) => handleLlmChange('fallback_base_url', e.target.value)}
+                  placeholder="leave empty for default"
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px]">API Key Env Var</Label>
+                <Input
+                  value={llm.fallback_api_key_env}
+                  onChange={(e) => handleLlmChange('fallback_api_key_env', e.target.value)}
+                  placeholder="OPENAI_API_KEY"
+                  className="h-8 text-xs"
+                />
               </div>
             </div>
-          )}
+          </div>
 
+          {/* API Key Status */}
           {Object.keys(keyStatus).length > 0 && (
-            <div className="border-t pt-2 mt-2">
+            <div className="border-t pt-2">
               <p className="text-xs font-medium text-muted-foreground mb-1">API Key Status</p>
               <div className="flex flex-wrap gap-1.5">
                 {Object.entries(keyStatus).map(([k, v]) => (

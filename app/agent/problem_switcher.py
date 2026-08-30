@@ -9,22 +9,25 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.configs.problem_config import ProblemConfig, load_problem_config
+from app.configs.problem_config import ProblemConfig, load_problem_config, discover_problems
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "configs"
 
-# Canonical file stems for all 7 problems
-CANONICAL_STEMS = {
-    "pb-01": "pb-01-berth",
-    "pb-02": "pb-02-dtqc",
-    "pb-04": "pb-04-feeder",
-    "pb-09": "pb-09-expressway",
-    "pb-10": "pb-10-sea-air",
-    "pb-11": "pb-11-customs",
-    "pb-12": "pb-12-itt",
-}
-
 _active_problem_id: str = "pb-12-itt"
+
+
+def _discover_canonical_stems() -> dict[str, str]:
+    """Dynamically discover all problem stems from YAML files."""
+    problems = discover_problems()
+    stems = {}
+    for pid in problems:
+        # Map short form (pb-12) to full form (pb-12-itt)
+        parts = pid.split("-")
+        if len(parts) >= 2:
+            short = f"{parts[0]}-{parts[1]}"
+            stems[short] = pid
+        stems[pid] = pid
+    return stems
 
 
 def _resolve_stem(problem_id: str) -> str:
@@ -32,11 +35,13 @@ def _resolve_stem(problem_id: str) -> str:
     # Exact file exists?
     if (CONFIG_DIR / f"{pid}.yaml").exists():
         return pid
+    # Dynamic discovery
+    stems = _discover_canonical_stems()
     # Short form like pb-12 -> pb-12-itt
-    if pid in CANONICAL_STEMS:
-        return CANONICAL_STEMS[pid]
-    # Try prefix match: pb-12 matches pb-12-itt
-    for stem in CANONICAL_STEMS.values():
+    if pid in stems:
+        return stems[pid]
+    # Try prefix match
+    for stem in stems.values():
         if stem.startswith(pid) or pid.startswith(stem):
             return stem
     for p in CONFIG_DIR.glob("pb-*.yaml"):

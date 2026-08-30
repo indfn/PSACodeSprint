@@ -6,8 +6,37 @@ charter's 17-step workflow so the graph can complete without an LLM.
 from __future__ import annotations
 
 import json
+import os
+import random
+import time
 from dataclasses import dataclass
 from typing import Any
+
+
+def _demo_delay(label: str = "llm") -> None:
+    """Simulate realistic latency for demo. Controlled by DEMO_DELAY env var.
+
+    Set DEMO_DELAY=0 to disable. Set DEMO_DELAY=2.0 for fixed delay.
+    Default: 0.4-1.2s for LLM, 0.2-0.6s for tools.
+    """
+    raw = os.environ.get("DEMO_DELAY")
+    if raw == "0":
+        return
+    if raw:
+        try:
+            time.sleep(float(raw))
+            return
+        except ValueError:
+            pass
+    # Default: varied delay per label
+    if label == "llm":
+        time.sleep(random.uniform(0.4, 1.2))
+    elif label == "tool":
+        time.sleep(random.uniform(0.2, 0.6))
+    elif label == "reasoning":
+        time.sleep(random.uniform(0.3, 0.8))
+    else:
+        time.sleep(random.uniform(0.2, 0.5))
 
 
 class _MockProvider:
@@ -22,12 +51,18 @@ class _MockProvider:
         self.name = "mock"
 
     def chat(self, messages, tools=None, temperature=0.0, max_tokens=4096):
+        _demo_delay("llm")
         # Delegate to deterministic planner
         from app.tools.registry import registry
         available = set(registry.list()) if registry.list() else {"get_itt_candidates", "check_road_itt_capacity", "check_sea_itt_capacity", "compute_itt_split", "dispatch_road_itt", "request_feeder_hold", "update_tuas_loading_sequence", "notify_parties"}
         ctx = self.state.get("context", {}) or {}
         tool_results = self.state.get("tool_results", {}) or {}
         hitl_history = self.state.get("hitl_history", []) or []
+
+        # Pre-load capacity data from context for use across tool calls
+        candidates = ctx.get("candidates", {"total_containers": 120})
+        road_cap = ctx.get("road_capacity", {"available_trucks": 20})
+        sea_cap = ctx.get("sea_capacity", {"feeder_id": "FEEDER ATLANTIC-03"})
 
         # Determine which tools have already succeeded
         succeeded_tools = set()
@@ -49,15 +84,18 @@ class _MockProvider:
                 if "error" not in out:
                     succeeded_tools.add(name)
 
-        # Check hitl approvals AND rejections
         approved = {h.get("gate_id") for h in hitl_history if isinstance(h, dict) and h.get("decision") == "approve"}
-        rejected = {h.get("gate_id") for h in hitl_history if isinstance(h, dict) and h.get("decision") == "reject"}
-        # Normalise rejection IDs for comparison
-        rejected_norm = {r.lower().replace("-", "_") for r in rejected}
-
-        def _is_rejected(gate_id: str) -> bool:
+        def _latest_decision(gate_id: str) -> str | None:
             norm = gate_id.lower().replace("-", "_")
-            return norm in rejected_norm or gate_id in rejected
+            for h in reversed(hitl_history):
+                if not isinstance(h, dict):
+                    continue
+                gid = h.get("gate_id", "")
+                if str(gid).lower().replace("-", "_") == norm:
+                    return str(h.get("decision", "")).lower()
+            return None
+        def _is_rejected(gate_id: str) -> bool:
+            return _latest_decision(gate_id) == "reject"
 
         # Build tool_calls deterministically following charter to-be workflow
         tool_calls = []
@@ -77,10 +115,6 @@ class _MockProvider:
         # After T2+T3 have succeeded, call T4
         if "compute_itt_split" not in succeeded_tools and "compute_itt_split" in available:
             if "check_road_itt_capacity" in succeeded_tools and "check_sea_itt_capacity" in succeeded_tools:
-                # Build candidates/road/sea from context for T4
-                candidates = ctx.get("candidates", {"total_containers": 120})
-                road_cap = ctx.get("road_capacity", {"available_trucks": 20})
-                sea_cap = ctx.get("sea_capacity", {"feeder_id": "FEEDER ATLANTIC-03"})
                 # If deviation exists and we already had a split, this is re-compute with updated sea
                 # Still call compute_itt_split
                 tool_calls.append({"id": "call_T4", "type": "function", "function": {"name": "compute_itt_split", "arguments": json.dumps({"candidates": candidates, "road_capacity": road_cap, "sea_capacity": sea_cap, "tuas_vessel_departure": ctx.get("tuas_vessel_departure", "2026-08-19T20:00:00+08:00"), "constraints": ctx.get("constraints", {})})}})
@@ -105,25 +139,42 @@ class _MockProvider:
                             return result
                         return [f"C{i+offset:06d}" for i in range(n)]
                     if ctx.get("deviation_log"):
-                        ids = _ids(20, 80)
+                        # Delta dispatch: containers beyond initial road split
+                        _prev_road = int((ctx.get("split_result") or {}).get("road_containers", 0)) if isinstance(ctx.get("split_result"), dict) else 0
+                        ids = _ids(20, _prev_road)
                         if len(ids) < 20:
                             try:
                                 from app.mocks.data import generate_containers
                                 gen = generate_containers()
-                                ids = [c["container_id"] for c in gen[80:100]]
+                                ids = [c["container_id"] for c in gen[_prev_road:_prev_road+20]]
                             except Exception:
                                 ids = [f"DELTA{i:03d}" for i in range(20)]
                         tool_calls.append({"id": "call_dispatch_delta", "type": "function", "function": {"name": "dispatch_road_itt", "arguments": json.dumps({"num_trucks": 4, "route": "PPT→West Coast Hwy→AYE→Tuas", "container_ids": ids or [f"DELTA{i:03d}" for i in range(4)]})}})
                     else:
-                        ids = _ids(80, 0)
-                        if len(ids) < 80:
+                        available_trucks = road_cap.get("available_trucks", 20) if isinstance(road_cap, dict) else 20
+                        split = ctx.get("split_result", {}) if isinstance(ctx.get("split_result"), dict) else {}
+                        road_ctrs = int(split.get("road_containers", 0)) if isinstance(split, dict) and split.get("road_containers") else 0
+                        if road_ctrs <= 0:
+                            try:
+                                cands = ctx.get("candidates", {}) if isinstance(ctx.get("candidates"), dict) else {}
+                                cb = cands.get("container_breakdown", {}) if isinstance(cands, dict) else {}
+                                fortyft = int(cb.get("40ft_feu", 0))
+                                twentyft = int(cb.get("20ft_teu", 0))
+                                road_ctrs = fortyft + twentyft // 2
+                                if road_ctrs == 0:
+                                    road_ctrs = int(cands.get("total_containers", 0)) if isinstance(cands, dict) else 0
+                                road_ctrs = min(road_ctrs, available_trucks * 2) if available_trucks else road_ctrs
+                            except Exception:
+                                road_ctrs = available_trucks
+                        ids = _ids(road_ctrs, 0)
+                        if len(ids) < road_ctrs:
                             try:
                                 from app.mocks.data import generate_containers
                                 gen = generate_containers()
-                                ids = [c["container_id"] for c in gen[:80]]
+                                ids = [c["container_id"] for c in gen[:road_ctrs]]
                             except Exception:
-                                ids = [f"C{i:06d}" for i in range(80)]
-                        tool_calls.append({"id": "call_dispatch", "type": "function", "function": {"name": "dispatch_road_itt", "arguments": json.dumps({"num_trucks": 20, "route": "PPT→West Coast Hwy→AYE→Tuas", "container_ids": ids})}})
+                                ids = [f"C{i:06d}" for i in range(road_ctrs)]
+                        tool_calls.append({"id": "call_dispatch", "type": "function", "function": {"name": "dispatch_road_itt", "arguments": json.dumps({"num_trucks": available_trucks, "route": "PPT→West Coast Hwy→AYE→Tuas", "container_ids": ids})}})
             if "request_feeder_hold" not in succeeded_tools and "request_feeder_hold" in available:
                 if ("HITL-3" in approved or "hitl_3" in approved) and not _is_rejected("HITL-3"):
                     # Compute hold hours from context: how long until sea ITT containers arrive
@@ -146,7 +197,10 @@ class _MockProvider:
             if "dispatch_road_itt" in available:
                 candidates = ctx.get("candidates", {}) or {}
                 all_containers = candidates.get("containers", []) if isinstance(candidates, dict) else []
-                def _delta_ids(n, offset=80):
+                _prev_road = int((ctx.get("split_result") or {}).get("road_containers", 0)) if isinstance(ctx.get("split_result"), dict) else 0
+                def _delta_ids(n, offset=None):
+                    if offset is None:
+                        offset = _prev_road
                     if all_containers and isinstance(all_containers, list) and len(all_containers) >= offset + n:
                         return [c.get("container_id") or f"C{idx+offset:06d}" for idx, c in enumerate(all_containers[offset:offset+n])]
                     try:
@@ -155,7 +209,7 @@ class _MockProvider:
                         return [c["container_id"] for c in gen[offset:offset+n]]
                     except Exception:
                         return [f"DELTA{i:03d}" for i in range(n)]
-                ids = _delta_ids(20, 80)
+                ids = _delta_ids(20)
                 tool_calls.append({"id": "call_dispatch_delta", "type": "function", "function": {"name": "dispatch_road_itt", "arguments": json.dumps({"num_trucks": 4, "route": "PPT→West Coast Hwy→AYE→Tuas", "container_ids": ids or [f"DELTA{i:03d}" for i in range(4)]})}})
 
         # Tuas loading sequence — call after all 3 HITL gates approved (don't wait for dispatch+hold)
@@ -164,20 +218,38 @@ class _MockProvider:
             any_rejected = _is_rejected("HITL-1") or _is_rejected("HITL-2") or _is_rejected("HITL-3")
             if all_3_approved and not any_rejected and "HITL-4" not in approved and "hitl_4" not in approved:
                 def _split_ids():
+                    split = ctx.get("split_result", {}) if isinstance(ctx.get("split_result"), dict) else {}
+                    rc = int(split.get("road_containers", 0)) if isinstance(split, dict) and split.get("road_containers") else 0
+                    sc = int(split.get("sea_containers", 0)) if isinstance(split, dict) and split.get("sea_containers") else 0
+                    if rc + sc == 0:
+                        try:
+                            cands = ctx.get("candidates", {}) if isinstance(ctx.get("candidates"), dict) else {}
+                            cb = cands.get("container_breakdown", {}) if isinstance(cands, dict) else {}
+                            fortyft = int(cb.get("40ft_feu", 0))
+                            twentyft = int(cb.get("20ft_teu", 0))
+                            rc = fortyft + twentyft // 2
+                            sc = int(cands.get("total_containers", 0)) - rc if isinstance(cands, dict) else 0
+                            if rc + sc == 0:
+                                rc, sc = 80, 40
+                        except Exception:
+                            rc, sc = 80, 40
                     candidates = ctx.get("candidates", {}) or {}
                     all_containers = candidates.get("containers", []) if isinstance(candidates, dict) else []
-                    if all_containers and isinstance(all_containers, list) and len(all_containers) >= 120:
-                        road_ids = [c["container_id"] for c in all_containers[:80]]
-                        sea_ids = [c["container_id"] for c in all_containers[80:]]
+                    if all_containers and isinstance(all_containers, list) and len(all_containers) >= rc + sc:
+                        road_ids = [c["container_id"] for c in all_containers[:rc]]
+                        sea_ids = [c["container_id"] for c in all_containers[rc:rc+sc]]
                         return road_ids, sea_ids
                     try:
                         from app.mocks.data import generate_containers
                         gen = generate_containers()
-                        road_ids = [c["container_id"] for c in gen[:80]]
-                        sea_ids = [c["container_id"] for c in gen[80:]]
+                        need = rc + sc
+                        if len(gen) < need:
+                            gen = gen + [{"container_id": f"GEN{i:06d}"} for i in range(need - len(gen))]
+                        road_ids = [c["container_id"] for c in gen[:rc]]
+                        sea_ids = [c["container_id"] for c in gen[rc:rc+sc]]
                         return road_ids, sea_ids
                     except Exception:
-                        return [f"R{i:03d}" for i in range(80)], [f"S{i:03d}" for i in range(40)]
+                        return [f"R{i:03d}" for i in range(rc)], [f"S{i:03d}" for i in range(sc)]
                 road_ids, sea_ids = _split_ids()
                 tool_calls.append({"id": "call_T5", "type": "function", "function": {"name": "update_tuas_loading_sequence", "arguments": json.dumps({"vessel_id": ctx.get("vessel_id", "MV PACIFIC STAR"), "itt_eta_road": "2026-08-19T14:30:00+08:00", "itt_eta_sea": "2026-08-19T16:30:00+08:00", "container_ids_road": road_ids, "container_ids_sea": sea_ids})}})
 
@@ -185,27 +257,49 @@ class _MockProvider:
         if ctx.get("deviation_log") and "HITL-5" in approved:
             if not ctx.get("tuas_second_done") and "update_tuas_loading_sequence" in succeeded_tools:
                 try:
+                    split2 = ctx.get("split_result", {}) if isinstance(ctx.get("split_result"), dict) else {}
+                    rc2 = int(split2.get("road_containers", 100)) if isinstance(split2, dict) and split2.get("road_containers") else 100
+                    sc2 = int(split2.get("sea_containers", 20)) if isinstance(split2, dict) and split2.get("sea_containers") else 20
                     from app.mocks.data import generate_containers
                     gen2 = generate_containers()
-                    road_ids2 = [c["container_id"] for c in gen2[:100]]
-                    sea_ids2 = [c["container_id"] for c in gen2[100:120]]
+                    road_ids2 = [c["container_id"] for c in gen2[:rc2]]
+                    sea_ids2 = [c["container_id"] for c in gen2[rc2:rc2+sc2]]
                 except Exception:
+                    split2b = ctx.get("split_result", {}) if isinstance(ctx.get("split_result"), dict) else {}
+                    rc2b = int(split2b.get("road_containers", 100)) if isinstance(split2b, dict) and split2b.get("road_containers") else 100
+                    sc2b = int(split2b.get("sea_containers", 20)) if isinstance(split2b, dict) and split2b.get("sea_containers") else 20
                     candidates = ctx.get("candidates", {}) or {}
                     all_containers = candidates.get("containers", []) if isinstance(candidates, dict) else []
-                    if all_containers and isinstance(all_containers, list) and len(all_containers) >= 120:
-                        road_ids2 = [c["container_id"] for c in all_containers[:100]]
-                        sea_ids2 = [c["container_id"] for c in all_containers[100:120]]
+                    if all_containers and isinstance(all_containers, list) and len(all_containers) >= rc2b + sc2b:
+                        road_ids2 = [c["container_id"] for c in all_containers[:rc2b]]
+                        sea_ids2 = [c["container_id"] for c in all_containers[rc2b:rc2b+sc2b]]
                     else:
-                        road_ids2 = [f"R{i:03d}" for i in range(100)]
-                        sea_ids2 = [f"S{i:03d}" for i in range(20)]
+                        road_ids2 = [f"R{i:03d}" for i in range(rc2b)]
+                        sea_ids2 = [f"S{i:03d}" for i in range(sc2b)]
                 if "dispatch_road_itt" in succeeded_tools and ctx.get("delta_dispatched"):
                     tool_calls.append({"id": "call_T5_2", "type": "function", "function": {"name": "update_tuas_loading_sequence", "arguments": json.dumps({"vessel_id": ctx.get("vessel_id", "MV PACIFIC STAR"), "itt_eta_road": "2026-08-19T16:00:00+08:00", "itt_eta_sea": "2026-08-19T18:00:00+08:00", "container_ids_road": road_ids2, "container_ids_sea": sea_ids2})}})
 
-        # Limit to max 3 parallel tools per batch
+        if "notify_parties" in available:
+            if "dispatch_road_itt" in succeeded_tools and not ctx.get("notified_dispatch") and ("HITL-2" in approved or "hitl_2" in approved) and not _is_rejected("HITL-2"):
+                tool_calls.append({"id": "call_notify_dispatch", "type": "function", "function": {"name": "notify_parties", "arguments": json.dumps({"message": f"Road ITT dispatch confirmed — {ctx.get('dispatch_result', {}).get('num_trucks', '?')} trucks dispatched via PPT→AYE→Tuas", "parties": ["OptETruck", "PPT_Yard"]})}})
+            if "request_feeder_hold" in succeeded_tools and not ctx.get("notified_hold") and ("HITL-3" in approved or "hitl_3" in approved) and not _is_rejected("HITL-3"):
+                tool_calls.append({"id": "call_notify_hold", "type": "function", "function": {"name": "notify_parties", "arguments": json.dumps({"message": f"Feeder hold request sent — {ctx.get('feeder_hold_result', {}).get('hold_hours', '?')}h hold for FEEDER ATLANTIC-03", "parties": ["Feeder_Operator", "PORTNET"]})}})
+            if "update_tuas_loading_sequence" in succeeded_tools and not ctx.get("notified_tuas") and ("HITL-4" in approved or "hitl_4" in approved) and not _is_rejected("HITL-4"):
+                tool_calls.append({"id": "call_notify_tuas", "type": "function", "function": {"name": "notify_parties", "arguments": json.dumps({"message": f"Tuas loading sequence updated — ITT arrivals coordinated for {ctx.get('vessel_id', 'MV PACIFIC STAR')}", "parties": ["Tuas_Yard", "CITOS_Tuas"]})}})
+
         if len(tool_calls) > 3:
             tool_calls = tool_calls[:3]
+        for _solo in ("dispatch_road_itt", "request_feeder_hold"):
+            _names = [c.get("function", {}).get("name") for c in tool_calls]
+            if _solo in _names and len(tool_calls) > 1:
+                _solo_calls = [c for c in tool_calls if c.get("function", {}).get("name") == _solo]
+                if _solo_calls:
+                    tool_calls = _solo_calls[:1]
+                    break
 
-        content = json.dumps({"confidence": 0.92, "reason": "deterministic mock planner"}) if tool_calls else json.dumps({"confidence": 0.95, "status": "awaiting HITL or complete"})
+        # Use confidence from state (set by scenario) instead of hardcoded value
+        current_confidence = self.state.get("confidence", 0.85)
+        content = json.dumps({"confidence": current_confidence, "reason": "deterministic mock planner"}) if tool_calls else json.dumps({"confidence": current_confidence, "status": "awaiting HITL or complete"})
 
         @dataclass
         class _Resp:

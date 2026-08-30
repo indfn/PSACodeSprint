@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.tools.base import BaseTool, ToolResult
 
+# Hardcoded toolsets for known problems (fallback)
 TOOLSETS: dict[str, list[str]] = {
     "pb-12-itt": ["get_itt_candidates", "check_road_itt_capacity", "check_sea_itt_capacity", "compute_itt_split", "update_tuas_loading_sequence", "dispatch_road_itt", "request_feeder_hold", "notify_parties"],
     "pb-01-berth": ["query_vessel_arrival", "check_berth_availability", "check_qc_availability", "compute_berth_reassignment", "notify_vessel_operator"],
@@ -80,6 +81,16 @@ def _create_tool_by_name(name: str) -> BaseTool:
 
 
 def load_tools_for_problem(problem_id: str) -> list[BaseTool]:
+    """Load tools for a problem. Tries YAML first, falls back to hardcoded TOOLSETS."""
+    # Try dynamic loading from YAML
+    try:
+        from app.configs.problem_config import get_tool_names_for_problem
+        names = get_tool_names_for_problem(problem_id)
+        if names:
+            return [_create_tool_by_name(n) for n in names]
+    except Exception:
+        pass
+    # Fallback to hardcoded TOOLSETS
     names = TOOLSETS.get(problem_id, [])
     return [_create_tool_by_name(n) for n in names]
 
@@ -110,7 +121,16 @@ class ToolRegistry:
 
     def register_for_problem(self, problem_id: str):
         self.clear()
-        for name in TOOLSETS.get(problem_id, []):
+        # Try dynamic loading from YAML first
+        try:
+            from app.configs.problem_config import get_tool_names_for_problem
+            names = get_tool_names_for_problem(problem_id)
+        except Exception:
+            names = []
+        # Fallback to hardcoded TOOLSETS
+        if not names:
+            names = TOOLSETS.get(problem_id, [])
+        for name in names:
             tool = _create_tool_by_name(name)
             self.register(tool)
         self._active_problem = problem_id

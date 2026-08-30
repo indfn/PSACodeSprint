@@ -46,6 +46,14 @@ def route_after_agent(state: dict[str, Any]) -> str:
     all_gates_done = has_hitl4 and ctx.get("dispatched") and ctx.get("monitored")
     if all_gates_done and state.get("status") not in ("waiting_hitl", "escalated", "running"):
         return "waiting"
+    # SAFETY: If LLM returned no tools and no HITL/escalation, loop back to agent
+    # (prevents instant END when LLM doesn't produce tool calls)
+    has_any_result = ctx.get("split_result") or ctx.get("candidates") or ctx.get("road_capacity")
+    if not has_any_result and not state.get("hitl_pending") and not state.get("escalation"):
+        # Check iteration count to prevent infinite loops — max 3 retries
+        trace_len = len(state.get("trace", []) or [])
+        if trace_len < 6:
+            return "agent"
     # Fallback: if not yet hitl4 but dispatched+hold+tuas pending, don't monitor yet — wait for HITL
     return END
 
@@ -112,6 +120,7 @@ def build_graph():
         "hitl": "hitl",
         "monitor": "monitor",
         "waiting": "waiting",
+        "agent": "agent",
         END: END,
     })
     graph.add_edge("tools", "agent")

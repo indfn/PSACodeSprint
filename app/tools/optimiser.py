@@ -134,6 +134,29 @@ class OptimiserTool(BaseTool):
             cost_vs_baseline_raw = dict(canonical["cost_vs_baseline"])
             road_cost_per_trip_eff = road_cost_per_trip
             sea_handling_eff = sea_handling
+            has_real_candidates = isinstance(candidates, dict) and candidates.get("total_containers") and candidates.get("container_breakdown")
+            has_real_road = isinstance(road_capacity, dict) and road_capacity.get("available_trucks") is not None
+            if has_real_candidates and has_real_road:
+                try:
+                    total_containers = int(candidates.get("total_containers", 120))
+                    cb = candidates.get("container_breakdown", {})
+                    fortyft = int(cb.get("40ft_feu", total_containers // 3))
+                    twentyft = int(cb.get("20ft_teu", total_containers - fortyft))
+                    available_trucks = int(road_capacity.get("available_trucks", 40))
+                    total_trips_road = fortyft + twentyft // 2
+                    max_road_ctrs = min(total_containers, available_trucks * 2)
+                    rc_40 = min(fortyft, max_road_ctrs)
+                    rc_20 = min(twentyft, max(0, max_road_ctrs - rc_40))
+                    rc = rc_40 + rc_20
+                    sc = total_containers - rc
+                    rt = rc_40 + (rc_20 + 1) // 2
+                    optimal_split["road_containers"] = rc
+                    optimal_split["road_breakdown"] = f"{rc_40}x 40ft ({rc_40} trips) + {rc_20}x 20ft ({rc_20 // 2} trips)"
+                    optimal_split["road_trips"] = rt
+                    optimal_split["sea_containers"] = sc
+                    optimal_split["source"] = "api_data"
+                except Exception:
+                    pass
             optimal_split["road_cost"] = optimal_split["road_trips"] * road_cost_per_trip_eff
             optimal_split["sea_terminal_handling_cost"] = optimal_split["sea_containers"] * sea_handling_eff
             optimal_split["total_transport_cost"] = optimal_split["road_cost"] + optimal_split["sea_terminal_handling_cost"]
@@ -142,13 +165,18 @@ class OptimiserTool(BaseTool):
                 alt["sea_terminal_handling_cost"] = alt["sea_containers"] * sea_handling_eff
                 alt["total_transport_cost"] = alt["road_cost"] + alt["sea_terminal_handling_cost"]
             baseline_val = cost_vs_baseline_raw.get("baseline_all_road_cost", 12000)
+            if has_real_candidates and has_real_road:
+                try:
+                    baseline_val = (fortyft + twentyft // 2) * road_cost_per_trip_eff
+                except Exception:
+                    pass
             optimised_val = optimal_split["total_transport_cost"]
             savings_val = baseline_val - optimised_val
             cost_vs_baseline = {
                 "baseline_all_road_cost": baseline_val,
                 "baseline_all_road": baseline_val,
                 "baseline": baseline_val,
-                "baseline_all_road_trips": cost_vs_baseline_raw.get("baseline_all_road_trips", 80),
+                "baseline_all_road_trips": cost_vs_baseline_raw.get("baseline_all_road_trips", total_trips_road if 'total_trips_road' in locals() else 40),
                 "optimised_transport_cost": optimised_val,
                 "optimised": optimised_val,
                 "direct_transport_savings": savings_val,
@@ -175,15 +203,31 @@ class OptimiserTool(BaseTool):
                     timeline["margin_minutes"] = margin_val
                     timeline["margin"] = margin_val
         else:
-            road_containers = 80
-            sea_containers = 40
-            road_trips = 60
+            # Compute from live candidates/road_capacity instead of hardcoded 80/40
+            _cb = (candidates or {}).get("container_breakdown", {}) if isinstance(candidates, dict) else {}
+            _total = int((candidates or {}).get("total_containers", 0)) if isinstance(candidates, dict) else 0
+            _40ft = int(_cb.get("40ft_feu", 0))
+            _20ft = int(_cb.get("20ft_teu", 0))
+            if _total == 0:
+                _total = _40ft + _20ft
+            if _total == 0:
+                _total = 120  # last resort
+            _avail = int((road_capacity or {}).get("available_trucks", 0)) if isinstance(road_capacity, dict) else 0
+            if _avail == 0:
+                _avail = 40
+            total_trips_road = _40ft + _20ft // 2
+            max_road_ctrs = min(_total, _avail * 2)
+            rc_40 = min(_40ft, max_road_ctrs)
+            rc_20 = min(_20ft, max(0, max_road_ctrs - rc_40))
+            road_containers = rc_40 + rc_20
+            sea_containers = _total - road_containers
+            road_trips = rc_40 + (rc_20 + 1) // 2
             road_cost = road_trips * road_cost_per_trip
             sea_handling_cost = sea_containers * sea_handling
             total = road_cost + sea_handling_cost
             optimal_split = {
                 "road_containers": road_containers,
-                "road_breakdown": "40x 40ft (40 trips) + 40x 20ft (20 trips)",
+                "road_breakdown": f"{rc_40}x 40ft ({rc_40} trips) + {rc_20}x 20ft ({rc_20 // 2} trips)",
                 "road_trips": road_trips,
                 "road_cost": road_cost,
                 "sea_containers": sea_containers,
@@ -192,44 +236,45 @@ class OptimiserTool(BaseTool):
                 "sea_terminal_handling_cost": sea_handling_cost,
                 "sea_terminal_handling": sea_handling_cost,
                 "total_transport_cost": total,
-                "cost_notes": f"Sea transfer has $0 marginal charter cost + ${sea_handling_cost} terminal handling (${sea_handling}/lift across 40 containers)",
+                "cost_notes": f"Sea transfer has $0 marginal charter cost + ${sea_handling_cost} terminal handling (${sea_handling}/lift across {sea_containers} containers)",
+                "source": "api_data",
             }
             alternatives = [
                 {
-                    "road_containers": 100,
-                    "road_breakdown": "40x 40ft (40 trips) + 60x 20ft (30 trips)",
-                    "road_trips": 70,
-                    "road_cost": 70 * road_cost_per_trip,
-                    "sea_containers": 20,
+                    "road_containers": _total,
+                    "road_breakdown": f"100% road ({_total} containers)",
+                    "road_trips": total_trips_road + 20,
+                    "road_cost": (total_trips_road + 20) * road_cost_per_trip,
+                    "sea_containers": 0,
                     "sea_marginal_charter_cost": 0,
                     "sea_marginal": 0,
-                    "sea_terminal_handling_cost": 20 * sea_handling,
-                    "sea_terminal_handling": 20 * sea_handling,
-                    "total_transport_cost": 70 * road_cost_per_trip + 20 * sea_handling,
+                    "sea_terminal_handling_cost": 0,
+                    "sea_terminal_handling": 0,
+                    "total_transport_cost": (total_trips_road + 20) * road_cost_per_trip,
                     "risk": "road_congestion_delay_near_pandan",
                 },
                 {
-                    "road_containers": 60,
-                    "road_breakdown": "40x 40ft (40 trips) + 20x 20ft (10 trips)",
-                    "road_trips": 50,
-                    "road_cost": 50 * road_cost_per_trip,
-                    "sea_containers": 60,
+                    "road_containers": max(0, _total - sea_containers - 20),
+                    "road_breakdown": "More sea, less road",
+                    "road_trips": max(0, total_trips_road - 20),
+                    "road_cost": max(0, total_trips_road - 20) * road_cost_per_trip,
+                    "sea_containers": min(_total, sea_containers + 20),
                     "sea_marginal_charter_cost": 0,
                     "sea_marginal": 0,
-                    "sea_terminal_handling_cost": 60 * sea_handling,
-                    "sea_terminal_handling": 60 * sea_handling,
-                    "total_transport_cost": 50 * road_cost_per_trip + 60 * sea_handling,
+                    "sea_terminal_handling_cost": min(_total, sea_containers + 20) * sea_handling,
+                    "sea_terminal_handling": min(_total, sea_containers + 20) * sea_handling,
+                    "total_transport_cost": max(0, total_trips_road - 20) * road_cost_per_trip + min(_total, sea_containers + 20) * sea_handling,
                     "risk": "feeder_capacity_exceeded_20TEU",
                 },
             ]
             timeline = _default_timeline(tuas_vessel_departure)
-            baseline_cost = 80 * road_cost_per_trip
+            baseline_cost = total_trips_road * road_cost_per_trip
             savings_fallback = baseline_cost - total
             cost_vs_baseline = {
                 "baseline_all_road_cost": baseline_cost,
                 "baseline_all_road": baseline_cost,
                 "baseline": baseline_cost,
-                "baseline_all_road_trips": 80,
+                "baseline_all_road_trips": total_trips_road,
                 "optimised_transport_cost": total,
                 "optimised": total,
                 "direct_transport_savings": savings_fallback,
@@ -263,25 +308,56 @@ class OptimiserTool(BaseTool):
                 berth_conflict = True
 
         if berth_conflict:
-            has_100_20 = any(a.get("road_containers") == 100 and a.get("sea_containers") == 20 for a in alternatives)
-            if not has_100_20:
-                alternatives.insert(
-                    0,
-                    {
-                        "road_containers": 100,
-                        "road_breakdown": "40x 40ft (40 trips) + 60x 20ft (30 trips)",
-                        "road_trips": 70,
-                        "road_cost": 70 * road_cost_per_trip,
-                        "sea_containers": 20,
-                        "sea_marginal_charter_cost": 0,
-                        "sea_marginal": 0,
-                        "sea_terminal_handling_cost": 20 * sea_handling,
-                        "sea_terminal_handling": 20 * sea_handling,
-                        "total_transport_cost": 70 * road_cost_per_trip + 20 * sea_handling,
-                        "risk": "road_congestion_delay_near_pandan",
-                        "reason": "berth_conflict_fallback",
-                    },
-                )
+            # Sea limited to 20 TEU due to berth conflict — road takes remainder, all values from live API
+            try:
+                total_c = int(candidates.get("total_containers", 0)) if isinstance(candidates, dict) and candidates.get("total_containers") else (total_containers if 'total_containers' in locals() else 120)
+                sea_lim = 20
+                # Respect feeder available if even smaller
+                try:
+                    sea_lim = min(sea_lim, int(feeder_available_teu))
+                except Exception:
+                    pass
+                road_lim = max(0, total_c - sea_lim)
+                # Split road_lim into 40ft/20ft trips for breakdown
+                cb_tmp = candidates.get("container_breakdown", {}) if isinstance(candidates, dict) else {}
+                forty_tmp = int(cb_tmp.get("40ft_feu", 0)) if isinstance(cb_tmp, dict) else 0
+                # Road breakdown: prioritize 40ft
+                r40 = min(forty_tmp, road_lim)
+                r20 = max(0, road_lim - r40)
+                # Also cap by 20ft available
+                twenty_tmp = int(cb_tmp.get("20ft_teu", 0)) if isinstance(cb_tmp, dict) else 0
+                if r20 > twenty_tmp:
+                    r20 = twenty_tmp
+                    r40 = max(0, road_lim - r20)
+                road_trips_lim = r40 + (r20 + 1) // 2
+                has_lim = any(a.get("road_containers") == road_lim and a.get("sea_containers") == sea_lim for a in alternatives)
+                if not has_lim:
+                    alternatives.insert(
+                        0,
+                        {
+                            "road_containers": road_lim,
+                            "road_breakdown": f"{r40}x 40ft ({r40} trips) + {r20}x 20ft ({r20 // 2} trips)",
+                            "road_trips": road_trips_lim,
+                            "road_cost": road_trips_lim * road_cost_per_trip,
+                            "sea_containers": sea_lim,
+                            "sea_marginal_charter_cost": 0,
+                            "sea_marginal": 0,
+                            "sea_terminal_handling_cost": sea_lim * sea_handling,
+                            "sea_terminal_handling": sea_lim * sea_handling,
+                            "total_transport_cost": road_trips_lim * road_cost_per_trip + sea_lim * sea_handling,
+                            "risk": "road_congestion_delay_near_pandan",
+                            "reason": "berth_conflict_api_driven",
+                        },
+                    )
+                # If berth conflict, optimal should be sea-limited, not 80/40 — override from live data
+                if total_c and sea_lim == 20:
+                    # Find the sea-limited alternative and promote to optimal if needed
+                    for alt in alternatives:
+                        if alt.get("sea_containers") == sea_lim and alt.get("road_containers") == road_lim:
+                            optimal_split = dict(alt)
+                            break
+            except Exception:
+                pass
 
         candidates_total_teu = None
         num_blocks = None

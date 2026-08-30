@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { getRunHistory, type RunRecord } from '@/api/nexus';
+import { getRunHistory, getRegistry, type RunRecord, type RegistryProblem } from '@/api/nexus';
 import { useNavigate } from 'react-router';
 import { ChevronRight, ChevronDown } from 'lucide-react';
 
-const PROBLEM_NAMES: Record<string, string> = {
+const FALLBACK_PROBLEM_NAMES: Record<string, string> = {
   'pb-12-itt': 'ITT Coordination',
   'pb-01-berth': 'Berth Reassignment',
 };
@@ -44,10 +44,22 @@ export default function History() {
   const navigate = useNavigate();
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [problemNames, setProblemNames] = useState<Record<string, string>>(FALLBACK_PROBLEM_NAMES);
 
   useEffect(() => {
     getRunHistory()
       .then(setRuns)
+      .catch(() => {});
+    getRegistry()
+      .then((res) => {
+        if (res.problems) {
+          const names: Record<string, string> = {};
+          res.problems.forEach((p: RegistryProblem) => {
+            names[p.problem_id] = p.name;
+          });
+          setProblemNames(names);
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -99,7 +111,7 @@ export default function History() {
                         <ChevronRight size={14} />
                       )}
                       <CardTitle className="text-sm font-medium">
-                        {PROBLEM_NAMES[run.problem_id] || run.problem_id}
+                        {problemNames[run.problem_id] || run.problem_id}
                       </CardTitle>
                     </button>
                     <div className="flex items-center gap-2">
@@ -129,7 +141,7 @@ export default function History() {
                       {run.scenario && (
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Scenario</span>
-                          <span>{PROBLEM_NAMES[run.problem_id] || run.problem_id} · {run.scenario}</span>
+                          <span>{problemNames[run.problem_id] || run.problem_id} · {run.scenario}</span>
                         </div>
                       )}
                       {run.summary && (

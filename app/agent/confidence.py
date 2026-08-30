@@ -135,8 +135,9 @@ async def compute_confidence(state: dict[str, Any], provider: Any | None = None)
 def compute_risk_score(state: dict[str, Any]) -> float:
     """CodeSprint Phase 4.3 requires risk_score in every TraceEntry.
 
-    risk_score = 1 - confidence, boosted by escalation count (+0.15 per active trigger).
-    Also boosted if deviation_log non-empty.
+    risk_score = 1 - confidence, boosted by escalation count (+0.15 per active trigger)
+    and deviation_log (+0.1). This ensures risk badges show meaningful spread during
+    problematic scenarios (e.g., 78% confidence + escalation → Medium/High risk).
     """
     base = 1.0 - float(state.get("confidence", 1.0))
     esc = state.get("escalation")
@@ -147,9 +148,7 @@ def compute_risk_score(state: dict[str, Any]) -> float:
         count = 1
     elif esc:
         count = 1
-    # also count escalations embedded in triggers? single for now
     boosted = base + count * 0.15
-    # deviation also adds
     if state.get("deviation_log"):
         boosted += 0.1
     return min(1.0, max(0.0, round(boosted, 3)))

@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from app.agent.confidence import compute_risk_score
-from app.agent.mock_provider import _MockProvider, mock_provider_for_state, fallback_llm_response
+from app.agent.mock_provider import _MockProvider, mock_provider_for_state, fallback_llm_response as _fallback_llm_response
 from app.agent.prompts import build_agent_messages
 from app.agent.trace import log_trace
 from app.hitl.models import HITL5_FALLBACK
@@ -33,6 +33,13 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
     t0 = time.monotonic()
     # Fast path: deterministic HITL gating BEFORE LLM to avoid 30s LLM delays on large histories.
     # If next HITL gate is due, set it immediately without calling LLM.
+
+    # FASTEST PATH: if HITL-5 is already pending (escalation), pass through immediately to HITL node.
+    # Don't waste LLM call — escalation was already set by handler or agent.
+    hitl_pending = state.get("hitl_pending")
+    if hitl_pending and isinstance(hitl_pending, dict) and hitl_pending.get("gate_id") in ("HITL-5", "hitl_5"):
+        return state
+
     try:
         from app.hitl.models import HITL_GATES
         ctx_fast = state.get("context", {}) or {}
@@ -41,9 +48,9 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
             for h in hist_fast:
                 hg = h.get("gate_id") if isinstance(h, dict) else getattr(h, "gate_id", None)
                 if hg and str(hg).lower().replace("-", "_") == gid.lower().replace("-", "_"):
-                    dec = h.get("decision") if isinstance(h, dict) else getattr(h, "decision", "")
-                    # Only count approved gates — rejected gates should not advance sequence
-                    return str(dec).lower() in ("approve", "approved")
+                    dec = h.get("decision") if isinstance(h, dict) else getattr(h, "gate_id", None)
+                    if str(dec).lower() in ("approve", "approved"):
+                        return True
             return False
         def _was_rejected(gid: str) -> bool:
             for h in reversed(hist_fast):
@@ -59,13 +66,20 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
             _ctx_pre = state.get("context", {}) or {}
             if _ctx_pre.get("split_result") and not _ctx_pre.get("dispatch_result"):
                 _split = _ctx_pre.get("split_result", {})
-                _road_containers = _split.get("road_containers", 80) if isinstance(_split, dict) else 80
-                import math as _math
-                _road_trips = _split.get("road_trips", _math.ceil(_road_containers * 0.85)) if isinstance(_split, dict) else _math.ceil(_road_containers * 0.85)
+                _road_containers = _split.get("road_containers", 0) if isinstance(_split, dict) else 0
+                _road_trips = _split.get("road_trips", 0) if isinstance(_split, dict) else 0
+                if not _road_trips:
+                    import math as _math
+                    _road_trips = _math.ceil(_road_containers * 0.75) if _road_containers else 0
+                _road_cap = _ctx_pre.get("road_capacity", {}) if isinstance(_ctx_pre, dict) else {}
+                _avail = _road_cap.get("available_trucks", 0) if isinstance(_road_cap, dict) else 0
+                _num_trucks = int(_avail) if _avail and _avail > 0 else max(1, _road_trips)
+                if _num_trucks > _road_trips:
+                    _num_trucks = _road_trips
                 _ctx_pre["dispatch_result"] = {
                     "status": "dispatch_pending",
-                    "dispatch_id": "DISP-PENDING",
-                    "num_trucks": max(1, _road_containers // 4),
+                    "dispatch_id": "DISP-PREVIEW",
+                    "num_trucks": _num_trucks,
                     "route": "PPT→West Coast Hwy→AYE→Tuas",
                     "container_count": _road_containers,
                     "total_trips": _road_trips,
@@ -73,20 +87,34 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
                     "cost": _road_trips * 150,
                     "cost_per_trip": 150,
                     "total_cost": _road_trips * 150,
+                    "is_preview": True,
                 }
             if _ctx_pre.get("split_result") and not _ctx_pre.get("feeder_hold_result"):
+                _hold_h = 1.0
+                try:
+                    _sp = _ctx_pre.get("split_result", {}) if isinstance(_ctx_pre, dict) else {}
+                    _sea_eta = _sp.get("sea_eta", "")
+                    if _sea_eta:
+                        from datetime import datetime as _dt
+                        _sea_dt = _dt.fromisoformat(_sea_eta.replace("Z", "+00:00"))
+                        _latest = _dt.fromisoformat("2026-08-19T16:00:00+08:00")
+                        _diff = (_sea_dt - _latest).total_seconds() / 3600
+                        _hold_h = max(0.5, min(4.0, round(_diff, 1)))
+                except Exception:
+                    _hold_h = 1.0
                 _ctx_pre["feeder_hold_result"] = {
                     "status": "hold_pending",
-                    "feeder_id": "FEEDER ATLANTIC-03",
-                    "hold_hours": 1.0,
-                    "hold_cost": 800,
+                    "feeder_id": _ctx_pre.get("feeder_id", "FEEDER ATLANTIC-03") if isinstance(_ctx_pre, dict) else "FEEDER ATLANTIC-03",
+                    "hold_hours": _hold_h,
+                    "hold_cost": int(_hold_h * 800),
                     "hold_cost_per_hour": 800,
                     "new_departure": "2026-08-19T17:30:00+08:00",
                     "previous_departure": "2026-08-19T16:30:00+08:00",
-                    "tidal_risk": "safe",
+                    "tidal_risk": "safe" if _hold_h <= 1.5 else "marginal",
                     "operator_response": "pending",
+                    "is_preview": True,
                 }
-            if ctx_fast.get("split_result") and not _has_fast("HITL-1") and not _was_rejected("HITL-1"):
+            if ctx_fast.get("split_result") and not _has_fast("HITL-1"):
                 g = HITL_GATES.get("HITL-1")
                 state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-1", "gate_name": "Approve ITT Split", "trigger": "split computed", "timeout_seconds": 1800, "timeout_action": "escalate"}
                 state["status"] = "waiting_hitl"
@@ -96,7 +124,7 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
                 except Exception:
                     pass
                 return state
-            elif _has_fast("HITL-1") and not _has_fast("HITL-2") and not _was_rejected("HITL-2"):
+            elif _has_fast("HITL-1") and not _has_fast("HITL-2"):
                 g = HITL_GATES.get("HITL-2")
                 state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-2", "gate_name": "Approve Truck Dispatch", "trigger": "truck dispatch ready", "timeout_seconds": 900, "timeout_action": "cancel_dispatch"}
                 state["status"] = "waiting_hitl"
@@ -105,7 +133,7 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
                 except Exception:
                     pass
                 return state
-            elif _has_fast("HITL-2") and not _has_fast("HITL-3") and not _was_rejected("HITL-3"):
+            elif _has_fast("HITL-2") and not _has_fast("HITL-3"):
                 g = HITL_GATES.get("HITL-3")
                 state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-3", "gate_name": "Approve Feeder Hold", "trigger": "feeder hold request ready", "timeout_seconds": 900, "timeout_action": "escalate"}
                 state["status"] = "waiting_hitl"
@@ -114,7 +142,7 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
                 except Exception:
                     pass
                 return state
-            elif _has_fast("HITL-3") and not _has_fast("HITL-4") and not _was_rejected("HITL-4"):
+            elif _has_fast("HITL-3") and not _has_fast("HITL-4"):
                 if ctx_fast.get("tuas_sequence"):
                     g = HITL_GATES.get("HITL-4")
                     state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-4", "gate_name": "Approve Loading Sequence Update", "trigger": "Tuas QC sequence update ready", "timeout_seconds": 600, "timeout_action": "hold_sequence"}
@@ -128,6 +156,13 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
         pass
     # 1. Build messages
     messages = build_agent_messages(state)
+
+    # Simulate LLM reasoning latency for demo
+    try:
+        from app.agent.mock_provider import _demo_delay
+        _demo_delay("reasoning")
+    except Exception:
+        pass
 
     # Publish SSE agent_thinking
     try:
@@ -436,16 +471,23 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
         # But we append assistant content to messages for continuity
         if content:
             state.setdefault("messages", []).append({"role": "assistant", "content": content})
-        # Do not set hitl_pending here — router will check if hitl_pending already set or if monitor/escalation needed
-        # If no progress and no tools, we may be at completion
-        if not state.get("hitl_pending") and not state.get("escalation"):
-            # If workflow has dispatched and not monitored, let router go to monitor; otherwise complete
+        # SAFETY NET: If LLM returned no tools and workflow hasn't started,
+        # re-prompt with explicit instruction to call tools (Gemma may not support function calling well)
+        ctx_check = state.get("context", {}) or {}
+        has_any_result = ctx_check.get("split_result") or ctx_check.get("candidates") or ctx_check.get("road_capacity")
+        if not has_any_result and not state.get("hitl_pending") and not state.get("escalation"):
+            state.setdefault("messages", []).append({
+                "role": "user",
+                "content": "You must call tools to proceed. Start by calling get_itt_candidates to query container data, then check_road_itt_capacity and check_sea_itt_capacity. Do not respond with text only — use the available tools.",
+            })
+            state["status"] = "running"
+        elif not state.get("hitl_pending") and not state.get("escalation"):
+            # Do not set hitl_pending here — router will check if hitl_pending already set or if monitor/escalation needed
+            # If no progress and no tools, we may be at completion
             ctx = state.get("context", {}) or {}
             if ctx.get("dispatched") and not ctx.get("monitored"):
                 state["status"] = "running"
             else:
-                # Check if we have done minimal steps — for demo, if context has split_result, we may need to drive HITL
-                # The graph's route_after_agent will inspect pending/hitl/escalation/monitor; if none, returns END
                 state["status"] = "running"
 
     # Update trace — include risk_score
@@ -463,17 +505,140 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
         # Don't double-escalate if already escalated and HITL-5 pending
         if not state.get("hitl_pending") or state.get("hitl_pending", {}).get("gate_id") not in ("HITL-5", "hitl_5"):
             triggered = check_escalations(state)
+            # Defer stale/low until after T4 so API cards populate (yellow not grey) — keep stage as Split before HITL-1 but let T2/T3/T4 run first
+            if triggered and not state.get("context",{}).get("split_result"):
+                deferred_kinds = {"low_confidence", "data_stale", "road_capacity_low"}
+                if all(t.get("trigger") in deferred_kinds for t in triggered):
+                    state.setdefault("context", {})["deferred_escalation"] = triggered
+                    triggered = []
+                else:
+                    remaining = [t for t in triggered if t.get("trigger") not in deferred_kinds]
+                    if remaining:
+                        state.setdefault("context", {})["deferred_escalation"] = [t for t in triggered if t.get("trigger") in deferred_kinds]
+                        triggered = remaining
+                    elif triggered:
+                        state.setdefault("context", {})["deferred_escalation"] = triggered
+                        triggered = []
+            # If deferred and now split exists, re-inject deferred triggers ONLY if still valid
+            if not triggered and state.get("context",{}).get("deferred_escalation") and state.get("context",{}).get("split_result"):
+                deferred = state["context"].pop("deferred_escalation", [])
+                if deferred:
+                    # Re-check each trigger before re-injecting
+                    from app.agent.escalation import (
+                        check_low_confidence, check_data_stale, check_road_capacity,
+                        check_feeder_hold, check_cost_exceeded, check_feeder_unresponsive,
+                    )
+                    _recheck = {
+                        "low_confidence": lambda: check_low_confidence(state, threshold=0.85),
+                        "data_stale": lambda: check_data_stale(state, threshold_minutes=20),
+                        "road_capacity_low": lambda: check_road_capacity(state, threshold_ratio=0.6),
+                        "feeder_hold_exceeded": lambda: check_feeder_hold(state, threshold_hours=1.5),
+                        "cost_exceeded": lambda: check_cost_exceeded(state, threshold_dollars=10000),
+                        "feeder_unresponsive": lambda: check_feeder_unresponsive(state, threshold_minutes=15),
+                    }
+                    still_valid = []
+                    for d in deferred:
+                        trig_name = d.get("trigger", "")
+                        check_fn = _recheck.get(trig_name)
+                        if check_fn and check_fn():
+                            still_valid.append(d)
+                        elif not check_fn:
+                            # Unknown trigger — keep it (don't silently drop)
+                            still_valid.append(d)
+                    triggered = still_valid
             if triggered:
                 state["escalation"] = triggered[0]
                 if len(triggered) > 1:
                     state["escalation_list"] = triggered  # type: ignore
                 hitl5 = HITL_GATES.get("HITL-5") or HITL_GATES.get("hitl_5")
                 if hitl5 and hasattr(hitl5, "to_dict"):
-                    state["hitl_pending"] = hitl5.to_dict()  # type: ignore
+                    pending = hitl5.to_dict()  # type: ignore
                 elif isinstance(hitl5, dict):
-                    state["hitl_pending"] = dict(hitl5)
+                    pending = dict(hitl5)
                 else:
-                    state["hitl_pending"] = dict(HITL5_FALLBACK)
+                    pending = dict(HITL5_FALLBACK)
+                # Record stage where escalation fired for popup display (don't jump progress)
+                try:
+                    hist = state.get("hitl_history", []) or []
+                    done = {str(h.get("gate_id")).lower().replace("-", "_") for h in hist if isinstance(h, dict)}
+                    if "hitl_1" not in done and "hitl-1" not in done:
+                        stage = "Split (before HITL-1)"
+                    elif "hitl_2" not in done:
+                        stage = "After HITL-1"
+                    elif "hitl_3" not in done:
+                        stage = "After HITL-2"
+                    elif "hitl_4" not in done:
+                        stage = "After HITL-3"
+                    else:
+                        stage = "Monitor"
+                except Exception:
+                    stage = "Workflow"
+                pending["triggered_at_stage"] = stage
+                pending["trigger"] = triggered[0].get("trigger", pending.get("trigger", ""))
+                # Adaptable per-trigger details for popup (YAML-driven display)
+                try:
+                    trig = triggered[0].get("trigger","")
+                    _ctxd = state.get("context",{}) or {}
+                    _det: dict = {"trigger": trig}
+                    if trig == "low_confidence":
+                        _det.update({"confidence": state.get("confidence"), "threshold": 0.85, "current_split": _ctxd.get("split_result",{}), "alternatives": (_ctxd.get("split_alternatives",[]) or [])[:2]})
+                    elif trig == "road_capacity_low":
+                        split_r = _ctxd.get("split_result",{}) or {}
+                        req = split_r.get("road_trips") or _ctxd.get("required_trucks", 0) or 0
+                        # Compute dynamic required from candidates if split not yet computed
+                        if not req:
+                            cands = _ctxd.get("candidates",{}) or {}
+                            if isinstance(cands, dict) and cands.get("container_breakdown"):
+                                cb = cands["container_breakdown"]
+                                req = int(cb.get("40ft_feu",0)) + int(int(cb.get("20ft_teu",0))//2) + (int(cb.get("20ft_teu",0))%2)
+                        avail = _ctxd.get("available_trucks", 0) or (_ctxd.get("road_capacity",{}) or {}).get("available_trucks",0) or 0
+                        _det.update({"available_trucks": avail, "required_trucks": req, "ratio": round(avail/max(1,req),2) if req else 0, "current_split": _ctxd.get("split_result",{}), "suggested": "sea-heavy"})
+                    elif trig == "data_stale":
+                        _det.update({"data_age_minutes": _ctxd.get("data_age_minutes") or (_ctxd.get("candidates",{}) or {}).get("data_age_minutes") if isinstance(_ctxd.get("candidates"),dict) else 0, "source": "CITOS PPT", "freshness_max": 30})
+                    elif trig == "feeder_hold_exceeded":
+                        fh = _ctxd.get("feeder_hold_result",{}) if isinstance(_ctxd.get("feeder_hold_result"),dict) else {}
+                        _det.update({"hold_hours": _ctxd.get("feeder_hold_hours", fh.get("hold_hours",0)), "limit": 1.5, "hold_cost": fh.get("hold_cost",0)})
+                    elif trig == "cost_exceeded":
+                        vs = _ctxd.get("cost_vs_baseline",{}) or {}
+                        sc = _ctxd.get("split_result",{}) if isinstance(_ctxd.get("split_result"),dict) else {}
+                        _det.update({"total_cost": sc.get("total_transport_cost",0), "baseline": vs.get("baseline_all_road_cost"), "limit": 10000})
+                    elif trig == "feeder_unresponsive":
+                        _det.update({"elapsed": _ctxd.get("feeder_response_elapsed_minutes") or _ctxd.get("feeder_response_time_min"), "threshold": 15})
+                    elif trig == "planner_conflict":
+                        _det.update({"conflict": True})
+                    pending["escalation_details"] = _det
+                    pending["escalation_kind"] = trig
+                except Exception:
+                    pass
+                try:
+                    pending["agent_reasoning"] = (content or "")[:600] if isinstance(content, str) else ""
+                    _mp = []
+                    _ctxm = state.get("context", {}) or {}
+                    if _ctxm.get("data_age_minutes") and float(_ctxm["data_age_minutes"]) > 20:
+                        _mp.append(f"Data {_ctxm['data_age_minutes']:.0f}m old")
+                    if triggered[0].get("trigger") == "road_capacity_low":
+                        _avail = _ctxm.get('available_trucks', (_ctxm.get('road_capacity',{}) or {}).get('available_trucks','?'))
+                        _split_r = (_ctxm.get('split_result',{}) or {}).get('road_trips') or _ctxm.get('required_trucks','?')
+                        # Compute dynamic required from candidates if not yet available
+                        if not _split_r or _split_r == '?' or _split_r == 0:
+                            cands2 = _ctxm.get('candidates',{}) or {}
+                            if isinstance(cands2, dict) and cands2.get('container_breakdown'):
+                                cb2 = cands2['container_breakdown']
+                                _split_r = int(cb2.get('40ft_feu',0)) + int(int(cb2.get('20ft_teu',0))//2) + (int(cb2.get('20ft_teu',0))%2)
+                        _mp.append(f"Trucks {_avail}/{_split_r} <60% (need {_split_r} trips, have {_avail} trucks)")
+                    if triggered[0].get("trigger") == "low_confidence":
+                        _mp.append(f"Confidence {float(state.get('confidence',0)):.2f} <0.85")
+                    if state.get("deviation_log"):
+                        try:
+                            _mp.append(str(state["deviation_log"][-1].get("impact",""))[:80])
+                        except Exception:
+                            pass
+                    if _mp:
+                        pending["missing_data_notice"] = " · ".join(_mp)
+                        pending["validation_notes"] = pending["missing_data_notice"]
+                except Exception:
+                    pass
+                state["hitl_pending"] = pending
                 state["status"] = "escalated"
                 try:
                     from app.agent.sse import broadcaster
@@ -505,8 +670,8 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
                     hg = h.get("gate_id") if isinstance(h, dict) else getattr(h, "gate_id", None)
                     if hg and str(hg).lower().replace("-", "_") == gid.lower().replace("-", "_"):
                         dec = h.get("decision") if isinstance(h, dict) else getattr(h, "decision", "")
-                        # Only count approved gates as "has" — rejected gates should not advance sequence
-                        return str(dec).lower() in ("approve", "approved")
+                        if str(dec).lower() in ("approve", "approved"):
+                            return True
                 return False
 
             def _rej(gid: str) -> bool:
@@ -517,21 +682,22 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
                         return str(dec).lower() in ("reject", "rejected")
                 return False
 
-            # Sequence: after split -> HITL-1, after HITL-1 -> HITL-2, after HITL-2 -> HITL-3, after Tuas -> HITL-4
-            # Skip gate if it was rejected — let agent re-reason via LLM
-            if ctx.get("split_result") and not _has("HITL-1") and not _rej("HITL-1"):
+            # Sequence: after split -> HITL-1, after HITL-1 approved -> HITL-2, etc.
+            # After rejection: re-propose the SAME gate (agent re-reasoned with new alternatives).
+            # _has() = approved; if approved, move forward. If not approved, re-propose same gate.
+            if ctx.get("split_result") and not _has("HITL-1"):
                 g = HITL_GATES.get("HITL-1") or HITL_GATES.get("hitl_1")
                 state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-1", "gate_name": "Approve ITT Split", "trigger": "split computed", "timeout_seconds": 1800, "timeout_action": "escalate"}
                 state["status"] = "waiting_hitl"
-            elif _has("HITL-1") and not _has("HITL-2") and not _rej("HITL-2"):
+            elif _has("HITL-1") and not _has("HITL-2"):
                 g = HITL_GATES.get("HITL-2") or HITL_GATES.get("hitl_2")
                 state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-2", "gate_name": "Approve Truck Dispatch", "trigger": "truck dispatch ready", "timeout_seconds": 900, "timeout_action": "cancel_dispatch"}
                 state["status"] = "waiting_hitl"
-            elif _has("HITL-2") and not _has("HITL-3") and not _rej("HITL-3"):
+            elif _has("HITL-2") and not _has("HITL-3"):
                 g = HITL_GATES.get("HITL-3") or HITL_GATES.get("hitl_3")
                 state["hitl_pending"] = g.to_dict() if hasattr(g, "to_dict") else dict(g) if isinstance(g, dict) else {"gate_id": "HITL-3", "gate_name": "Approve Feeder Hold", "trigger": "feeder hold request ready", "timeout_seconds": 900, "timeout_action": "escalate"}
                 state["status"] = "waiting_hitl"
-            elif _has("HITL-3") and not _has("HITL-4") and not _rej("HITL-4"):
+            elif _has("HITL-3") and not _has("HITL-4"):
                 # Need Tuas sequence computed before HITL-4, but if not yet, let agent call T5 first
                 # Only set HITL-4 if tuas_sequence exists or we have dispatched
                 if ctx.get("tuas_sequence") or ctx.get("dispatched"):
@@ -611,6 +777,12 @@ async def tool_node(state: dict[str, Any]) -> dict[str, Any]:
                 args_with_id["_hitl_approved"] = True
             # Use asyncio.wait_for with tool's timeout to catch timeout separately
             timeout_sec = getattr(tool, "timeout_seconds", 10) if tool else 10
+            # Simulate realistic tool execution latency for demo
+            try:
+                from app.agent.mock_provider import _demo_delay
+                _demo_delay("tool")
+            except Exception:
+                pass
             try:
                 result_obj = await asyncio.wait_for(registry.call(name, **args_with_id), timeout=timeout_sec + 5)
             except asyncio.TimeoutError:
@@ -744,7 +916,16 @@ async def tool_node(state: dict[str, Any]) -> dict[str, Any]:
             elif name == "check_road_itt_capacity":
                 ctx["road_capacity"] = serialised["output"]
                 ctx["available_trucks"] = serialised["output"].get("available_trucks", ctx.get("available_trucks"))
-                ctx["required_trucks"] = serialised["output"].get("baseline_trips_all_120_containers", 80)
+                # Required trips is dynamic from ITT candidates (not hardcoded 80), fallback to baseline only if no candidates
+                cands_r = ctx.get("candidates",{}) or {}
+                if isinstance(cands_r, dict) and cands_r.get("container_breakdown"):
+                    cb_r = cands_r["container_breakdown"]
+                    try:
+                        ctx["required_trucks"] = int(cb_r.get("40ft_feu",0)) + (int(cb_r.get("20ft_teu",0)) + 1)//2
+                    except Exception:
+                        ctx["required_trucks"] = serialised["output"].get("total_potential_truck_trips_100pct_road") or serialised["output"].get("baseline_trips_all_120_containers", 0)
+                else:
+                    ctx["required_trucks"] = serialised["output"].get("total_potential_truck_trips_100pct_road") or serialised["output"].get("baseline_trips_all_120_containers", 0)
             elif name == "check_sea_itt_capacity":
                 ctx["sea_capacity"] = serialised["output"]
                 ctx["feeder_id"] = serialised["output"].get("feeder_id", ctx.get("feeder_id"))
@@ -815,8 +996,13 @@ async def tool_node(state: dict[str, Any]) -> dict[str, Any]:
                 except Exception:
                     pass
             elif name == "notify_parties":
-                # notification log
-                pass
+                parties = serialised["output"].get("notified", []) if isinstance(serialised.get("output"), dict) else []
+                if "OptETruck" in parties or "PPT_Yard" in parties:
+                    ctx["notified_dispatch"] = True
+                if "Feeder_Operator" in parties or "PORTNET" in parties:
+                    ctx["notified_hold"] = True
+                if "Tuas_Yard" in parties or "CITOS_Tuas" in parties:
+                    ctx["notified_tuas"] = True
         except Exception:
             pass
 
@@ -875,17 +1061,126 @@ async def tool_node(state: dict[str, Any]) -> dict[str, Any]:
         from app.agent.escalation import check_escalations
         from app.hitl.models import HITL_GATES
         triggered = check_escalations(state)
+        # Defer stale/low until after split so API cards populate (yellow not grey)
+        if triggered and not state.get("context",{}).get("split_result"):
+            _defer_kinds2 = {"low_confidence", "data_stale", "road_capacity_low"}
+            if all(t.get("trigger") in _defer_kinds2 for t in triggered):
+                state.setdefault("context", {})["deferred_escalation"] = triggered
+                triggered = []
+            else:
+                _rem2 = [t for t in triggered if t.get("trigger") not in _defer_kinds2]
+                if _rem2:
+                    state.setdefault("context", {})["deferred_escalation"] = [t for t in triggered if t.get("trigger") in _defer_kinds2]
+                    triggered = _rem2
+                elif triggered:
+                    state.setdefault("context", {})["deferred_escalation"] = triggered
+                    triggered = []
+        if not triggered and state.get("context",{}).get("deferred_escalation") and state.get("context",{}).get("split_result"):
+            _def2 = state["context"].pop("deferred_escalation", [])
+            if _def2:
+                from app.agent.escalation import (
+                    check_low_confidence, check_data_stale, check_road_capacity,
+                    check_feeder_hold, check_cost_exceeded, check_feeder_unresponsive,
+                )
+                _recheck2 = {
+                    "low_confidence": lambda: check_low_confidence(state, threshold=0.85),
+                    "data_stale": lambda: check_data_stale(state, threshold_minutes=20),
+                    "road_capacity_low": lambda: check_road_capacity(state, threshold_ratio=0.6),
+                    "feeder_hold_exceeded": lambda: check_feeder_hold(state, threshold_hours=1.5),
+                    "cost_exceeded": lambda: check_cost_exceeded(state, threshold_dollars=10000),
+                    "feeder_unresponsive": lambda: check_feeder_unresponsive(state, threshold_minutes=15),
+                }
+                _still2 = []
+                for d in _def2:
+                    _tn = d.get("trigger", "")
+                    _chk = _recheck2.get(_tn)
+                    if _chk and _chk():
+                        _still2.append(d)
+                    elif not _chk:
+                        _still2.append(d)
+                triggered = _still2
         if triggered:
             state["escalation"] = triggered[0]
             if len(triggered) > 1:
                 state["escalation_list"] = triggered  # type: ignore
             hitl5 = HITL_GATES.get("HITL-5") or HITL_GATES.get("hitl_5")
             if hitl5 and hasattr(hitl5, "to_dict"):
-                state["hitl_pending"] = hitl5.to_dict()  # type: ignore
+                pending2 = hitl5.to_dict()  # type: ignore
             elif isinstance(hitl5, dict):
-                state["hitl_pending"] = dict(hitl5)
+                pending2 = dict(hitl5)
             else:
-                state["hitl_pending"] = dict(HITL5_FALLBACK)
+                pending2 = dict(HITL5_FALLBACK)
+            try:
+                hist2 = state.get("hitl_history", []) or []
+                done2 = {str(h.get("gate_id")).lower().replace("-", "_") for h in hist2 if isinstance(h, dict)}
+                if "hitl_1" not in done2:
+                    stage2 = "Split (before HITL-1)"
+                elif "hitl_2" not in done2:
+                    stage2 = "After HITL-1"
+                elif "hitl_3" not in done2:
+                    stage2 = "After HITL-2"
+                elif "hitl_4" not in done2:
+                    stage2 = "After HITL-3"
+                else:
+                    stage2 = "Monitor"
+            except Exception:
+                stage2 = "Workflow"
+            pending2["triggered_at_stage"] = stage2
+            pending2["trigger"] = triggered[0].get("trigger", pending2.get("trigger", ""))
+            # Adaptable details per trigger
+            try:
+                trig2 = triggered[0].get("trigger","")
+                _ctx2 = state.get("context",{}) or {}
+                _det2: dict = {"trigger": trig2}
+                if trig2 == "low_confidence":
+                    _det2.update({"confidence": state.get("confidence"), "threshold": 0.85, "current_split": _ctx2.get("split_result",{} )})
+                elif trig2 == "road_capacity_low":
+                    split2 = _ctx2.get("split_result",{}) or {}
+                    req2 = split2.get("road_trips") or _ctx2.get("required_trucks",0) or 0
+                    if not req2:
+                        cands2 = _ctx2.get("candidates",{}) or {}
+                        if isinstance(cands2, dict) and cands2.get("container_breakdown"):
+                            cb2 = cands2["container_breakdown"]
+                            req2 = int(cb2.get("40ft_feu",0)) + int(int(cb2.get("20ft_teu",0))//2) + (int(cb2.get("20ft_teu",0))%2)
+                    avail2 = _ctx2.get("available_trucks",0) or (_ctx2.get("road_capacity",{}) or {}).get("available_trucks",0) or 0
+                    _det2.update({"available_trucks": avail2, "required_trucks": req2, "ratio": round(avail2/max(1,req2),2) if req2 else 0, "current_split": _ctx2.get("split_result",{} ), "total_fleet": (_ctx2.get("road_capacity",{}) or {}).get("total_fleet", 55)})
+                elif trig2 == "data_stale":
+                    _det2.update({"data_age_minutes": _ctx2.get("data_age_minutes") or (_ctx2.get("candidates",{}) or {}).get("data_age_minutes") if isinstance(_ctx2.get("candidates"),dict) else 0, "source": "CITOS PPT", "freshness_max": 30})
+                elif trig2 == "feeder_hold_exceeded":
+                    fh2 = _ctx2.get("feeder_hold_result",{}) if isinstance(_ctx2.get("feeder_hold_result"),dict) else {}
+                    _det2.update({"hold_hours": _ctx2.get("feeder_hold_hours", fh2.get("hold_hours",0)), "limit": 1.5})
+                elif trig2 == "cost_exceeded":
+                    vs2 = _ctx2.get("cost_vs_baseline",{}) or {}
+                    sc2 = _ctx2.get("split_result",{}) if isinstance(_ctx2.get("split_result"),dict) else {}
+                    _det2.update({"total_cost": sc2.get("total_transport_cost",0), "baseline": vs2.get("baseline_all_road_cost")})
+                pending2["escalation_details"] = _det2
+                pending2["escalation_kind"] = trig2
+            except Exception:
+                pass
+            try:
+                _ctxm2 = state.get("context", {}) or {}
+                _mp2 = []
+                if _ctxm2.get("data_age_minutes") and float(_ctxm2["data_age_minutes"]) > 20:
+                    _mp2.append(f"Data {_ctxm2['data_age_minutes']:.0f}m old")
+                if triggered[0].get("trigger") == "road_capacity_low":
+                    _avail2 = _ctxm2.get('available_trucks', (_ctxm2.get('road_capacity',{}) or {}).get('available_trucks','?'))
+                    _req2 = (_ctxm2.get('split_result',{}) or {}).get('road_trips') or _ctxm2.get('required_trucks','?')
+                    if not _req2 or _req2 == '?' or _req2 == 0:
+                        cands2b = _ctxm2.get('candidates',{}) or {}
+                        if isinstance(cands2b, dict) and cands2b.get('container_breakdown'):
+                            cb2b = cands2b['container_breakdown']
+                            _req2 = int(cb2b.get('40ft_feu',0)) + int(int(cb2b.get('20ft_teu',0))//2) + (int(cb2b.get('20ft_teu',0))%2)
+                    _tot2 = (_ctxm2.get('road_capacity',{}) or {}).get('total_fleet',55)
+                    _mp2.append(f"Trucks {_avail2}/{_tot2} available, need {_req2} trips <60% (have {_avail2}, need {_req2})")
+                if triggered[0].get("trigger") == "low_confidence":
+                    _mp2.append(f"Confidence {float(state.get('confidence',0)):.2f} <0.85")
+                if _mp2:
+                    pending2["missing_data_notice"] = " · ".join(_mp2)
+                    pending2["validation_notes"] = pending2["missing_data_notice"]
+                pending2["agent_reasoning"] = f"Escalation: {triggered[0].get('trigger','')} — agent detected breach at {stage2}"
+            except Exception:
+                pass
+            state["hitl_pending"] = pending2
             state["status"] = "escalated"
             risk = compute_risk_score(state)
             structured_log("escalation_after_tool", run_id=state.get("run_id", ""), step="tool", trigger=triggered[0]["trigger"], risk_score=risk)
@@ -902,6 +1197,31 @@ async def tool_node(state: dict[str, Any]) -> dict[str, Any]:
                 pass
     except Exception:
         pass
+
+    if not state.get("hitl_pending") and not state.get("escalation"):
+        try:
+            hist = state.get("hitl_history", []) or []
+            def _has_h4(gid: str) -> bool:
+                for h in hist:
+                    hg = h.get("gate_id") if isinstance(h, dict) else getattr(h, "gate_id", None)
+                    if hg and str(hg).lower().replace("-", "_") == gid.lower().replace("-", "_"):
+                        dec = h.get("decision") if isinstance(h, dict) else getattr(h, "decision", "")
+                        if str(dec).lower() in ("approve", "approved"):
+                            return True
+                return False
+            ctx_h4 = state.get("context", {}) or {}
+            if _has_h4("HITL-1") and _has_h4("HITL-2") and _has_h4("HITL-3") and not _has_h4("HITL-4") and ctx_h4.get("tuas_sequence"):
+                from app.hitl.models import HITL_GATES as _HG4
+                g4 = _HG4.get("HITL-4") or _HG4.get("hitl_4")
+                if g4 and hasattr(g4, "to_dict"):
+                    state["hitl_pending"] = g4.to_dict()  # type: ignore
+                elif isinstance(g4, dict):
+                    state["hitl_pending"] = dict(g4)
+                else:
+                    state["hitl_pending"] = {"gate_id": "HITL-4", "gate_name": "Approve Loading Sequence Update", "trigger": "Tuas QC sequence update ready", "timeout_seconds": 600, "timeout_action": "hold_sequence"}
+                state["status"] = "waiting_hitl"
+        except Exception:
+            pass
 
     # Validation guardrails check after tool batch (e.g., weight_bounds after T1)
     try:

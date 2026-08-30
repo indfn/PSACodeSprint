@@ -720,31 +720,32 @@ async def get_registry():
     """Return all problems with their current status (idle/running/completed).
 
     Drives the waiting stage UI: problem cards show status + simulate button.
+    Dynamically discovers all YAML configs in configs/ directory.
     """
-    from app.configs.problem_config import load_problem_config
-    from app.agent.problem_switcher import CANONICAL_STEMS
+    from app.configs.problem_config import load_problem_config, discover_problems
 
     registry = []
-    for pid, stem in CANONICAL_STEMS.items():
+    problems = discover_problems()
+    for pid, pinfo in problems.items():
         try:
-            cfg = load_problem_config(stem)
-            name = cfg.problem.name if hasattr(cfg.problem, "name") else stem
+            cfg = load_problem_config(pid)
+            name = cfg.problem.name if hasattr(cfg.problem, "name") else pid
             desc = cfg.problem.description if hasattr(cfg.problem, "description") else ""
         except Exception:
-            name = stem
-            desc = ""
+            name = pinfo.name or pid
+            desc = pinfo.description or ""
 
-        status = problem_statuses.get(stem, "idle")
+        status = problem_statuses.get(pid, "idle")
         # Check if any run for this problem is still active
         for r in runs.values():
             rpid = (r.get("event") or {}).get("problem_id", "") or (r.get("state") or {}).get("problem_id", "")
-            if rpid == stem and r.get("status") in ("waiting_hitl", "running"):
+            if rpid == pid and r.get("status") in ("waiting_hitl", "running"):
                 status = "running"
                 break
 
         registry.append({
-            "problem_id": stem,
-            "short_id": pid,
+            "problem_id": pid,
+            "short_id": pid.split("-")[0] + "-" + pid.split("-")[1] if len(pid.split("-")) >= 2 else pid,
             "name": name,
             "description": desc,
             "status": status,
@@ -763,10 +764,12 @@ async def create_event(problem_id: str):
     """
     import random
     from datetime import datetime, timedelta, timezone
-    from app.agent.problem_switcher import switch_problem as _switch, _resolve_stem, CANONICAL_STEMS
+    from app.agent.problem_switcher import switch_problem as _switch, _resolve_stem
+    from app.configs.problem_config import discover_problems
 
     stem = _resolve_stem(problem_id)
-    if stem not in CANONICAL_STEMS.values():
+    problems = discover_problems()
+    if stem not in problems:
         raise HTTPException(status_code=404, detail=f"Unknown problem: {problem_id}")
 
     # Switch to this problem
@@ -811,6 +814,29 @@ async def create_event(problem_id: str):
     return {"event": event_data, "problem_id": stem}
 
 
+async def _run_agent_background(run_id: str, event):
+    """Run agent in background, updating runs dict as it progresses."""
+    try:
+        from app.agent.run import run_agent
+        result = await run_agent(event)
+        # Update runs dict with final result
+        if run_id in runs:
+            runs[run_id].update({
+                "status": result.get("status", "completed"),
+                "hitl_card": result.get("hitl_card"),
+                "hitl_pending": result.get("hitl_pending"),
+                "state": result.get("state", {}),
+                "trace": result.get("trace", {}),
+            })
+        if len(runs) > MAX_RUNS:
+            runs.popitem(last=False)
+    except Exception as exc:
+        structured_log("run_agent_background_error", run_id=run_id, step="background", error=str(exc))
+        if run_id in runs:
+            runs[run_id]["status"] = "failed"
+            runs[run_id]["error"] = str(exc)
+
+
 @app.post("/agent/run-event", tags=["Agent"])
 async def run_event(payload: dict):
     """Start the agent with a previously created event and selected scenario.
@@ -851,27 +877,34 @@ async def run_event(payload: dict):
         problem_statuses[stem] = "running"
 
     try:
-        from app.agent.run import run_agent
-        result = await run_agent(event)
-        run_id = result.get("run_id")
+        from app.agent.run import run_agent, create_initial_state
+        import uuid as _uuid
+        from app.mocks.scenarios import set_scenario as _set_scenario
+
+        run_id = f"run-{_uuid.uuid4().hex[:8]}"
+        initial_state = create_initial_state(event, run_id)
+
+        # Store run immediately so SSE can connect
         runs[run_id] = {
             "run_id": run_id,
             "event": event.model_dump(),
-            "status": result.get("status", "waiting_hitl"),
-            "hitl_card": result.get("hitl_card"),
-            "hitl_pending": result.get("hitl_pending"),
-            "state": result.get("state", {}),
-            "trace": result.get("trace", {}),
+            "status": "running",
+            "hitl_card": None,
+            "hitl_pending": None,
+            "state": initial_state,
+            "trace": [],
             "scenario": scenario_id,
             "problem_id": pid,
         }
-        if len(runs) > MAX_RUNS:
-            runs.popitem(last=False)
+
+        # Run agent in background so HTTP returns immediately and SSE can connect
+        import asyncio as _asyncio
+        _asyncio.create_task(_run_agent_background(run_id, event))
 
         return {
             "run_id": run_id,
-            "status": result.get("status"),
-            "hitl_card": result.get("hitl_card"),
+            "status": "running",
+            "hitl_card": None,
             "scenario": scenario_id,
         }
     except Exception as exc:
@@ -888,10 +921,12 @@ async def simulate_webhook(problem_id: str):
     Returns run_id + hitl_card for SSE streaming.
     """
     from datetime import datetime, timedelta, timezone
-    from app.agent.problem_switcher import switch_problem as _switch, _resolve_stem, CANONICAL_STEMS
+    from app.agent.problem_switcher import switch_problem as _switch, _resolve_stem
+    from app.configs.problem_config import discover_problems
 
     stem = _resolve_stem(problem_id)
-    if stem not in CANONICAL_STEMS.values():
+    problems = discover_problems()
+    if stem not in problems:
         raise HTTPException(status_code=404, detail=f"Unknown problem: {problem_id}")
 
     # Switch to this problem
@@ -1000,7 +1035,7 @@ async def get_active_run():
         status = entry.get("status", "")
         if status in ("completed",):
             return {
-                "run_id": None,
+                "run_id": run_id,
                 "problem_id": entry.get("problem_id", ""),
                 "status": "completed",
                 "hitl_card": None,

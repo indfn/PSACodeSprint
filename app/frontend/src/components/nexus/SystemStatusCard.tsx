@@ -47,7 +47,7 @@ export default function SystemStatusCard({ name, metric, value, max, status, det
         </div>
         <span className={`h-2 w-2 rounded-full ${statusColors[status]}`}/>
       </div>
-      {detail && <p className="text-[10px] text-muted-foreground">{detail}</p>}
+      {detail && <div className="text-[10px] text-muted-foreground whitespace-pre-line">{detail}</div>}
       <Progress value={pct} className="h-1" />
     </div>
   );

@@ -34,6 +34,7 @@ def build_approval_card(gate: dict[str, Any] | Any, state: dict[str, Any]) -> di
     gate_name = gate.get("gate_name", gate_id)
     timeout_seconds = int(gate.get("timeout_seconds", 1800))
     timeout_action = gate.get("timeout_action", "escalate")
+    triggered_at_stage = gate.get("triggered_at_stage", "") if isinstance(gate, dict) else ""
 
     context = state.get("context", {}) or {}
     split_result = context.get("split_result", {}) or {}
@@ -71,6 +72,7 @@ def build_approval_card(gate: dict[str, Any] | Any, state: dict[str, Any]) -> di
         "timeout_action": timeout_action,
         "timestamp": _now_iso(),
         "problem_id": state.get("problem_id", state.get("run_id", "")),
+        "triggered_at_stage": triggered_at_stage,
     }
 
     # Gate-specific data from context
@@ -86,6 +88,7 @@ def build_approval_card(gate: dict[str, Any] | Any, state: dict[str, Any]) -> di
                 "total_trips": dispatch.get("total_trips", 0),
                 "eta": dispatch.get("eta", ""),
                 "dispatch_cost": dispatch.get("cost", 0),
+                "truck_assignments": dispatch.get("truck_assignments", []),
             }
     elif gid_norm in ("hitl_3",):
         hold = context.get("feeder_hold_result", {}) or {}
@@ -115,6 +118,17 @@ def build_approval_card(gate: dict[str, Any] | Any, state: dict[str, Any]) -> di
         dev = devs[-1] if isinstance(devs, list) and devs else {}
         card["deviation"] = dev
         card["is_emergency"] = True
+        # Merge emergency card data from monitor.py build_emergency_resplit_card()
+        # These fields are stored in gate["approval_card"] by monitor_node
+        emergency = gate.get("approval_card") if isinstance(gate, dict) else None
+        if isinstance(emergency, dict):
+            for key in ("previous_split", "new_split", "cost_impact", "delta_trucks", "reason", "title"):
+                if key in emergency and emergency[key]:
+                    card[key] = emergency[key]
+        # Adaptable per-trigger details (YAML-driven) from agent/tool/monitor
+        for key in ("escalation_details", "escalation_kind", "agent_reasoning", "missing_data_notice", "validation_notes", "triggered_at_stage", "trigger"):
+            if isinstance(gate, dict) and key in gate and gate[key]:
+                card[key] = gate[key]
 
     # Add emergency fields if deviation exists (for any gate)
     if not card.get("is_emergency") and state.get("deviation_log"):

@@ -77,8 +77,7 @@ class RoadITTCapacityTool(BaseTool):
 
         peak = _is_peak(dt_for_peak)
 
-        hour = dt_start.hour if dt_start is not None else None
-        available = _fleet_for_hour(hour)
+        available = base.get("available_trucks", TRUCK_DATA["available_trucks"])
         total_fleet = base.get("total_fleet", TRUCK_DATA["total_fleet"])
 
         if peak:
@@ -98,10 +97,10 @@ class RoadITTCapacityTool(BaseTool):
             }
             confidence = 0.95
 
-        baseline_trips = TRUCK_DATA.get("baseline_trips_all_120_containers", 80)
-        baseline_cost = TRUCK_DATA.get("baseline_road_cost_all_120", 12000)
-        cost_per_trip = TRUCK_DATA.get("cost_per_trip", 150)
-        lta_limits = TRUCK_DATA.get("lta_chassis_limits", "1x 40ft/45ft (FEU) OR up to 2x 20ft (TEU) per prime mover")
+        baseline_trips = base.get("baseline_trips_all_120_containers", TRUCK_DATA.get("baseline_trips_all_120_containers", 0))
+        baseline_cost = base.get("baseline_road_cost_all_120", TRUCK_DATA.get("baseline_road_cost_all_120", 12000))
+        cost_per_trip = base.get("cost_per_trip", TRUCK_DATA.get("cost_per_trip", 150))
+        lta_limits = base.get("lta_chassis_limits", TRUCK_DATA.get("lta_chassis_limits", "1x 40ft/45ft (FEU) OR up to 2x 20ft (TEU) per prime mover"))
 
         capacity_ratio = round(available / baseline_trips, 2) if baseline_trips else 0.0
         fleet_utilisation = round((available / total_fleet) * 100, 1) if total_fleet else 0.0

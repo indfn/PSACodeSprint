@@ -99,13 +99,24 @@ def create_initial_state(event: Any, run_id: str) -> dict[str, Any]:
         "constraints": (problem_config.get("constraints", {}) if isinstance(problem_config, dict) else {}),
     }
 
+    # Pull confidence from active scenario (set by set_scenario before run_agent)
+    initial_confidence = 0.85
+    try:
+        from app.mocks.scenarios import _active_scenario_id, _active_problem_id, _rng, PB12_SCENARIOS, PB01_SCENARIOS
+        scenario_map = PB12_SCENARIOS if "pb-12" in _active_problem_id else PB01_SCENARIOS
+        sc = scenario_map.get(_active_scenario_id)
+        if sc is not None:
+            initial_confidence = sc.confidence_initial.sample(_rng)
+    except Exception:
+        pass
+
     state: dict[str, Any] = {
         "messages": [{"role": "user", "content": f"ITT coordination request: {ed}"}],
         "tool_results": {},
         "pending_tool_calls": [],
         "hitl_pending": None,
         "hitl_history": [],
-        "confidence": 1.0,
+        "confidence": initial_confidence,
         "escalation": None,
         "trace": [],
         "deviation_log": [],

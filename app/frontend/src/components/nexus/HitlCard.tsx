@@ -3,7 +3,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useState, useEffect } from 'react';
 import { hitlRespond } from '@/api/nexus';
 import { Badge } from '@/components/ui/badge';
-import { Clock, Shield, AlertTriangle, CheckCircle2, XCircle, Edit3, Truck, Ship, Anchor, Container } from 'lucide-react';
+import { Clock, Shield, AlertTriangle, CheckCircle2, XCircle, Edit3, Truck, Ship, Anchor, Container, TrendingUp } from 'lucide-react';
 
 export interface HitlGateInfo {
   gate_id: string;
@@ -41,10 +41,7 @@ export default function HitlCard({ gate, runId, onResponded, onNextGate }: HitlC
     setLoading(true);
     try {
       const mods = decision === 'modify' && modRoad ? { road_containers: parseInt(modRoad,10) } : undefined;
-      const res = await hitlRespond(runId, decision, gate!.gate_id, reason || undefined);
-      if (decision === 'modify' && mods) {
-        await fetch('/agent/hitl/respond', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ run_id: runId, decision: 'modify', gate_id: gate!.gate_id, reason, modifications: mods }) });
-      }
+      const res = await hitlRespond(runId, decision, gate!.gate_id, reason || undefined, mods);
       const nextCard = (res.hitl_card as Record<string, unknown>) || (res.hitl_pending as Record<string, unknown>);
       if (res.status === 'waiting_hitl' && nextCard) {
         const gid = (nextCard.gate_id as string) || '';
@@ -158,6 +155,23 @@ export default function HitlCard({ gate, runId, onResponded, onNextGate }: HitlC
           </div>
           <div className="text-xs text-muted-foreground">Route: {String(dispatch.route)}</div>
           {String(dispatch.eta || '') && <div className="text-xs text-muted-foreground">ETA Tuas: {fmtTime(String(dispatch.eta))}</div>}
+          {(dispatch.num_trucks as number) && (dispatch.total_trips as number) && (dispatch.container_count as number) && (() => {
+            const n = Number(dispatch.num_trucks);
+            const t = Number(dispatch.total_trips);
+            const c = String(dispatch.container_count);
+            const assignments = dispatch.truck_assignments as Array<Record<string, unknown>> | undefined;
+            if (Array.isArray(assignments) && assignments.length) {
+              const two = assignments.filter(a => Number(a.trips) === 2).length;
+              const one = assignments.filter(a => Number(a.trips) === 1).length;
+              if (two || one) {
+                return <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2">{two ? `${two} trucks × 2 trips` : ''}{two && one ? ' + ' : ''}{one ? `${one} trucks × 1 trip` : ''} = {t} trips to move {c} containers (LTA: 1×40ft or 2×20ft per trip)</div>;
+              }
+            }
+            const twoTrip = Math.max(0, t - n);
+            const oneTrip = Math.max(0, n - twoTrip);
+            const detail = twoTrip > 0 && oneTrip > 0 ? `${twoTrip} trucks × 2 trips + ${oneTrip} trucks × 1 trip = ${t} trips` : `${n} trucks × ${t} trips`;
+            return <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2">{detail} to move {c} containers (LTA: 1×40ft or 2×20ft per trip, ~210 min round-trip)</div>;
+          })()}
         </div>
       )}
 
@@ -203,12 +217,58 @@ export default function HitlCard({ gate, runId, onResponded, onNextGate }: HitlC
           )}
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             {String(tuasSeq.estimated_loading_completion || '') && <span>Done: {fmtTime(String(tuasSeq.estimated_loading_completion))}</span>}
-            {String(tuasSeq.margin_before_departure_minutes || '') && <span>Margin: {String(tuasSeq.margin_before_departure_minutes)}m</span>}
+            {String(tuasSeq.margin_before_departure_minutes || '') && <span>Departure in {String(tuasSeq.margin_before_departure_minutes)}m</span>}
           </div>
         </div>
       )}
 
-      {!isHitl1 && !dispatch && !feederHold && !tuasSeq && deviation && (
+      {/* HITL-5: Emergency re-split content */}
+      {!isHitl1 && !dispatch && !feederHold && !tuasSeq && gate.gate_id === 'HITL-5' && (
+        <div className="rounded-lg border border-red-200 dark:border-red-900 p-3 space-y-3 bg-red-50/50 dark:bg-red-950/20">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium flex items-center gap-1 text-red-600"><AlertTriangle size={12}/>Emergency Re-Split Required</span>
+            <Badge variant="destructive" className="text-[10px]">{String(deviation?.type || deviation?.trigger || 'berth_conflict')}</Badge>
+          </div>
+          {String(d.reason || '') && <p className="text-xs text-red-700 dark:text-red-400">{String(d.reason)}</p>}
+          {String(deviation?.message || '') && <p className="text-xs text-muted-foreground">{String(deviation.message)}</p>}
+
+          {/* Previous vs New split comparison */}
+          {(d.previous_split as Record<string, unknown>) && (d.new_split as Record<string, unknown>) && (
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded border border-red-200 dark:border-red-900 p-2 bg-white/50 dark:bg-black/20">
+                <p className="text-muted-foreground font-medium mb-1">Previous Split</p>
+                <div className="space-y-0.5">
+                  <p>Road: <span className="font-bold">{String((d.previous_split as Record<string, unknown>).road_containers ?? '?')} cont</span></p>
+                  <p>Sea: <span className="font-bold">{String((d.previous_split as Record<string, unknown>).sea_containers ?? '?')} cont</span></p>
+                  <p>Cost: <span className="font-bold">{fmtMoney((d.previous_split as Record<string, unknown>).total_transport_cost as number)}</span></p>
+                </div>
+              </div>
+              <div className="rounded border-2 border-red-400 dark:border-red-700 p-2 bg-red-100/50 dark:bg-red-900/30">
+                <p className="text-red-600 font-medium mb-1">New Split</p>
+                <div className="space-y-0.5">
+                  <p>Road: <span className="font-bold">{String((d.new_split as Record<string, unknown>).road_containers ?? '?')} cont</span></p>
+                  <p>Sea: <span className="font-bold">{String((d.new_split as Record<string, unknown>).sea_containers ?? '?')} cont</span></p>
+                  <p>Cost: <span className="font-bold">{fmtMoney((d.new_split as Record<string, unknown>).total_transport_cost as number)}</span></p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {String(d.cost_impact || '') && (
+            <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
+              <TrendingUp size={12}/>Cost Impact: {String(d.cost_impact)}
+            </div>
+          )}
+          {String(d.delta_trucks || '') && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Truck size={12}/>Truck Adjustment: {String(d.delta_trucks)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Non-HITL-5 deviation fallback */}
+      {!isHitl1 && !dispatch && !feederHold && !tuasSeq && gate.gate_id !== 'HITL-5' && deviation && (
         <div className="rounded-lg border border-red-200 dark:border-red-900 p-3 space-y-2 bg-red-50/50 dark:bg-red-950/20">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium flex items-center gap-1 text-red-600"><AlertTriangle size={12}/>Emergency Deviation</span>
@@ -222,10 +282,10 @@ export default function HitlCard({ gate, runId, onResponded, onNextGate }: HitlC
       {/* Confidence / risk / margin */}
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1"><Shield size={12} className={risk !== null && risk > 0.7 ? 'text-red-500' : risk !== null && risk > 0.4 ? 'text-amber-500' : 'text-emerald-500'}/>{risk!==null?`${(risk*100).toFixed(0)}% risk`:'—'}</span>
+          <span className="flex items-center gap-1"><Shield size={12} className={risk !== null && risk > 0.35 ? 'text-red-500' : risk !== null && risk > 0.15 ? 'text-amber-500' : 'text-emerald-500'}/>{risk!==null?(risk > 0.35 ? 'High risk' : risk > 0.15 ? 'Med risk' : 'Low risk'):'—'}</span>
           <span>{conf!==null?`${(conf*100).toFixed(0)}% conf`:'—'}</span>
         </div>
-        {margin ? <span className="flex items-center gap-1"><Clock size={12}/>{Math.round(margin/60)}h {margin%60}m margin</span> : null}
+        {margin ? <span className="flex items-center gap-1"><Clock size={12}/>Departure in {Math.round(margin/60)}h {margin%60}m</span> : null}
       </div>
 
       {/* Reason */}

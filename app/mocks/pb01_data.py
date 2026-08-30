@@ -81,6 +81,36 @@ def get_berth_data(vessel_id: str = "MV EVER GIVEN", berth_id: str = "B-03") -> 
 
 def get_qc_data(berth_id: str = "B-03") -> dict:
     """Berth QC availability — randomized when scenario active."""
+    try:
+        from app.agent.problem_switcher import get_active_problem_id
+        pid = get_active_problem_id()
+        if pid == "pb-12-itt":
+            try:
+                from app.mocks.data import get_loading_sequence_data
+                from app.mocks.scenarios import _active_scenario_id, PB12_SCENARIOS, _rng
+                seq = get_loading_sequence_data()
+                qcs = seq.get("qc_adjustments", []) or seq.get("qc_assignments", [])
+                total = 4
+                if _active_scenario_id in PB12_SCENARIOS:
+                    sc12 = PB12_SCENARIOS[_active_scenario_id]
+                    cnt = sc12.container_count.sample_int(_rng) if hasattr(sc12.container_count, 'sample_int') else 120
+                    if cnt > 130:
+                        total = 5
+                        qcs = qcs + [{"qc_id": "QC-09", "status": "available"}]
+                else:
+                    total = len(qcs) if qcs else 4
+                qc_status = []
+                for idx, q in enumerate(qcs[:total]):
+                    qc_id = q.get("qc_id", f"QC-{idx+7:02d}")
+                    qc_status.append({"qc_id": qc_id, "status": "available"})
+                # pad to total if needed
+                while len(qc_status) < total:
+                    qc_status.append({"qc_id": f"QC-{len(qc_status)+7:02d}", "status": "available"})
+                return {"berth_id": berth_id, "qc_count": total, "qc_status": qc_status, "crane_status": {q["qc_id"]: q["status"] for q in qc_status}, "timestamp": datetime.now(timezone.utc).isoformat()}
+            except Exception:
+                pass
+    except Exception:
+        pass
     scenario_id, rng, sc = _get_scenario_rng()
 
     if rng is not None and sc is not None:

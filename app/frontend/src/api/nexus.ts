@@ -208,7 +208,8 @@ export async function hitlRespond(
   runId: string,
   decision: string,
   gateId: string,
-  reason?: string
+  reason?: string,
+  modifications?: Record<string, unknown>
 ) {
   return apiFetch<{ status: string; hitl_card?: Record<string, unknown>; hitl_pending?: Record<string, unknown> }>('/agent/hitl/respond', {
     method: 'POST',
@@ -217,6 +218,7 @@ export async function hitlRespond(
       decision,
       gate_id: gateId,
       reason: reason || undefined,
+      modifications: modifications || undefined,
     }),
   });
 }
@@ -326,6 +328,7 @@ export interface AdminConfig {
     fallback_provider?: string;
     fallback_model?: string;
     fallback_base_url?: string;
+    fallback_api_key_env?: string;
   };
   active_problem: {
     id: string;
@@ -354,6 +357,14 @@ export async function adminInjectApiKey(provider: string, key: string) {
   return apiFetch<{ status: string; message: string }>('/api/admin/api-key', {
     method: 'POST',
     body: JSON.stringify({ provider, key }),
+    credentials: 'same-origin',
+  });
+}
+
+export async function adminUpdateConfig(llm: Record<string, string>) {
+  return apiFetch<{ status: string }>('/api/admin/config', {
+    method: 'POST',
+    body: JSON.stringify({ llm }),
     credentials: 'same-origin',
   });
 }

@@ -20,6 +20,50 @@ CONFIG_DIR = Path(__file__).resolve().parent
 LLM_CONFIG_PATH = CONFIG_DIR / "llm.yaml"
 
 
+def discover_problems() -> dict[str, ProblemInfo]:
+    """Scan configs/ for all pb-*.yaml files and return ProblemInfo for each.
+
+    Excludes llm.yaml. Returns dict mapping problem_id (file stem) -> ProblemInfo.
+    Works with any YAML that has a 'problem' block with name/sector/description.
+    Uses file stem as the canonical problem_id (e.g., pb-12-itt), not the YAML id field.
+    """
+    problems: dict[str, ProblemInfo] = {}
+    for yaml_path in sorted(CONFIG_DIR.glob("pb-*.yaml")):
+        try:
+            with open(yaml_path) as f:
+                data = yaml.safe_load(f) or {}
+            pinfo = data.get("problem", {})
+            if not pinfo:
+                continue
+            # Use file stem as canonical ID (e.g., pb-12-itt), not YAML id field
+            pid = yaml_path.stem.lower()
+            problems[pid] = ProblemInfo(
+                id=pid,
+                name=str(pinfo.get("name", pid)),
+                sector=str(pinfo.get("sector", "")),
+                description=str(pinfo.get("description", "")),
+            )
+        except Exception:
+            continue
+    return problems
+
+
+def get_tool_names_for_problem(problem_id: str) -> list[str]:
+    """Read tool names directly from a problem's YAML tools section.
+
+    Returns list of tool names. Works with any YAML that has a 'tools' list.
+    Filters out tools with type: event_trigger (not callable tools).
+    """
+    try:
+        yaml_path = _find_yaml(problem_id)
+    except FileNotFoundError:
+        return []
+    with open(yaml_path) as f:
+        data = yaml.safe_load(f) or {}
+    tools = data.get("tools", [])
+    return [t.get("name", "") for t in tools if t.get("name") and t.get("type") != "event_trigger"]
+
+
 def _load_global_llm_config() -> dict[str, Any]:
     """Load global LLM config from llm.yaml.
 

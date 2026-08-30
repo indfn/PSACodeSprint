@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { getAgentTrace, type AgentTraceStep } from '@/api/nexus';
+import { getAgentTrace, getActiveRun, type AgentTraceStep } from '@/api/nexus';
 import { ChevronRight, ChevronDown } from 'lucide-react';
 import { useSSE, SSEEvent } from '@/hooks/use-sse';
 import { useSearchParams } from 'react-router';
@@ -39,10 +39,21 @@ function formatTime(ts: string) {
 
 export default function AgentTrace() {
   const [searchParams] = useSearchParams();
-  const runId = searchParams.get('run_id') || sessionStorage.getItem('nexus_run_id');
+  const urlRunId = searchParams.get('run_id');
+  const [resolvedRunId, setResolvedRunId] = useState<string | null>(urlRunId);
+  const runId = urlRunId || resolvedRunId;
   const [steps, setSteps] = useState<AgentTraceStep[]>([]);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [newestFirst, setNewestFirst] = useState(true);
+
+  // Resolve run_id from active-run API if not in URL
+  useEffect(() => {
+    if (!urlRunId) {
+      getActiveRun()
+        .then((active) => { if (active.run_id) setResolvedRunId(active.run_id); })
+        .catch(() => {});
+    }
+  }, [urlRunId]);
 
   useEffect(() => {
     if (runId) {
@@ -54,6 +65,8 @@ export default function AgentTrace() {
 
   useSSE(runId, (event: SSEEvent) => {
     if (event.event === 'trace_entry') {
+      // Skip show_card trace entries — hitl_card SSE handles those
+      if (event.data.node === 'hitl' && event.data.action === 'show_card') return;
       setSteps((prev) => [
         ...prev,
         {
