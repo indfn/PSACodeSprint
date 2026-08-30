@@ -818,7 +818,7 @@ async def _run_agent_background(run_id: str, event):
     """Run agent in background, updating runs dict as it progresses."""
     try:
         from app.agent.run import run_agent
-        result = await run_agent(event)
+        result = await run_agent(event, run_id=run_id)
         # Update runs dict with final result
         if run_id in runs:
             runs[run_id].update({

@@ -90,15 +90,8 @@ def get_qc_data(berth_id: str = "B-03") -> dict:
                 from app.mocks.scenarios import _active_scenario_id, PB12_SCENARIOS, _rng
                 seq = get_loading_sequence_data()
                 qcs = seq.get("qc_adjustments", []) or seq.get("qc_assignments", [])
-                total = 4
-                if _active_scenario_id in PB12_SCENARIOS:
-                    sc12 = PB12_SCENARIOS[_active_scenario_id]
-                    cnt = sc12.container_count.sample_int(_rng) if hasattr(sc12.container_count, 'sample_int') else 120
-                    if cnt > 130:
-                        total = 5
-                        qcs = qcs + [{"qc_id": "QC-09", "status": "available"}]
-                else:
-                    total = len(qcs) if qcs else 4
+                # Dynamic QC count from loading sequence (scaled by container volume)
+                total = len(qcs) if qcs else 4
                 qc_status = []
                 for idx, q in enumerate(qcs[:total]):
                     qc_id = q.get("qc_id", f"QC-{idx+7:02d}")

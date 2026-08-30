@@ -356,20 +356,29 @@ def get_loading_sequence_data(
     """
     from app.mocks.scenarios import _active_scenario_id, _rng, PB12_SCENARIOS
 
-    # Base QC assignments
-    qc_assignments = [
+    # Scale QC assignments by container volume — realistic PSA Tuas operation
+    # Normal: 4-5 cranes; high-volume (130+): 6-7; very high (150+): 8
+    if _active_scenario_id in PB12_SCENARIOS:
+        sc = PB12_SCENARIOS[_active_scenario_id]
+        container_count = sc.container_count.sample_int(_rng)
+    else:
+        container_count = 120  # default nominal
+
+    # Scale QCs: ~1 QC per 20 containers, min 4, max 8
+    target_qcs = max(4, min(8, container_count // 20))
+    base_qcs = [
         {"qc_id": "QC-07", "bay": "Bay14", "status": "available"},
         {"qc_id": "QC-07", "bay": "Bay12", "status": "available"},
         {"qc_id": "QC-08", "bay": "Bay10", "status": "available"},
         {"qc_id": "QC-08", "bay": "Bay08", "status": "available"},
     ]
-
-    # High-volume scenario: activate extra QC
-    if _active_scenario_id in PB12_SCENARIOS:
-        sc = PB12_SCENARIOS[_active_scenario_id]
-        container_count = sc.container_count.sample_int(_rng)
-        if container_count > 130:
-            qc_assignments.append({"qc_id": "QC-09", "bay": "Bay06", "status": "available"})
+    extra_qcs = [
+        {"qc_id": "QC-09", "bay": "Bay06", "status": "available"},
+        {"qc_id": "QC-09", "bay": "Bay04", "status": "available"},
+        {"qc_id": "QC-10", "bay": "Bay02", "status": "available"},
+        {"qc_id": "QC-10", "bay": "Bay16", "status": "available"},
+    ]
+    qc_assignments = base_qcs + extra_qcs[:max(0, target_qcs - 4)]
 
     return {
         "status": "success",

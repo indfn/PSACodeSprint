@@ -426,6 +426,7 @@ class GeminiProvider(LLMProvider):
         content = response.text if response.text else None
         tool_calls = []
 
+        # 1. Extract native function calls from response parts
         if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
             for part in response.candidates[0].content.parts:
                 if part.function_call:
@@ -437,6 +438,63 @@ class GeminiProvider(LLMProvider):
                             "arguments": json.dumps(part.function_call.args or {}),
                         },
                     })
+
+        # 2. If no native function calls, try to parse JSON from text content
+        #    (Gemma models return tool_calls as JSON text, not native function_call parts)
+        if not tool_calls and content:
+            try:
+                # Try to extract JSON from the content (may be wrapped in ```json ... ```)
+                json_text = content.strip()
+                if json_text.startswith("```"):
+                    # Strip markdown code fences
+                    lines = json_text.split("\n")
+                    json_text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+                parsed = json.loads(json_text)
+                if isinstance(parsed, dict) and "tool_calls" in parsed:
+                    for tc in parsed["tool_calls"]:
+                        if isinstance(tc, dict) and "name" in tc:
+                            args = tc.get("arguments", tc.get("args", {}))
+                            if isinstance(args, str):
+                                try:
+                                    args = json.loads(args)
+                                except Exception:
+                                    args = {}
+                            tool_calls.append({
+                                "id": f"text_{tc['name']}",
+                                "type": "function",
+                                "function": {
+                                    "name": tc["name"],
+                                    "arguments": json.dumps(args if isinstance(args, dict) else {}),
+                                },
+                            })
+                    # If we extracted tool_calls from JSON, use the reasoning as content
+                    reasoning = parsed.get("reasoning", "")
+                    if reasoning:
+                        content = reasoning
+            except (json.JSONDecodeError, KeyError, TypeError):
+                # JSON might be truncated (common with Gemma long responses)
+                # Try regex fallback to extract tool calls from partial JSON
+                import re
+                tool_pattern = re.findall(r'"name"\s*:\s*"(\w+)"', content)
+                if tool_pattern:
+                    for tname in tool_pattern:
+                        # Only add if it's a known tool name
+                        if tname in ("get_itt_candidates", "check_road_itt_capacity", "check_sea_itt_capacity",
+                                     "compute_itt_split", "update_tuas_loading_sequence", "dispatch_road_itt",
+                                     "request_feeder_hold", "notify_parties"):
+                            tool_calls.append({
+                                "id": f"text_{tname}",
+                                "type": "function",
+                                "function": {
+                                    "name": tname,
+                                    "arguments": "{}",
+                                },
+                            })
+                    if tool_calls:
+                        # Extract reasoning if present
+                        reason_match = re.search(r'"reasoning"\s*:\s*"([^"]+)"', content)
+                        if reason_match:
+                            content = reason_match.group(1)
 
         logger.info(
             "GeminiProvider response: content_len=%d, tool_calls=%d, stop_reason=%s",

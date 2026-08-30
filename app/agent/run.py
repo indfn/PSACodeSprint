@@ -129,17 +129,19 @@ def create_initial_state(event: Any, run_id: str) -> dict[str, Any]:
     return state
 
 
-async def run_agent(event: Any, broadcaster: Any | None = None) -> dict[str, Any]:
+async def run_agent(event: Any, broadcaster: Any | None = None, run_id: str | None = None) -> dict[str, Any]:
     """Run agent from webhook event.
 
     Args:
         event: ITTCoordinationEvent
         broadcaster: Optional SSEBroadcaster singleton (ignored — graph nodes use singleton import)
+        run_id: Optional run_id to use (caller-provided for SSE alignment)
 
     Returns:
         {"run_id": ..., "state": ..., "trace": ...}
     """
-    run_id = f"run-{uuid.uuid4().hex[:8]}"
+    if not run_id:
+        run_id = f"run-{uuid.uuid4().hex[:8]}"
     initial_state = create_initial_state(event, run_id)
     config = {"configurable": {"thread_id": run_id}}
 

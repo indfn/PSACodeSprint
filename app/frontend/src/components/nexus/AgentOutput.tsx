@@ -12,7 +12,10 @@ interface AgentOutputProps {
   events: AgentEvent[];
 }
 
-function humanize(msg: string): { text: string; kind: 'ingest'|'tool'|'hitl'|'success'|'warn'|'info' } {
+function humanize(msg: string): { text: string; kind: 'ingest'|'tool'|'hitl'|'success'|'warn'|'info'|'reasoning' } {
+  if (msg.startsWith('reasoning:')) {
+    return { text: msg.slice('reasoning:'.length), kind: 'reasoning' };
+  }
   if (msg.startsWith('→')) {
     if (msg.includes('get_itt_candidates')) return { text: 'Agent queried yard inventory — checking which containers are ready', kind: 'tool' };
     if (msg.includes('check_road')) return { text: 'Checking road capacity — validating truck availability & LTA limits', kind: 'tool' };
@@ -52,6 +55,7 @@ const kindStyle: Record<string, string> = {
   warn: 'text-amber-600 dark:text-amber-400',
   ingest: 'text-muted-foreground',
   info: 'text-foreground',
+  reasoning: 'text-muted-foreground italic',
 };
 
 export default function AgentOutput({ events }: AgentOutputProps) {
@@ -80,6 +84,20 @@ export default function AgentOutput({ events }: AgentOutputProps) {
           {events.length === 0 && <p className="text-muted-foreground">Waiting for agent events — click Start Demo.</p>}
           {ordered.map((ev, i) => {
             const h = humanize(ev.message);
+            if (h.kind === 'reasoning') {
+              // Show reasoning as a collapsible block
+              return (
+                <details key={i} className="group">
+                  <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+                    <span className="text-[10px] opacity-50 group-open:rotate-90 transition-transform">▶</span>
+                    Agent reasoning…
+                  </summary>
+                  <div className="ml-3 mt-1 p-2 rounded bg-muted/30 text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed max-h-[200px] overflow-y-auto">
+                    {h.text}
+                  </div>
+                </details>
+              );
+            }
             return (
               <div key={i} className="flex gap-2">
                 <span className="text-muted-foreground shrink-0">[{formatTime(ev.timestamp)}]</span>

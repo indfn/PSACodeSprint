@@ -205,12 +205,50 @@ export default function NexusDashboard() {
           // Build rich message from trace data
           let msg = '';
           if (data.node === 'agent' && data.action === 'reason') {
-            const tc = resObj?.tool_calls as Array<{name: string}> | undefined;
-            const content = (resObj?.content as string) || '';
+            const tc = resObj?.tool_calls as Array<{name: string; function?: {name: string}}> | undefined;
+            const rawContent = (resObj?.content as string) || '';
+            // Extract reasoning and tool names from content (may be JSON with reasoning+tool_calls, or plain text)
+            let reasoning = '';
+            let toolNames: string[] = [];
+            // Get tool names from trace tool_calls (OpenAI format {function:{name}} or flat {name})
             if (tc && tc.length > 0) {
-              msg = `Agent reasoning → calling ${tc.map((t) => t.name).join(', ')}`;
-            } else if (content) {
-              msg = `Agent: ${content.slice(0, 120)}`;
+              toolNames = tc.map((t) => t.function?.name || t.name).filter(Boolean);
+            }
+            // ALWAYS try to extract from raw content — provider may have parsed JSON that trace didn't
+            if (rawContent) {
+              try {
+                let jsonText = rawContent.trim();
+                if (jsonText.startsWith('```')) {
+                  const lines = jsonText.split('\n');
+                  jsonText = lines.slice(1, -1).join('\n');
+                }
+                const parsed = JSON.parse(jsonText);
+                if (parsed && typeof parsed === 'object') {
+                  reasoning = parsed.reasoning || '';
+                  if (parsed.tool_calls && Array.isArray(parsed.tool_calls)) {
+                    const jsonTools = parsed.tool_calls.map((t: {name: string}) => t.name).filter(Boolean);
+                    if (jsonTools.length > toolNames.length) toolNames = jsonTools;
+                  }
+                }
+              } catch {
+                // Not JSON — use content as reasoning, regex for tool names
+                reasoning = rawContent;
+                if (toolNames.length === 0) {
+                  const nameMatches = rawContent.match(/"name"\s*:\s*"(\w+)"/g);
+                  if (nameMatches) {
+                    toolNames = nameMatches.map((m: string) => m.replace(/"name"\s*:\s*"/, '').replace(/"$/, ''));
+                  }
+                }
+              }
+            }
+            // ALWAYS emit reasoning as a separate event if we have it
+            if (reasoning && reasoning.length > 10) {
+              setEvents((prev) => [...prev, { timestamp: new Date().toISOString(), message: `reasoning:${reasoning}` }]);
+            }
+            if (toolNames.length > 0) {
+              msg = `Agent reasoning → calling ${toolNames.join(', ')}`;
+            } else if (reasoning) {
+              msg = `Agent: ${reasoning.slice(0, 200)}`;
             } else {
               msg = 'Agent reasoning…';
             }

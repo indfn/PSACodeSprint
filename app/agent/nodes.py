@@ -157,10 +157,12 @@ async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
     # 1. Build messages
     messages = build_agent_messages(state)
 
-    # Simulate LLM reasoning latency for demo
+    # Simulate LLM reasoning latency for demo (skip when DEMO_DELAY=0)
     try:
-        from app.agent.mock_provider import _demo_delay
-        _demo_delay("reasoning")
+        import os as _os
+        if _os.environ.get("DEMO_DELAY", "") != "0":
+            from app.agent.mock_provider import _demo_delay
+            _demo_delay("reasoning")
     except Exception:
         pass
 
